@@ -16,6 +16,7 @@ from app.services.adaptation_service import (
 )
 from app.services.key_rotation_service import AllKeysExhaustedError
 from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
+from app.services.sensitive_data_service import SensitiveDataError
 
 router = APIRouter()
 
@@ -34,6 +35,13 @@ async def create_adaptation(
     mock: bool = Query(
         default=False,
         description="Si es True, genera una propuesta simulada determinística (0 tokens), ideal para Frontend.",
+    ),
+    dismissed: list[str] = Query(
+        default=[],
+        description=(
+            "Ids de hallazgos de datos personales en `fragment` que el docente indicó que no lo son "
+            "(Issue #66). Repetir el parámetro por cada id."
+        ),
     ),
 ):
     """
@@ -58,11 +66,16 @@ async def create_adaptation(
     - **Nunca se aplica sola**: la propuesta se guarda en estado `pendiente` y vence junto con
       su diagnóstico (`expires_at`).
     - **Modo Mock (`?mock=true`)**: misma respuesta y mismos errores, sin consumir IA.
+     - **Datos personales (Issue #66)**: si `fragment` contiene datos personales, no se envía a la IA
+      y se responde `422` con `detail.code = "sensitive_data_detected"`. Para seguir igual,
+      reenviá el pedido con los `id` descartados en `dismissed`.
     """
     try:
-        proposal = await adaptation_service.create_proposal(payload, mock=mock)
+        proposal = await adaptation_service.create_proposal(payload, mock=mock, dismissed_findings=dismissed)
         background_tasks.add_task(adaptation_repository.delete_expired)
         return proposal
+    except SensitiveDataError as e:
+        raise HTTPException(status_code=422, detail=e.to_detail())
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except FragmentRequiredError as e:

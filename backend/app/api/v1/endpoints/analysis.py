@@ -23,12 +23,18 @@ from app.services.accessibility_service import EmptyDocumentError, analyze_docum
 from app.services.document_service import document_service
 from app.services.key_rotation_service import AllKeysExhaustedError
 from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
+from app.services.sensitive_data_service import SensitiveDataError
 
 router = APIRouter()
 
 # Límite máximo de archivo PDF: 10 MB
 MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024  # 1 MB por lectura
+
+_DISMISSED_DESCRIPTION = (
+    "Ids de hallazgos de datos personales que el docente indicó que no lo son "
+    "(Issue #66). Repetir el parámetro por cada id: ?dismissed=dni-24&dismissed=nombre_rotulado-8"
+)
 
 _SAMPLE_REQUEST_BODY = {
     "required": True,
@@ -87,6 +93,10 @@ async def analyze_sample(
         default=False,
         description="Si es True, simula la IA (0 tokens) y ejecuta las reglas automáticas reales (ideal para desarrollo de Frontend).",
     ),
+    dismissed: list[str] = Query(
+        default=[],
+        description=_DISMISSED_DESCRIPTION,
+    ),
 ):
     """
     ## Escáner de Accesibilidad con IA + Reglas (Texto Pegado)
@@ -107,13 +117,19 @@ async def analyze_sample(
     Cada barrera incluye un `id` único (`bar-1`, `bar-2`...) y `fragment_found`, que indica
     si el fragmento citado por la IA aparece textualmente en el material (control de alucinaciones).
     `metadata.provider` y `metadata.model` indican qué modelo respondió.
+     **Datos personales (Issue #66):** si el texto contiene datos personales (nombres rotulados,
+    DNI, CUIL, calificaciones), no se envía a la IA ni se guarda, y se responde `422` con
+    `detail.code = "sensitive_data_detected"` y la lista de hallazgos enmascarados. Para seguir
+    igual, reenviá el mismo texto con los `id` descartados en `dismissed`.
     """
     # Fuera del try: ValidationError es subclase de ValueError y terminaría como 400.
     payload = await _read_sample_payload(request)
     try:
-        response = await analyze_document(document_service.process_text(payload.text), mock=mock)
+        response = await analyze_document(document_service.process_text(payload.text), mock=mock, dismissed_findings=dismissed)
         background_tasks.add_task(analysis_repository.delete_expired)
         return response
+    except SensitiveDataError as e:
+        raise HTTPException(status_code=422, detail=e.to_detail())
     except EmptyDocumentError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except AllKeysExhaustedError as e:
@@ -157,6 +173,17 @@ async def analyze_pdf_document(
         default=False,
         description="Si es True, extrae el PDF y ejecuta las reglas reales, pero simula la respuesta de IA (0 tokens).",
     ),
+    dismissed: list[str] = Query(
+        default=[],
+        description=_DISMISSED_DESCRIPTION,
+    ),
+    confirm_images_without_personal_data: bool = Query(
+        default=False,
+        description=(
+            "Si el PDF no tiene texto digital (escaneo), sus imágenes solo se envían a la IA para "
+            "generar textos alternativos cuando el docente confirma que no contienen datos personales."
+        ),
+    ),
 ):
     """
     ## Escáner Unificado de PDF (Semanas 2 y 3)
@@ -173,6 +200,10 @@ async def analyze_pdf_document(
     - **Puntaje combinado**: `estimated_score` pondera IA y reglas; ver `score_breakdown`.
     - **Modo Mock (`?mock=true`)**: extrae las métricas reales del PDF subido (`page_count`, `image_count`),
       ejecuta las reglas automáticas y simula el análisis del LLM para diseñar pantallas de Frontend sin gastar cuota.
+     - **Datos personales (Issue #66)**: si el texto del PDF contiene datos personales, no se envía a la
+      IA ni se guarda, y se responde `422` con `detail.code = "sensitive_data_detected"`. Para seguir
+      igual, reenviá el mismo PDF con los `id` descartados en `dismissed`. Las imágenes de un PDF sin
+      texto digital solo van a la IA con `confirm_images_without_personal_data=true`.
     """
     filename = file.filename or ""
     if not filename.lower().endswith(".pdf"):
@@ -213,11 +244,16 @@ async def analyze_pdf_document(
 
         # Extracción con PyMuPDF en hilo separado para no bloquear el event loop
         doc = await asyncio.to_thread(document_service.process_pdf, bytes(content), filename)
-        response = await analyze_document(doc, mock=mock)
+        response = await analyze_document(doc,
+            mock=mock,
+            dismissed_findings=dismissed,
+            confirm_images_without_personal_data=confirm_images_without_personal_data,)
         background_tasks.add_task(analysis_repository.delete_expired)
         return response
     except HTTPException:
         raise
+    except SensitiveDataError as e:
+        raise HTTPException(status_code=422, detail=e.to_detail())
     except EmptyDocumentError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except AllKeysExhaustedError as e:

@@ -18,6 +18,7 @@ from app.schemas.analysis import (
 from app.schemas.document import ExtractedDocument
 from app.services.alt_text_service import alt_text_service
 from app.services.llm_service import llm_service
+from app.services.sensitive_data_service import ensure_no_sensitive_data
 
 from app.services.rules_service import (
     LONG_SENTENCE_WORDS,
@@ -323,6 +324,8 @@ async def analyze_document(
     overrides: dict | None = None,
     mock: bool = False,
     persist: bool = True,
+    dismissed_findings: list[str] | None = None,
+    confirm_images_without_personal_data: bool = False,
 ) -> AccessibilityAnalysisResponse:
     """
     Punto de entrada del motor: recibe el contrato ExtractedDocument (generado por
@@ -330,14 +333,30 @@ async def analyze_document(
     - mock: si es True, simula la IA (sin llamarla); las reglas corren igual.
     - overrides: parámetros del proveedor que pisan los de la conexión (benchmarks).
     - persist: si es True, almacena el diagnóstico y texto extraído en SQLite con TTL.
+    - dismissed_findings: ids de hallazgos de datos sensibles que el docente descartó.
+    - confirm_images_without_personal_data: el docente confirma que las imágenes de un PDF
+      escaneado no tienen datos personales; solo así se envían a la IA multimodal.
     """
+
+  # Si hay datos personales no descartados por el docente, lanza SensitiveDataError.
+    dismissed = ensure_no_sensitive_data(doc.raw_text, dismissed_findings or ())
+
     if mock:
         response = build_mock_analysis_response(doc)
     else:
         # Generar propuestas de texto alternativo con IA multimodal si hay imágenes relevantes
         alt_text_proposals: list[AltTextProposal] = []
         alt_text_warnings: list[str] = []
-        if doc.extracted_images:
+        # Issue #66: el detector no ve el texto dentro de imágenes. Si el PDF no tiene ninguna
+        # palabra digital (escaneo puro), todo el contenido es imagen, así que no se envía a la IA multimodal salvo que
+        # el docente confirme que las imágenes no tienen datos personales.
+        if doc.extracted_images and doc.word_count == 0 and not confirm_images_without_personal_data:
+            alt_text_warnings.append(
+                "No se generaron textos alternativos: el PDF es escaneado y no se pudo verificar "
+                "si sus imágenes contienen datos personales.Si confirmás que no los tienen, "
+                "podés volver a enviarlo para generarlos."
+            )
+        elif doc.extracted_images:
             try:
                 alt_text_proposals = await alt_text_service.generate_proposals(doc.extracted_images)
             except Exception as e:
@@ -447,7 +466,17 @@ async def analyze_document(
                 unverified_fragments=unverified,
             )
 
-
+    if dismissed:
+        response.warnings.append(
+            f"El docente indicó que {len(dismissed)} posible(s) dato(s) personal(es) detectado(s) "
+            "no lo son, y el material se procesó igual."
+        )
+    if not mock and confirm_images_without_personal_data and doc.word_count == 0 and doc.extracted_images:
+        response.warnings.append(
+            "El docente confirmó que las imágenes del PDF escaneado no contienen datos personales, "
+            "y se enviaron a la IA para generar textos alternativos."
+        )   
+    
     if persist and response.analysis_id and response.expires_at:
         analysis_repository.save(
             analysis_id=response.analysis_id,
