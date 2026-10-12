@@ -26,6 +26,7 @@ from app.services.accessibility_service import _fragment_parts, _normalize
 from app.services.llm.base import LLMInvalidResponseError
 from app.services.llm_service import llm_service
 from app.services.rules_service import split_paragraphs, split_sentences
+from app.services.sensitive_data_service import ensure_no_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -219,9 +220,15 @@ def _mock_output(fragment: str, adaptation_type: AdaptationType) -> AdaptationAI
 # --- Punto de entrada ----------------------------------------------------------
 
 
-async def create_proposal(request: AdaptationRequest, *, mock: bool = False) -> AdaptationProposal:
+async def create_proposal( request: AdaptationRequest, *, mock: bool = False, dismissed_findings: list[str] | None = None) -> AdaptationProposal:
+    # Issue #66: el material del diagnóstico ya pasó por el detector, pero el docente puede
+    # escribir un fragmento nuevo. Se revisa antes de buscar el diagnóstico y de llamar a la IA.
+    if request.fragment:
+        ensure_no_sensitive_data(request.fragment, dismissed_findings or ())
+
     analysis, extracted_text = load_analysis(request.analysis_id)
     barrier = next((b for b in analysis.barriers if b.id == request.barrier_id), None)
+
     if barrier is None:
         raise AdaptationNotFoundError(
             f"La barrera '{request.barrier_id}' no existe en el diagnóstico '{request.analysis_id}'."
