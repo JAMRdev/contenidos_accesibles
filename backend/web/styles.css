@@ -37,6 +37,11 @@ ul { margin: 0.3rem 0; padding-left: 1.2rem; }
 .b-para_revisar, .b-pendiente, .b-editada { background: #fdecc8; color: #8a5b00; }
 .b-barrera_detectada, .b-descartada, .b-error { background: #fbdadb; color: #a4262c; }
 
+mark { background: #d7f3df; color: inherit; border-radius: 2px; padding: 0 1px; }
+mark.removed { background: #fbdadb; }
+.notice { background: #fdecc8; color: #5c3d00; padding: 0.6rem 0.7rem; border-radius: 4px; margin-top: 0.5rem; }
+.notice label.check { margin-top: 0.3rem; }
+
 .tabs { display: flex; gap: 0.3rem; }
 .tab { background: #f3f3f3; color: #1a1a1a; border-color: #bbb; }
 .tab.active { background: #5a5ad0; color: #fff; border-color: #4b4bb3; }

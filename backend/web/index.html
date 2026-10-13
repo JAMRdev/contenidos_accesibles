@@ -11,7 +11,7 @@
     <h1>InnovaLab · Web de pruebas</h1>
     <p class="muted">
         Recorre el flujo completo de la API: carga del material → diagnóstico → propuestas de adaptación
-        → revisión docente (aceptar, editar, descartar, deshacer) → registro de decisiones.
+        → revisión docente (aceptar, editar, descartar, deshacer) → registro de decisiones → versión adaptada.
         Cada llamada queda en el <a href="#log">registro de requests</a> con su JSON.
     </p>
 
@@ -59,6 +59,11 @@
                 <input id="file-input" type="file" accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation">
             </label>
             <p id="file-info" class="muted"></p>
+            <label class="check">
+                <input id="confirm-images" type="checkbox">
+                Confirmo que las imágenes no tienen datos personales
+                (<code>confirm_images_without_personal_data</code>: solo cuenta si el archivo no tiene texto digital).
+            </label>
             <div class="row">
                 <button type="button" id="btn-process-file" class="secondary">Ver extracción (opcional)</button>
                 <button type="button" id="btn-analyze-file">Analizar archivo</button>
@@ -108,6 +113,19 @@
             <button type="button" id="btn-refresh-decisions" class="secondary">Actualizar</button>
         </div>
         <div id="decisions"><p class="muted">Sin decisiones todavía.</p></div>
+    </section>
+
+    <!-- 6. Versión adaptada -->
+    <section>
+        <h2>6. Versión adaptada</h2>
+        <div class="row">
+            <span class="muted grow">
+                Aplica solo las propuestas aceptadas o editadas; las pendientes y descartadas dejan el texto original
+                (<code>GET /adaptations/final-version</code>).
+            </span>
+            <button type="button" id="btn-final-version">Generar versión adaptada</button>
+        </div>
+        <div id="final-version"><p class="muted">Todavía no se generó.</p></div>
     </section>
 
     <!-- Registro de requests -->
