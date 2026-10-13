@@ -36,6 +36,46 @@ def test_cors_origins_no_duplica_ni_acepta_urls_sin_esquema(monkeypatch):
     assert settings.cors_origins == ["https://innovalab-web-pruebas.onrender.com"]
 
 
+# ---------------------------------------------------------------------------
+# BACKEND_CORS_ORIGINS desde la variable de entorno (Issue #57)
+# ---------------------------------------------------------------------------
+
+_REQUIRED_ENV = {"ADMIN_PASSWORD": "clave-de-prueba", "DB_ENCRYPTION_KEY": "clave-fernet-de-prueba"}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "https://contenidos-accesibles.vercel.app,http://localhost:5173",
+        " https://contenidos-accesibles.vercel.app , http://localhost:5173, ",
+        '["https://contenidos-accesibles.vercel.app","http://localhost:5173"]',
+    ],
+    ids=["comas", "comas-con-espacios", "json"],
+)
+def test_backend_cors_origins_desde_env(monkeypatch, raw):
+    """Con comas o JSON, el backend arranca y la lista queda igual."""
+    from app.core.config import Settings
+
+    for name, value in {**_REQUIRED_ENV, "BACKEND_CORS_ORIGINS": raw}.items():
+        monkeypatch.setenv(name, value)
+    parsed = Settings(_env_file=None)
+    assert parsed.BACKEND_CORS_ORIGINS == [
+        "https://contenidos-accesibles.vercel.app",
+        "http://localhost:5173",
+    ]
+
+
+def test_backend_cors_origins_json_mal_formado_explica_el_error(monkeypatch):
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    for name, value in {**_REQUIRED_ENV, "BACKEND_CORS_ORIGINS": '["https://a.app",'}.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError, match="no es una lista JSON válida"):
+        Settings(_env_file=None)
+
+
 def test_preflight_cors_desde_la_web_de_pruebas(monkeypatch):
     """El middleware real acepta el origen de TEST_WEB_URL en un preflight."""
     from fastapi.middleware.cors import CORSMiddleware

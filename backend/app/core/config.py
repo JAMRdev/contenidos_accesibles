@@ -1,9 +1,10 @@
+import json
 from functools import lru_cache
-from typing import Literal, Union
+from typing import Annotated, Literal, Union
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -63,9 +64,12 @@ class Settings(BaseSettings):
     DOCS_PASSWORD: SecretStr | None = None
 
     # --- Seguridad / CORS ---
-    # Acepta tanto lista Python como string separado por comas desde el .env
-    # Ej. en .env: BACKEND_CORS_ORIGINS=https://mi-app.vercel.app,http://localhost:3000
-    BACKEND_CORS_ORIGINS: list[str] = [
+    # Acepta string separado por comas o lista JSON desde el .env:
+    #   BACKEND_CORS_ORIGINS=https://mi-app.vercel.app,http://localhost:3000
+    #   BACKEND_CORS_ORIGINS=["https://mi-app.vercel.app","http://localhost:3000"]
+    # NoDecode evita que pydantic-settings lo decodifique como JSON antes del
+    # validador: sin él, el formato con comas rompe el arranque (Issue #57).
+    BACKEND_CORS_ORIGINS: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:3000",
@@ -75,10 +79,16 @@ class Settings(BaseSettings):
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, list[str]]) -> list[str]:
-        """Parsea orígenes CORS desde string CSV o lista directa."""
-        if isinstance(v, str) and not v.startswith("["):
+        """Parsea orígenes CORS desde string CSV, lista JSON o lista directa."""
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                try:
+                    return json.loads(v)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"BACKEND_CORS_ORIGINS no es una lista JSON válida: {e}") from e
             return [origin.strip() for origin in v.split(",") if origin.strip()]
-        elif isinstance(v, (list, str)):
+        if isinstance(v, list):
             return v
         raise ValueError(f"Formato no válido para BACKEND_CORS_ORIGINS: {v}")
 

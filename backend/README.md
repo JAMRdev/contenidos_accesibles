@@ -225,8 +225,10 @@ Pasos en el dashboard de Railway:
    AI_API_KEY=<API key de Groq>
    DB_ENCRYPTION_KEY=<generada con el comando Fernet de arriba>
    DATABASE_PATH=/data/app_data.db
-   BACKEND_CORS_ORIGINS=https://<dominio-del-frontend>
+   BACKEND_CORS_ORIGINS=https://<dominio-del-frontend>,http://localhost:5173
    ```
+   `BACKEND_CORS_ORIGINS` acepta orígenes separados por comas o una lista JSON (`["https://a.app","http://localhost:5173"]`). Reemplaza la lista por defecto, así que hay que incluir los orígenes locales si se van a usar. Cada origen va sin `/` final ni ruta.
+
    `PORT` no se define: la inyecta Railway. Guardar `DB_ENCRYPTION_KEY` en un lugar seguro: si cambia, las API keys guardadas en la DB ya no se pueden desencriptar.
 4. **Settings → Networking → Generate Domain**.
 5. Verificar `https://<dominio>/api/v1/health` y, si hace falta, cargar conexiones de IA de respaldo desde `https://<dominio>/admin`.
