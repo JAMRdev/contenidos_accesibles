@@ -64,7 +64,7 @@ backend/
 │   └── benchmarks/                           # Reportes de latencia, tokens y variabilidad
 ├── scripts/
 │   └── benchmark_analysis.py         # Benchmark de IA y calibración de reglas (--rules-only)
-├── tests/                            # Tests unitarios (pytest) y fixtures de materiales
+├── tests/                            # Tests unitarios y de integración (pytest, modo mock) y fixtures
 ├── app_data.db                       # DB local SQLite: API keys y contadores (IGNORADO en Git)
 ├── .env                              # Variables sensibles locales (IGNORADO en Git)
 ├── .env.example                      # Plantilla pública de variables requeridas
@@ -201,7 +201,11 @@ Acceder al panel de administración en: **[http://127.0.0.1:8000/admin](http://1
 pip install -r requirements-dev.txt
 pytest
 ```
-Los tests no llaman a la IA. Para ver las métricas del motor de reglas sobre los materiales de ejemplo (sin consumir cuota):
+Los tests no llaman a la IA (todo en `?mock=true`) y no necesitan `.env`: `tests/conftest.py` define variables de prueba y usa una base SQLite temporal, así que nunca tocan `app_data.db`. `tests/test_endpoints_integration.py` recorre el flujo mínimo del MVP (material → diagnóstico → propuestas → revisión → versión final → informe) y los errores de entrada de cada endpoint.
+
+**CI:** [`.github/workflows/backend-tests.yml`](../.github/workflows/backend-tests.yml) corre `pytest` con Python 3.12 (la versión de `.python-version`, la misma que producción) en cada PR que toque `backend/` y en cada push a `main`. No usa secretos ni gasta tokens.
+
+Para ver las métricas del motor de reglas sobre los materiales de ejemplo (sin consumir cuota):
 ```powershell
 python -m scripts.benchmark_analysis --rules-only
 ```

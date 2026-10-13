@@ -1,0 +1,50 @@
+# Tests del backend en cada PR y en cada push a main (Issue #44).
+# Corre pytest en modo mock: no usa secretos, no llama a ningún proveedor de IA y no gasta tokens.
+name: Backend · tests
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-tests.yml"
+  workflow_dispatch:
+
+# Un push nuevo al mismo PR cancela la corrida anterior.
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      # Misma versión que producción (Railway lee backend/.python-version).
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      # tests/conftest.py define variables de prueba y una base SQLite temporal: no hace falta .env.
+      - name: pytest
+        run: python -m pytest -q
