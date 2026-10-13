@@ -33,9 +33,10 @@ backend/
 │   │       ├── endpoints/            # Capa de Controladores HTTP
 │   │       │   ├── health.py         # Estado del sistema y entorno
 │   │       │   ├── test_ai.py        # Prueba de conectividad con IA
-│   │       │   ├── documents.py      # Extracción de PDF y texto directo (PyMuPDF)
+│   │       │   ├── documents.py      # Extracción de PDF, Word, PowerPoint y texto directo
 │   │       │   └── analysis.py       # Escáner de accesibilidad con IA
-│   │       └── router.py             # Versionado y unificación de rutas v1
+│   │       ├── router.py             # Versionado y unificación de rutas v1
+│   │       └── uploads.py            # Validación de archivos subidos (.pdf, .docx, .pptx)
 │   ├── core/
 │   │   ├── config.py                 # Configuración centralizada y tipada (Pydantic Settings)
 │   │   ├── crypto.py                 # Cifrado (Fernet) de las API keys guardadas en la DB
@@ -48,6 +49,7 @@ backend/
 │   │   └── analysis.py               # Contratos de diagnóstico (AccessibilityAnalysisResponse)
 │   ├── services/
 │   │   ├── document_service.py       # Extracción de PDF en memoria (PyMuPDF, párrafos por bloque) y heurísticas
+│   │   ├── office_service.py         # Extracción de Word y PowerPoint (python-docx / python-pptx) al mismo contrato
 │   │   ├── accessibility_service.py  # Orquestador del diagnóstico: IA + reglas, validación de citas y puntaje
 │   │   ├── rules_service.py          # Motor de reglas automáticas (oraciones/párrafos extensos, visual) y puntaje
 │   │   ├── key_rotation_service.py   # Rotación automática y tracking de consumo por key
@@ -81,6 +83,7 @@ backend/
 2. **Procesamiento de Documentos 100% en Memoria (`PyMuPDF`):**
    - Los archivos PDF subidos por los docentes se procesan directamente en streams de memoria RAM sin persistirse en disco, cumpliendo estrictamente con las pautas de privacidad y protección de datos sensibles de estudiantes.
    - Incluye heurísticas para detectar documentos escaneados (sin capa de texto OCR) y recorte inteligente (`text_for_analysis`) para proteger las cuotas de tokens.
+   - Word (`.docx`) y PowerPoint (`.pptx`) se extraen con `python-docx` / `python-pptx` al mismo `ExtractedDocument` que un PDF, así reglas, IA, textos alternativos y detección de datos personales funcionan igual. Los títulos salen de los estilos o del título de cada diapositiva, y las imágenes que ya tienen texto alternativo no se envían a la IA. Antes de abrirlos se rechazan formatos antiguos, archivos protegidos, con macros o que descomprimidos superan 150 MB (zip bombs).
 3. **Salidas Estructuradas y Control de Alucinaciones:**
    - El escáner utiliza `response_schema` para garantizar respuestas JSON tipadas con semáforo por dimensión (`comprension`, `estructura`, `accesibilidad_visual`) y verifica textualmente cada cita (`fragment_found`) contra el documento original.
 4. **Documentación OpenAPI Automática (Swagger UI):**
@@ -125,8 +128,10 @@ FastAPI autogenera dos interfaces de documentación interactiva:
 | `POST` | `/api/v1/ai/test-gemini` | Validación de conectividad con IA (con rotación automática de keys) | ✅ Operativo |
 | `POST` | `/api/v1/documents/process-text` | Procesamiento y extracción de métricas de texto plano directo | ✅ Operativo |
 | `POST` | `/api/v1/documents/upload-pdf` | Carga y extracción en memoria de archivos PDF (texto, páginas, imágenes y detección de escaneo) | ✅ Operativo |
+| `POST` | `/api/v1/documents/upload` | Igual que `upload-pdf`, aceptando también Word (`.docx`) y PowerPoint (`.pptx`) | ✅ Operativo |
 | `POST` | `/api/v1/analysis/sample` | Escáner de accesibilidad IA + reglas sobre texto pegado (`application/json` o `text/plain`) con semáforo, puntaje combinado y barreras. `?mock=true` simula la IA | ✅ Operativo |
 | `POST` | `/api/v1/analysis/pdf` | Escáner de accesibilidad IA + reglas sobre un PDF subido (máx. 10 MB). `?mock=true` simula la IA | ✅ Operativo |
+| `POST` | `/api/v1/analysis/file` | Igual que `/analysis/pdf`, aceptando `.pdf`, `.docx` y `.pptx` (máx. 10 MB). `?mock=true` simula la IA | ✅ Operativo |
 | `POST` | `/api/v1/adaptations` | Propuesta de adaptación con IA para una barrera (`lenguaje_claro`, `consigna_en_pasos`, `reorganizar`, `mejorar_estructura`): original + propuesta + explicación, en estado `pendiente`. `?mock=true` simula la IA | ✅ Operativo |
 | `GET` | `/api/v1/adaptations?analysis_id=` | Propuestas de adaptación generadas para un diagnóstico | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/{proposal_id}` | Recuperar una propuesta de adaptación por ID | ✅ Operativo |
@@ -237,7 +242,7 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 
 ### Rate limit de IA
 
-Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /adaptations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan.
+Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan.
 
 | Variable | Default | Alcance |
 | :--- | :--- | :--- |

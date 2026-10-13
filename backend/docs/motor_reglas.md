@@ -15,11 +15,11 @@ El diagnóstico combina dos fuentes:
 | Consignas multi-acción (Tarea #25) | `comprension` | 3 verbos de acción | 4 o más verbos de acción |
 | Legibilidad Szigriszt-Pazos (Tarea #25) | `comprension` | IFSZ entre 40.0 y 49.9 (algo difícil) | IFSZ < 40.0 (muy difícil, doc ≥ 100 palabras) |
 | Párrafo extenso ("muro de texto") | `estructura` | más de 150 palabras | 250 palabras o más |
-| PDF sin títulos estructurados | `estructura` | — | doc ≥ 150 palabras sin H1/H2 |
+| Documento sin títulos estructurados (PDF, Word o PowerPoint) | `estructura` | — | doc ≥ 150 palabras sin H1/H2 |
 | Salto de jerarquía en títulos | `estructura` | salto de nivel (ej. H1 a H3) | — |
 | Sección extensa sin subdivisiones | `estructura` | más de 300 palabras bajo un título | — |
 | Referencias exclusivamente visuales (Tarea #25) | `accesibilidad_visual` | referencias a posición espacial ("a la derecha") o color sin texto alternativo (WCAG 1.3.3) | — |
-| Imágenes | `accesibilidad_visual` | hay imágenes (no se puede verificar su texto alternativo) | — |
+| Imágenes | `accesibilidad_visual` | hay imágenes sin texto alternativo conocido (en PDF no se puede verificar, cuentan todas; en Word y PowerPoint solo las que no lo tienen ni están marcadas como decorativas) | — |
 | PDF escaneado | `accesibilidad_visual` | — | sin capa de texto seleccionable |
 
 - Las palabras se cuentan con el mismo criterio que `DocumentService` (`\b\w+\b`).
@@ -32,6 +32,7 @@ El diagnóstico combina dos fuentes:
 
 - **Párrafo**: cada renglón no vacío. Los títulos y los ítems de lista cuentan como bloques propios, porque ya son una división del texto.
 - **PDF**: `DocumentService` extrae el texto por **bloques** de PyMuPDF. Une los renglones visuales de cada bloque (juntando las palabras cortadas con guion) y deja cada ítem de lista en su propio renglón. Sin esto, cada página contaría como un único párrafo y las oraciones quedarían cortadas en cada renglón.
+- **Word y PowerPoint** (Issue #47): cada párrafo, título, ítem de lista o fila de tabla es un bloque propio. Los títulos salen de los estilos de Word (Título 1, Título 2… o nivel de esquema) y del título de cada diapositiva (portada H1, resto H2 si hay portada). Las viñetas y numeraciones se marcan con `• ` en el texto. Las diapositivas ocultas y las notas del orador no se analizan.
 - **Oración**: termina en `.`, `!`, `?` o `…` seguido de espacio. Se protegen:
   - abreviaturas (`pág.`, `ej.`, `Dr.`, `aprox.`…);
   - iniciales (`J. Pérez`);
@@ -63,7 +64,7 @@ rules_score = 100 − penalizaciones
   secciones_extensas       mín(10, 5 × secciones > 300 palabras)
   referencias_visuales     mín(16, 8 × referencias exclusivamente espaciales o de color)
   pdf_escaneado            40
-  imagenes_sin_verificar   10   (solo si no es escaneado)
+  imagenes_sin_verificar   10   (solo si no es escaneado y hay imágenes sin texto alternativo conocido)
 
 estimated_score = round(0,7 × puntaje_IA + 0,3 × rules_score)
 

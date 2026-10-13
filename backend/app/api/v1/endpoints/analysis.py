@@ -16,6 +16,7 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
+from app.api.v1.uploads import read_supported_upload
 from app.core.rate_limit import limit_ai_usage
 from app.db import analysis_repository
 from app.schemas.analysis import AccessibilityAnalysisResponse, AnalysisSampleRequest
@@ -268,6 +269,84 @@ async def analyze_pdf_document(
         raise HTTPException(
             status_code=500,
             detail=f"Error inesperado al analizar el archivo PDF: {str(e)}",
+        )
+    finally:
+        await file.close()
+
+
+@router.post(
+    "/file",
+    response_model=AccessibilityAnalysisResponse,
+    summary="Diagnóstico integral de un PDF, Word o PowerPoint (Extracción + Reglas + IA)",
+    response_description="Diagnóstico estructurado completo a partir de un archivo .pdf, .docx o .pptx",
+    dependencies=[Depends(limit_ai_usage)],
+)
+async def analyze_file_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(
+        ...,
+        description="Archivo educativo .pdf, .docx o .pptx a diagnosticar (máximo 10 MB)",
+    ),
+    mock: bool = Query(
+        default=False,
+        description="Si es True, extrae el archivo y ejecuta las reglas reales, pero simula la respuesta de IA (0 tokens).",
+    ),
+    dismissed: list[str] = Query(
+        default=[],
+        description=_DISMISSED_DESCRIPTION,
+    ),
+    confirm_images_without_personal_data: bool = Query(
+        default=False,
+        description=(
+            "Si el archivo no tiene texto digital, sus imágenes solo se envían a la IA para "
+            "generar textos alternativos cuando el docente confirma que no contienen datos personales."
+        ),
+    ),
+):
+    """
+    ## Escáner Unificado de PDF, Word y PowerPoint (Issue #47)
+
+    Mismo flujo y misma respuesta que `/analysis/pdf`, aceptando también documentos de Office:
+
+    - **Formatos**: `.pdf`, `.docx` y `.pptx`. El formato se detecta por el contenido y tiene que
+      coincidir con la extensión. No se admiten `.doc`/`.ppt` antiguos, archivos con macros ni protegidos.
+    - **Estructura real**: en Word los títulos salen de los estilos (Título 1, Título 2...) y en
+      PowerPoint del título de cada diapositiva; las reglas de estructura los evalúan igual que en un PDF.
+    - **Texto alternativo**: las imágenes de Word y PowerPoint que ya tienen texto alternativo (o están
+      marcadas como decorativas) no se penalizan ni se envían a la IA; solo se proponen textos para las demás.
+    - **PowerPoint**: `metadata.page_count` es la cantidad de diapositivas visibles y las propuestas de
+      texto alternativo indican la diapositiva. Las ocultas y las notas del orador no se analizan.
+    - **Datos personales (Issue #66)** y **modo Mock (`?mock=true`)**: igual que en `/analysis/pdf`.
+    """
+    try:
+        content, filename = await read_supported_upload(file)
+        doc = await asyncio.to_thread(document_service.process_file, content, filename)
+        response = await analyze_document(
+            doc,
+            mock=mock,
+            dismissed_findings=dismissed,
+            confirm_images_without_personal_data=confirm_images_without_personal_data,
+        )
+        background_tasks.add_task(analysis_repository.delete_expired)
+        return response
+    except HTTPException:
+        raise
+    except SensitiveDataError as e:
+        raise HTTPException(status_code=422, detail=e.to_detail())
+    except EmptyDocumentError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except AllKeysExhaustedError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except LLMInvalidResponseError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except LLMUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error inesperado al analizar el archivo: {str(e)}",
         )
     finally:
         await file.close()
