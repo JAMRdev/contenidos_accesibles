@@ -220,6 +220,26 @@ def test_overlapping_proposals_teacher_edit_takes_precedence(client):
     assert any("solapamiento" in w for w in data["warnings"])
 
 
+def test_same_fragment_in_two_proposals_is_an_overlap_not_missing(client):
+    """Dos barreras que citan la misma oración (reglas + IA): gana la edición del docente."""
+    analysis = _analyze(client)
+    aid = analysis["analysis_id"]
+
+    frag = "Leé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
+    p_accepted = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag)
+    p_edited = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag)
+    _decide(client, p_accepted["proposal_id"], "aceptada")
+    _decide(client, p_edited["proposal_id"], "editada", edited_text="Leé la página 8 y respondé las preguntas.")
+
+    data = _get_final(client, aid).json()
+
+    assert data["applied_proposals"] == [p_edited["proposal_id"]]
+    assert "Leé la página 8 y respondé las preguntas." in data["adapted_text"]
+    assert frag not in data["adapted_text"]
+    assert any("solapamiento" in w for w in data["warnings"])
+    assert not any("No se encontró" in w for w in data["warnings"])
+
+
 def test_overlapping_proposals_same_status_recent_decision_takes_precedence(client):
     analysis = _analyze(client)
     aid = analysis["analysis_id"]

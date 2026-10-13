@@ -167,8 +167,10 @@ async def get_final_report(
 
     Genera un informe ejecutivo del proceso de mejora de accesibilidad:
 
-    - **score_before / score_after**: puntaje del material original y del adaptado.
-      El puntaje posterior se calcula con el motor de reglas determinístico (sin tokens de IA).
+    - **score_before / score_after**: puntaje del material original y del adaptado, comparables.
+      El posterior no vuelve a consultar la IA (0 tokens): conserva su puntaje y las reglas del
+      archivo (imágenes, escaneo, títulos) y recalcula las reglas de texto. Sin cambios aplicados,
+      ambos son iguales.
     - **score_delta**: diferencial. Positivo indica mejora de accesibilidad.
     - **barriers_detail**: cada barrera del diagnóstico original con su decisión docente
       (`aceptada`, `editada`, `descartada` o `pendiente`).

@@ -212,7 +212,14 @@ class FinalReportResponse(BaseModel):
 
     # Puntajes
     score_before: int = Field(ge=0, le=100, description="Puntaje de accesibilidad del material original.")
-    score_after: int = Field(ge=0, le=100, description="Puntaje de accesibilidad estimado del material adaptado (calculado con el motor de reglas).")
+    score_after: int = Field(
+        ge=0,
+        le=100,
+        description=(
+            "Puntaje estimado del material adaptado, comparable con score_before: conserva el puntaje de la IA "
+            "y las reglas del archivo (imágenes, escaneo, títulos) y recalcula las reglas de texto."
+        ),
+    )
     score_delta: int = Field(description="Diferencial de puntaje (score_after − score_before). Positivo indica mejora.")
     score_breakdown_before: "ScoreBreakdown | None" = Field(
         default=None,
@@ -220,7 +227,7 @@ class FinalReportResponse(BaseModel):
     )
     score_breakdown_after: "ScoreBreakdown | None" = Field(
         default=None,
-        description="Detalle del cálculo de puntaje del material adaptado (solo reglas, sin IA).",
+        description="Detalle del cálculo de puntaje del material adaptado (IA original + reglas recalculadas).",
     )
     disclaimer: str = Field(
         default=(

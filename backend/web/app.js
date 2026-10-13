@@ -36,6 +36,8 @@ const state = {
     apiBase: "",
     analysis: null, // último AccessibilityAnalysisResponse
     proposals: [],
+    finalVersion: null, // último AdaptedDocumentResponse del diagnóstico actual
+    report: null, // último FinalReportResponse del diagnóstico actual
 };
 
 const $ = (id) => document.getElementById(id);
@@ -122,6 +124,7 @@ class ApiError extends Error {
 function formatDetail(data, status) {
     const detail = data && data.detail;
     if (typeof detail === "string") return `${status}: ${detail}`;
+    if (detail && typeof detail === "object" && !Array.isArray(detail) && detail.message) return `${status}: ${detail.message}`;
     if (Array.isArray(detail)) {
         // 422 de FastAPI: lista de {loc, msg}
         const lines = detail.map((d) => `• ${(d.loc || []).join(" → ")}: ${d.msg}`);
@@ -139,7 +142,10 @@ function buildUrl(path, query = {}) {
         throw new ApiError(`URL del backend inválida: "${state.apiBase}". Ejemplo: https://mi-backend.up.railway.app`, 0, null);
     }
     for (const [key, value] of Object.entries(query)) {
-        if (value !== undefined && value !== null) url.searchParams.set(key, value);
+        if (value === undefined || value === null) continue;
+        // Las listas se repiten como parámetro: ?dismissed=a&dismissed=b
+        if (Array.isArray(value)) value.forEach((v) => url.searchParams.append(key, v));
+        else url.searchParams.set(key, value);
     }
     return url.toString();
 }
@@ -243,18 +249,59 @@ function addLogEntry({ method, url, status, data, body, ms, error }) {
     while (container.children.length > MAX_LOG_ENTRIES) container.lastChild.remove();
 }
 
-// Muestra el error de una acción en el contenedor indicado (sin borrar lo que ya había).
-async function run(target, action) {
-    target.querySelectorAll(":scope > .error").forEach((n) => n.remove());
+/**
+ * Ejecuta una acción y muestra su error en el contenedor indicado (sin borrar lo que ya había).
+ * `action` recibe los ids de datos personales que el docente ya descartó: si el backend responde
+ * 422 sensitive_data_detected (Issue #66), se ofrece descartar hallazgos y reintentar.
+ */
+async function run(target, action, dismissed = []) {
+    target.querySelectorAll(":scope > .error, :scope > .notice").forEach((n) => n.remove());
     try {
-        await action();
+        await action(dismissed);
     } catch (err) {
-        const box = errorBox(err.message || String(err));
+        const box = isSensitiveData(err)
+            ? sensitiveDataPanel(err.data.detail, (ids) => run(target, action, [...dismissed, ...ids]))
+            : errorBox(err.message || String(err));
         const title = target.querySelector(":scope > h2");
         if (title) title.after(box);
         else target.prepend(box);
         if (!(err instanceof ApiError || err instanceof InputError)) console.error(err);
     }
+}
+
+function isSensitiveData(err) {
+    return err instanceof ApiError && err.status === 422
+        && err.data && err.data.detail && err.data.detail.code === "sensitive_data_detected";
+}
+
+function sensitiveDataPanel(detail, retry) {
+    const checks = (detail.findings || []).map((f) => ({ id: f.id, input: el("input", { type: "checkbox" }), f }));
+    const panel = el("div", { class: "notice" },
+        el("strong", {}, `Posibles datos personales (${detail.total ?? checks.length})`),
+        el("p", {}, detail.message || "El material contiene posibles datos personales: no se envió a la IA ni se guardó."),
+        el("p", { class: "muted" }, "Si alguno no es un dato personal, marcalo y reintentá. Para continuar hay que descartar todos; si son datos reales, quitalos del material."),
+        checks.map(({ input, f }) => el("label", { class: "check" }, input,
+            `${f.label} · línea ${f.line} · `, el("code", {}, f.masked), ` (${f.id})`)),
+    );
+    panel.append(el("div", { class: "row" },
+        el("button", {
+            type: "button", class: "secondary",
+            onclick: () => checks.forEach((c) => { c.input.checked = true; }),
+        }, "Marcar todos"),
+        el("button", {
+            type: "button",
+            onclick: () => {
+                const ids = checks.filter((c) => c.input.checked).map((c) => c.id);
+                if (!ids.length) {
+                    panel.querySelectorAll(".error").forEach((n) => n.remove());
+                    panel.append(errorBox("Marcá al menos un hallazgo que no sea un dato personal."));
+                    return;
+                }
+                retry(ids);
+            },
+        }, "Descartar marcados y reintentar"),
+    ));
+    return panel;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,20 +431,24 @@ const ANALYSIS_BUSY = () => isMock()
     ? "Analizando (mock)…"
     : "Analizando con IA real (puede tardar hasta 1 minuto)…";
 
-async function analyzeText() {
+async function analyzeText(dismissed = []) {
     const text = readText();
     const data = await api("POST", "/analysis/sample", {
-        query: { mock: isMock() },
+        query: { mock: isMock(), dismissed },
         body: { kind: "json", value: { text } },
         busyText: ANALYSIS_BUSY(),
     });
     await showAnalysis(data);
 }
 
-async function analyzeFile() {
+async function analyzeFile(dismissed = []) {
     const file = readFile();
     const data = await api("POST", "/analysis/file", {
-        query: { mock: isMock() },
+        query: {
+            mock: isMock(),
+            dismissed,
+            confirm_images_without_personal_data: $("confirm-images").checked || undefined,
+        },
         body: { kind: "file", value: file },
         busyText: ANALYSIS_BUSY(),
     });
@@ -417,6 +468,10 @@ async function loadAnalysis() {
 async function showAnalysis(data) {
     state.analysis = data;
     state.proposals = [];
+    state.finalVersion = null;
+    state.report = null;
+    fill($("final-version"), el("p", { class: "muted" }, "Todavía no se generó."));
+    fill($("report"), el("p", { class: "muted" }, "Todavía no se generó."));
     if (data.analysis_id) $("analysis-id-input").value = data.analysis_id;
     renderDiagnosis(data);
     renderBarriers(data);
@@ -537,12 +592,12 @@ function barrierCard(b) {
     const card = el("div", { class: "card" });
     const submit = el("button", {
         type: "button",
-        onclick: () => run(card, async () => {
+        onclick: () => run(card, async (dismissed) => {
             const payload = { analysis_id: state.analysis.analysis_id, barrier_id: b.id, adaptation_type: select.value };
             const custom = fragment.value.trim();
             if (custom) payload.fragment = custom;
             await api("POST", "/adaptations", {
-                query: { mock: isMock() },
+                query: { mock: isMock(), dismissed },
                 body: { kind: "json", value: payload },
                 busyText: isMock() ? "Generando propuesta (mock)…" : "Generando propuesta con IA…",
             });
@@ -613,12 +668,14 @@ async function decide(proposalId, decision, editedText) {
     await api("POST", `/adaptations/${encodeURIComponent(proposalId)}/decision`, { body: { kind: "json", value } });
     await refreshProposals();
     await refreshDecisions();
+    await refreshFinalVersionIfShown();
 }
 
 async function undo(proposalId) {
     await api("POST", `/adaptations/${encodeURIComponent(proposalId)}/undo`);
     await refreshProposals();
     await refreshDecisions();
+    await refreshFinalVersionIfShown();
 }
 
 function proposalActions(p, card) {
@@ -704,6 +761,227 @@ async function refreshDecisions() {
 }
 
 // ---------------------------------------------------------------------------
+// 6. Versión adaptada
+// ---------------------------------------------------------------------------
+
+async function generateFinalVersion() {
+    const analysisId = requireAnalysisId();
+    // Las propuestas actualizadas dan el texto que se aplicó a cada una (para resaltarlo).
+    state.proposals = await api("GET", "/adaptations", { query: { analysis_id: analysisId } });
+    renderProposals();
+    state.finalVersion = await api("GET", "/adaptations/final-version", {
+        query: { analysis_id: analysisId },
+        busyText: "Generando versión adaptada…",
+    });
+    renderFinalVersion(state.finalVersion);
+}
+
+async function refreshFinalVersionIfShown() {
+    const current = (doc) => doc && state.analysis && doc.analysis_id === state.analysis.analysis_id;
+    if (current(state.finalVersion)) await generateFinalVersion();
+    if (current(state.report)) await generateReport();
+}
+
+// Texto con las apariciones de `needles` envueltas en <mark> (primera aparición libre de cada una).
+function highlighted(text, needles, className) {
+    const spans = [];
+    for (const needle of needles) {
+        if (!needle) continue;
+        let from = 0;
+        let idx;
+        while ((idx = text.indexOf(needle, from)) !== -1) {
+            const end = idx + needle.length;
+            if (!spans.some((s) => idx < s.end && s.start < end)) {
+                spans.push({ start: idx, end });
+                break;
+            }
+            from = idx + 1;
+        }
+    }
+    spans.sort((a, b) => a.start - b.start);
+    const nodes = [];
+    let cursor = 0;
+    for (const s of spans) {
+        if (s.start > cursor) nodes.push(text.slice(cursor, s.start));
+        nodes.push(el("mark", { class: className }, text.slice(s.start, s.end)));
+        cursor = s.end;
+    }
+    nodes.push(text.slice(cursor));
+    return nodes;
+}
+
+function appliedTexts(data) {
+    const byId = new Map(state.proposals.map((p) => [p.proposal_id, p]));
+    return data.applied_proposals.map((id) => byId.get(id)).filter(Boolean).map((p) => ({
+        original: p.original_text,
+        replacement: p.status === "editada" ? (p.edited_text ?? p.final_text) : (p.proposed_text ?? p.final_text),
+    }));
+}
+
+function downloadText(filename, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const link = el("a", { href: url, download: filename });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function renderFinalVersion(data) {
+    const box = $("final-version");
+    const applied = appliedTexts(data);
+    const copyStatus = el("span", { class: "muted" });
+    const name = (state.analysis && state.analysis.metadata && state.analysis.metadata.filename) || "material";
+
+    fill(box,
+        el("p", {},
+            badge(`aplicadas: ${data.applied_count}`, "aceptada"),
+            badge(`pendientes: ${data.pending_count}`, "pendiente"),
+            badge(`descartadas: ${data.discarded_count}`, "descartada"),
+            el("span", { class: "muted" }, `de ${data.total_proposals} propuesta(s)`),
+        ),
+        data.applied_count === 0
+            ? el("p", { class: "muted" }, "Ningún cambio aplicado: aceptá o editá propuestas en el paso 4 y volvé a generar.")
+            : null,
+        data.warnings && data.warnings.length
+            ? el("div", {}, el("h3", {}, "Advertencias"), el("ul", {}, data.warnings.map((w) => el("li", {}, w))))
+            : null,
+        el("div", { class: "cols" },
+            el("div", {},
+                el("h3", {}, "Original"),
+                el("pre", {}, highlighted(data.original_text, applied.map((a) => a.original), "removed"))),
+            el("div", {},
+                el("h3", {}, "Versión adaptada"),
+                el("pre", {}, highlighted(data.adapted_text, applied.map((a) => a.replacement)))),
+        ),
+        el("div", { class: "row" },
+            el("button", {
+                type: "button", class: "secondary",
+                onclick: async () => {
+                    try {
+                        await navigator.clipboard.writeText(data.adapted_text);
+                        copyStatus.textContent = "Copiado.";
+                    } catch {
+                        copyStatus.textContent = "El navegador no permitió copiar: seleccioná el texto a mano.";
+                    }
+                },
+            }, "Copiar texto adaptado"),
+            el("button", {
+                type: "button", class: "secondary",
+                onclick: () => downloadText(`${name.replace(/\.[^.]+$/, "")}-adaptado.txt`, data.adapted_text),
+            }, "Descargar .txt"),
+            copyStatus,
+        ),
+        rawJson(data),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. Informe final
+// ---------------------------------------------------------------------------
+
+async function generateReport() {
+    const analysisId = requireAnalysisId();
+    state.report = await api("GET", "/adaptations/report", {
+        query: { analysis_id: analysisId },
+        busyText: "Generando informe…",
+    });
+    renderReport(state.report);
+}
+
+function fmtDelta(delta) {
+    return delta > 0 ? `+${delta}` : String(delta);
+}
+
+// Penalizaciones de antes y después por regla, para ver qué cambió en el puntaje de reglas.
+function penaltiesComparison(before, after) {
+    const rows = new Map();
+    for (const p of (before && before.penalties) || []) rows.set(p.rule, { category: p.category, before: p.points, after: 0 });
+    for (const p of (after && after.penalties) || []) {
+        const row = rows.get(p.rule) || { category: p.category, before: 0, after: 0 };
+        row.after = p.points;
+        rows.set(p.rule, row);
+    }
+    if (!rows.size) return el("p", { class: "muted" }, "Sin penalizaciones de reglas antes ni después.");
+    return el("table", {},
+        el("tr", {}, el("th", {}, "Regla"), el("th", {}, "Categoría"), el("th", {}, "Antes"), el("th", {}, "Después")),
+        [...rows].map(([rule, r]) => el("tr", {},
+            el("td", {}, rule), el("td", {}, r.category),
+            el("td", {}, r.before ? `-${r.before}` : "—"),
+            el("td", { class: r.after < r.before ? "delta-up" : r.after > r.before ? "delta-down" : "" }, r.after ? `-${r.after}` : "—"))),
+    );
+}
+
+function reportAsText(r) {
+    const lines = [
+        "Informe final de adaptación",
+        `Diagnóstico: ${r.analysis_id}`,
+        `Generado: ${r.generated_at}`,
+        "",
+        `Puntaje: ${r.score_before} → ${r.score_after} (${fmtDelta(r.score_delta)})`,
+        r.disclaimer,
+        "",
+        "Resumen:",
+        ...r.executive_summary.map((s) => `- ${s}`),
+        "",
+        `Barreras: ${r.total_barriers} · resueltas ${r.resolved_count} · descartadas ${r.discarded_count} · pendientes ${r.pending_count}`,
+        "",
+        ...r.barriers_detail.flatMap((b) => [
+            `[${b.resolution_status}] ${b.barrier_id} · ${b.category} · ${b.severity} · ${b.issue}`,
+            `  Original: ${b.original_text}`,
+            ...(b.final_text ? [`  Final: ${b.final_text}`] : []),
+        ]),
+        ...(r.warnings.length ? ["", "Advertencias:", ...r.warnings.map((w) => `- ${w}`)] : []),
+    ];
+    return lines.join("\n");
+}
+
+function renderReport(r) {
+    const box = $("report");
+    const deltaClass = r.score_delta > 0 ? "delta-up" : r.score_delta < 0 ? "delta-down" : "";
+    fill(box,
+        el("div", { class: "cols" },
+            el("div", {},
+                el("div", { class: "score" }, `${r.score_before} → ${r.score_after} `,
+                    el("span", { class: deltaClass }, `(${fmtDelta(r.score_delta)})`)),
+                el("p", { class: "muted" }, r.disclaimer),
+            ),
+            kv([
+                ["Barreras", r.total_barriers],
+                ["Resueltas", r.resolved_count],
+                ["Descartadas", r.discarded_count],
+                ["Pendientes", r.pending_count],
+                ["Propuestas generadas", r.total_proposals],
+                ["Generado", fmtDate(r.generated_at)],
+            ]),
+        ),
+        el("h3", {}, "Resumen"),
+        el("ul", {}, r.executive_summary.map((s) => el("li", {}, s))),
+        el("h3", {}, "Barreras y decisiones"),
+        el("table", {},
+            el("tr", {}, el("th", {}, "Barrera"), el("th", {}, "Problema"), el("th", {}, "Decisión"), el("th", {}, "Texto final")),
+            r.barriers_detail.map((b) => el("tr", {},
+                el("td", {}, badge(b.barrier_id, "id"), badge(b.severity), el("div", { class: "muted" }, b.category)),
+                el("td", {}, b.issue, el("div", { class: "muted" }, b.original_text)),
+                el("td", {}, badge(b.resolution_status)),
+                el("td", {}, b.final_text || "—"))),
+        ),
+        el("h3", {}, "Penalizaciones de reglas"),
+        penaltiesComparison(r.score_breakdown_before, r.score_breakdown_after),
+        r.warnings && r.warnings.length
+            ? el("div", {}, el("h3", {}, "Advertencias"), el("ul", {}, r.warnings.map((w) => el("li", {}, w))))
+            : null,
+        el("div", { class: "row" },
+            el("button", {
+                type: "button", class: "secondary",
+                onclick: () => downloadText(`informe-${r.analysis_id.slice(0, 8)}.txt`, reportAsText(r)),
+            }, "Descargar informe .txt"),
+        ),
+        rawJson(r),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Inicio
 // ---------------------------------------------------------------------------
 
@@ -734,6 +1012,8 @@ function init() {
     $("btn-load-analysis").addEventListener("click", () => run(diagnosisSection, loadAnalysis));
     $("btn-refresh-proposals").addEventListener("click", () => run($("proposals").parentElement, refreshProposals));
     $("btn-refresh-decisions").addEventListener("click", () => run($("decisions").parentElement, refreshDecisions));
+    $("btn-final-version").addEventListener("click", () => run($("final-version").parentElement, generateFinalVersion));
+    $("btn-report").addEventListener("click", () => run($("report").parentElement, generateReport));
     $("btn-clear-log").addEventListener("click", () =>
         $("log-entries").replaceChildren(el("p", { class: "muted" }, "Todavía no se hizo ninguna llamada.")));
 
