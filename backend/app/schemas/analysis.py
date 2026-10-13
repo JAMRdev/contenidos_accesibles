@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.document import TextInputRequest
+from app.schemas.document import SourceType, TextInputRequest
 
 # ---------------------------------------------------------------------------
 # Esquemas que se envían al modelo de IA como salida estructurada (JSON Schema).
@@ -151,11 +151,11 @@ class AnalysisMetadata(BaseModel):
     model: str
     connection: str = Field(description="Nombre de la conexión de /admin que se usó.")
     latency_ms: int
-    source_type: Literal["pdf", "text"] = Field(
-        default="text", description="Formato de origen del material analizado ('pdf' o 'text')."
+    source_type: SourceType = Field(
+        default="text", description="Formato de origen del material analizado ('pdf', 'text', 'docx' o 'pptx')."
     )
     filename: str | None = Field(
-        default=None, description="Nombre del archivo original (cuando source_type es 'pdf')."
+        default=None, description="Nombre del archivo original (cuando el material es un archivo)."
     )
     page_count: int = Field(default=1, ge=1, description="Cantidad de páginas del documento.")
     image_count: int = Field(default=0, ge=0, description="Cantidad de imágenes detectadas en el documento.")

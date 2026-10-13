@@ -34,6 +34,24 @@ LONG_SECTION_PENALTY = 5  # Penalización por sección extensa sin subdivisiones
 MAX_REPORTED_PER_RULE = 3  # barreras listadas por regla; el total va al comentario
 PARAGRAPH_EXCERPT_WORDS = 25  # palabras citadas de un párrafo extenso
 
+# Cómo se agregan títulos en cada formato (Issue #47): en Word y PowerPoint son estilos o
+# marcadores que los lectores de pantalla reconocen, no solo letra más grande.
+_NO_HEADINGS_RECOMMENDATIONS = {
+    "pdf": (
+        "Incorporá títulos principales (H1) y subtítulos de sección (H2) utilizando fuentes de mayor "
+        "tamaño y en negrita para organizar los temas y actividades."
+    ),
+    "docx": (
+        "Aplicá los estilos de título de Word (Título 1 para el principal, Título 2 para cada sección) "
+        "en lugar de solo agrandar o resaltar el texto: así los lectores de pantalla pueden navegar por secciones."
+    ),
+    "pptx": (
+        "Completá el marcador de título de cada diapositiva: los lectores de pantalla lo usan para "
+        "anunciar y recorrer las diapositivas."
+    ),
+}
+_PAGE_LABELS = {"pdf": "página(s)", "docx": "página(s)", "pptx": "diapositiva(s)"}
+
 # --- Tarea #25: Consignas multi-acción, Legibilidad y Referencias Visuales ---
 MULTI_ACTION_WARN_THRESHOLD = 3  # 3 acciones: para_revisar
 MULTI_ACTION_SEVERE_THRESHOLD = 4  # 4 o más acciones: barrera_detectada
@@ -440,6 +458,11 @@ def _visual_reference_findings(raw_text: str) -> list[RuleFinding]:
     return findings
 
 
+def _images_without_alt_text(doc: ExtractedDocument) -> int:
+    """Imágenes sin texto alternativo conocido. En PDF no se detecta, así que son todas."""
+    return max(0, doc.image_count - doc.images_with_alt_text)
+
+
 def visual_assessment(doc: ExtractedDocument) -> tuple[DimensionAssessment, list[dict]]:
     """Accesibilidad visual por reglas: la IA solo recibe texto y no ve las imágenes."""
     if doc.is_scanned_pdf:
@@ -466,19 +489,40 @@ def visual_assessment(doc: ExtractedDocument) -> tuple[DimensionAssessment, list
                 }
             ],
         )
+    pending = _images_without_alt_text(doc)
+    if doc.has_images and not pending:
+        # Solo Word y PowerPoint informan el texto alternativo de cada imagen.
+        return (
+            DimensionAssessment(
+                category="accesibilidad_visual",
+                status="correcta",
+                comment=(
+                    f"Las {doc.image_count} imagen(es) tienen texto alternativo o están marcadas como decorativas."
+                ),
+            ),
+            [],
+        )
     if doc.has_images:
+        if doc.images_with_alt_text:
+            comment = (
+                f"Se detectaron {doc.image_count} imagen(es); {pending} no tiene(n) texto alternativo."
+            )
+            original_text = f"[{pending} imagen(es) sin texto alternativo en el documento]"
+        else:
+            comment = f"Se detectaron {doc.image_count} imagen(es); su accesibilidad no puede verificarse automáticamente."
+            original_text = f"[{doc.image_count} imagen(es) en el documento]"
         return (
             DimensionAssessment(
                 category="accesibilidad_visual",
                 status="para_revisar",
-                comment=f"Se detectaron {doc.image_count} imagen(es); su accesibilidad no puede verificarse automáticamente.",
+                comment=comment,
             ),
             [
                 {
                     "category": "accesibilidad_visual",
                     "severity": "para_revisar",
                     "issue": "Imágenes sin descripción verificable",
-                    "original_text": f"[{doc.image_count} imagen(es) en el documento]",
+                    "original_text": original_text,
                     "explanation": (
                         "Si las imágenes transmiten información necesaria para la tarea, un estudiante "
                         "con discapacidad visual no podrá acceder a ella sin texto alternativo."
@@ -507,14 +551,14 @@ def _structure_findings(
     doc: ExtractedDocument,
 ) -> tuple[list[RuleFinding], list[ScorePenalty], list[str]]:
     """
-    Evalúa la estructura tipográfica de títulos y secciones en documentos PDF.
+    Evalúa la estructura de títulos y secciones en documentos PDF, Word y PowerPoint.
     El texto pegado (source_type == "text") no se penaliza por falta de fuentes.
     """
     findings: list[RuleFinding] = []
     penalties: list[ScorePenalty] = []
     comments: list[str] = []
 
-    if doc.source_type != "pdf" or doc.is_scanned_pdf:
+    if doc.source_type == "text" or doc.is_scanned_pdf:
         return findings, penalties, comments
 
     structure = getattr(doc, "structure", None)
@@ -529,16 +573,16 @@ def _structure_findings(
                     "category": "estructura",
                     "severity": "barrera_detectada",
                     "issue": "Documento extenso sin títulos ni estructura definida",
-                    "original_text": f"[{doc.filename or 'Documento PDF'}: {doc.page_count} página(s), {doc.word_count} palabras]",
+                    "original_text": (
+                        f"[{doc.filename or 'Documento ' + doc.source_type.upper()}: "
+                        f"{doc.page_count} {_PAGE_LABELS[doc.source_type]}, {doc.word_count} palabras]"
+                    ),
                     "explanation": (
                         "El documento no presenta encabezados ni títulos diferenciados por tamaño o estilo tipográfico. "
                         "Sin una jerarquía visual y estructural, los estudiantes se enfrentan a un bloque continuo "
                         "de texto y las tecnologías de asistencia (como lectores de pantalla) no pueden navegar por secciones."
                     ),
-                    "recommendation": (
-                        "Incorporá títulos principales (H1) y subtítulos de sección (H2) utilizando fuentes de mayor "
-                        "tamaño y en negrita para organizar los temas y actividades."
-                    ),
+                    "recommendation": _NO_HEADINGS_RECOMMENDATIONS[doc.source_type],
                     "suggested_rewrite": None,
                     "fragment_found": None,
                     "source": "rules",
@@ -685,10 +729,10 @@ def _penalties(
         penalties.append(ScorePenalty(
             rule="pdf_escaneado", category="accesibilidad_visual", count=1, points=SCANNED_PDF_POINTS,
         ))
-    elif doc.has_images:
+    elif _images_without_alt_text(doc):
         penalties.append(ScorePenalty(
             rule="imagenes_sin_verificar", category="accesibilidad_visual",
-            count=doc.image_count, points=IMAGES_POINTS,
+            count=_images_without_alt_text(doc), points=IMAGES_POINTS,
         ))
     penalties.extend(structure_penalties)
 
@@ -808,7 +852,7 @@ def run_rules(doc: ExtractedDocument) -> RulesResult:
             status=_worst_severity(struct_severe),
             comment=" ".join(struct_comment_parts),
         )
-    elif doc.source_type == "pdf" and getattr(doc, "structure", None) and doc.structure.has_headings:
+    elif doc.source_type != "text" and getattr(doc, "structure", None) and doc.structure.has_headings:
         estructura = DimensionAssessment(
             category="estructura",
             status="correcta",

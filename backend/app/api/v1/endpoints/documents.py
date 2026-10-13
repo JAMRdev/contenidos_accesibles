@@ -1,5 +1,6 @@
 import asyncio
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from app.api.v1.uploads import read_supported_upload
 from app.schemas.document import ExtractedDocument, TextInputRequest
 from app.services.document_service import document_service
 
@@ -112,3 +113,43 @@ async def upload_pdf_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno al procesar el PDF: {str(e)}"
         )
+
+
+@router.post(
+    "/upload",
+    response_model=ExtractedDocument,
+    summary="Cargar y extraer contenido de un PDF, Word o PowerPoint",
+    response_description="Contenido textual, estructura, métricas e imágenes del documento",
+)
+async def upload_document(
+    file: UploadFile = File(
+        ...,
+        description="Archivo educativo .pdf, .docx o .pptx (máximo 10 MB)",
+    )
+):
+    """
+    ## Carga y Extracción de PDF, Word o PowerPoint (Issue #47)
+
+    Mismo contrato que `/upload-pdf`, ampliado a documentos de Office:
+    - **Formatos:** `.pdf`, `.docx` y `.pptx`. El formato se detecta por el contenido y tiene que
+      coincidir con la extensión. No se admiten `.doc`/`.ppt` antiguos, archivos con macros ni protegidos.
+    - **Estructura real:** en Word los títulos salen de los estilos (Título 1, Título 2...) y en
+      PowerPoint del título de cada diapositiva; las viñetas y numeraciones cuentan como listas.
+    - **Texto alternativo existente:** `images_with_alt_text` indica cuántas imágenes ya lo tienen
+      (o están marcadas como decorativas). En PDF siempre es 0.
+    - **PowerPoint:** `page_count` es la cantidad de diapositivas visibles; las ocultas y las notas del
+      orador no se analizan.
+    - **Procesamiento en memoria** y en un hilo separado, con límite de 10 MB.
+    """
+    content, filename = await read_supported_upload(file)
+    try:
+        return await asyncio.to_thread(document_service.process_file, content, filename)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno al procesar el documento: {str(e)}",
+        )
+    finally:
+        await file.close()

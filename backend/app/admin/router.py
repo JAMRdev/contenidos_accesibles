@@ -23,7 +23,7 @@ templates = Jinja2Templates(directory=str(_templates_dir))
 _diagrams_dir = Path(__file__).parent / "diagrams"
 DIAGRAMS: dict[str, tuple[str, str]] = {
     "arquitectura": ("Arquitectura en runtime", "Front, Railway, FastAPI, servicios, proveedores de IA y SQLite."),
-    "secuencia-analisis-pdf": ("Secuencia de POST /api/v1/analysis/pdf", "Extracción, reglas, IA con rotación y respuesta."),
+    "secuencia-analisis-pdf": ("Secuencia de POST /api/v1/analysis/pdf y /file", "Extracción (PDF, Word o PowerPoint), reglas, IA con rotación y respuesta."),
     "rotacion-keys": ("Rotación de conexiones de IA", "Cómo se elige, usa y excluye cada conexión."),
     "ciclo-vida-conexion": ("Ciclo de vida de una conexión", "Estados standby, active, near-limit, exhausted y disabled."),
 }

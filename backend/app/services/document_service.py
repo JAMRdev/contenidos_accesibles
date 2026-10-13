@@ -274,7 +274,11 @@ class DocumentService:
     @staticmethod
     def _decode_embedded_png(doc: pymupdf.Document, xref: int) -> tuple[bytes, int, int]:
         """Decodifica la imagen embebida como PNG. PNG solo admite Gray/RGB: CMYK, Lab, etc. se convierten."""
-        pix = pymupdf.Pixmap(doc, xref)
+        return DocumentService._encode_pixmap_png(pymupdf.Pixmap(doc, xref))
+
+    @staticmethod
+    def _encode_pixmap_png(pix: pymupdf.Pixmap) -> tuple[bytes, int, int]:
+        """Codifica el pixmap como PNG (convertido a RGB si hace falta) y acotado a MAX_IMAGE_SIDE_PX."""
         if pix.colorspace is None or pix.colorspace.n not in (1, 3):
             pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
         # Reducir resolución si es excesiva (> MAX_IMAGE_SIDE_PX)
@@ -521,6 +525,32 @@ class DocumentService:
         finally:
             if doc is not None:
                 doc.close()
+
+    @classmethod
+    def process_file(cls, file_bytes: bytes, filename: str) -> ExtractedDocument:
+        """
+        Procesa un PDF, Word (.docx) o PowerPoint (.pptx) según su contenido real (Issue #47).
+        La extensión del nombre tiene que coincidir con el formato detectado.
+        """
+        # Import diferido: office_service reutiliza helpers de este módulo.
+        from app.services.office_service import detect_office_format, office_service
+
+        if not file_bytes:
+            raise ValueError("El archivo recibido está vacío (0 bytes).")
+
+        source_type = "pdf" if file_bytes.lstrip().startswith(b"%PDF-") else detect_office_format(file_bytes)
+        extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if extension != source_type:
+            raise ValueError(
+                f"La extensión del archivo (.{extension}) no coincide con su contenido "
+                f"(parece un archivo .{source_type})."
+            )
+
+        if source_type == "pdf":
+            return cls.process_pdf(file_bytes, filename)
+        if source_type == "docx":
+            return office_service.process_docx(file_bytes, filename)
+        return office_service.process_pptx(file_bytes, filename)
 
 
 

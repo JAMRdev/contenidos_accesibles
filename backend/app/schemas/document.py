@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 MAX_RAW_TEXT_CHARS = 50_000
 
+SourceType = Literal["pdf", "text", "docx", "pptx"]
+
 
 class TextInputRequest(BaseModel):
     """Esquema para recepción de texto pegado directamente por el docente."""
@@ -16,13 +18,16 @@ class TextInputRequest(BaseModel):
 
 
 class HeadingItem(BaseModel):
-    """Encabezado o título detectado en el documento (inferido tipográficamente en PDFs)."""
+    """Encabezado o título detectado en el documento (inferido tipográficamente en PDFs, por estilo en Word y PowerPoint)."""
     level: int = Field(
         description="Nivel jerárquico inferido: 1 para H1 (título principal), 2 para H2 (subtítulo/sección), etc."
     )
     text: str = Field(description="Texto del encabezado.")
-    page_number: int = Field(default=1, ge=1, description="Número de página donde se encuentra.")
-    font_size: float = Field(description="Tamaño de fuente estimado en puntos (pt).")
+    page_number: int = Field(default=1, ge=1, description="Número de página (o de diapositiva en PowerPoint) donde se encuentra.")
+    font_size: float | None = Field(
+        default=None,
+        description="Tamaño de fuente estimado en puntos (pt). Puede faltar en Word y PowerPoint si el estilo no lo define.",
+    )
     is_bold: bool = Field(default=False, description="True si la fuente presenta peso de negrita (bold).")
 
 
@@ -40,8 +45,8 @@ class ExtractedDocument(BaseModel):
     Contrato de datos común para la información extraída de cualquier material.
     Este esquema es generado por DocumentService y consumido por el motor de Gemini.
     """
-    source_type: Literal["pdf", "text"] = Field(
-        ..., description="Tipo de fuente procesada ('pdf' o 'text')."
+    source_type: SourceType = Field(
+        ..., description="Tipo de fuente procesada ('pdf', 'text', 'docx' o 'pptx')."
     )
     filename: str | None = Field(
         None, description="Nombre original del archivo (si aplica)."
@@ -58,7 +63,7 @@ class ExtractedDocument(BaseModel):
         description="Indica si el texto para análisis debió ser acotado por exceder el límite seguro de longitud."
     )
     page_count: int = Field(
-        default=1, ge=1, description="Cantidad de páginas del documento."
+        default=1, ge=1, description="Cantidad de páginas del documento (diapositivas en PowerPoint)."
     )
     word_count: int = Field(
         ..., ge=0, description="Total de palabras extraídas."
@@ -71,6 +76,14 @@ class ExtractedDocument(BaseModel):
     )
     image_count: int = Field(
         default=0, ge=0, description="Cantidad total de imágenes detectadas."
+    )
+    images_with_alt_text: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Imágenes que ya tienen texto alternativo o están marcadas como decorativas. "
+            "Solo se detecta en Word y PowerPoint; en PDF siempre es 0."
+        ),
     )
     is_scanned_pdf: bool = Field(
         default=False,
@@ -92,10 +105,12 @@ class ExtractedDocument(BaseModel):
 
 
 class ExtractedImage(BaseModel):
-    """Imagen relevante extraída en memoria de un PDF junto a sus metadatos y contexto textual."""
+    """Imagen relevante extraída en memoria de un documento junto a sus metadatos y contexto textual."""
     image_index: int = Field(description="Índice secuencial de la imagen en el documento (1-based).")
-    page_number: int = Field(description="Número de página donde se ubica (1-based).")
-    bbox: tuple[float, float, float, float] = Field(description="Coordenadas espaciales (x0, y0, x1, y1) en la página.")
+    page_number: int = Field(description="Número de página o diapositiva donde se ubica (1-based; 1 en Word).")
+    bbox: tuple[float, float, float, float] = Field(
+        description="Coordenadas espaciales (x0, y0, x1, y1) en puntos dentro de la página o diapositiva (en Word, solo el tamaño)."
+    )
     width: int = Field(description="Ancho en píxeles.")
     height: int = Field(description="Alto en píxeles.")
     location_description: str = Field(description="Descripción textual de su ubicación (ej. 'Página 1, sector superior').")
