@@ -139,6 +139,7 @@ FastAPI autogenera dos interfaces de documentación interactiva:
 | `POST` | `/api/v1/adaptations/{proposal_id}/undo` | Deshacer la decisión: la propuesta vuelve a `pendiente` | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/decisions?analysis_id=` | Registro cronológico de decisiones y deshaceres del diagnóstico (para el informe) | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/final-version?analysis_id=` | Versión final del material: aplica solo las propuestas aceptadas o editadas (solapamientos resueltos a favor de la edición del docente y la decisión más reciente) | ✅ Operativo |
+| `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
 | `GET` | `/admin` | Panel de consumo de IA y gestión de API keys (HTML, HTTP Basic Auth) | ✅ Operativo |
 | `GET` | `/admin/diagramas` | Diagramas de arquitectura del backend (HTML, mismas credenciales que `/admin`). Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
 
@@ -268,6 +269,7 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 4. Revisión docente: aceptar, editar, descartar y deshacer (`/adaptations/{id}/decision`, `/undo`).
 5. Registro de decisiones (`GET /adaptations/decisions`).
 6. Versión adaptada (`GET /adaptations/final-version`): original y versión final lado a lado con los cambios resaltados, para copiar o descargar como `.txt`. Se regenera sola al cambiar una decisión.
+7. Informe final (`GET /adaptations/report`): puntaje antes → después, resumen, decisión por barrera y penalizaciones de reglas antes/después, descargable como `.txt`. También se regenera solo.
 
 Si el material tiene posibles datos personales (`422 sensitive_data_detected`), la página muestra los hallazgos enmascarados y permite descartar los que no lo son y reintentar (`?dismissed=`).
 

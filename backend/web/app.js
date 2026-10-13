@@ -37,6 +37,7 @@ const state = {
     analysis: null, // último AccessibilityAnalysisResponse
     proposals: [],
     finalVersion: null, // último AdaptedDocumentResponse del diagnóstico actual
+    report: null, // último FinalReportResponse del diagnóstico actual
 };
 
 const $ = (id) => document.getElementById(id);
@@ -468,7 +469,9 @@ async function showAnalysis(data) {
     state.analysis = data;
     state.proposals = [];
     state.finalVersion = null;
+    state.report = null;
     fill($("final-version"), el("p", { class: "muted" }, "Todavía no se generó."));
+    fill($("report"), el("p", { class: "muted" }, "Todavía no se generó."));
     if (data.analysis_id) $("analysis-id-input").value = data.analysis_id;
     renderDiagnosis(data);
     renderBarriers(data);
@@ -774,9 +777,9 @@ async function generateFinalVersion() {
 }
 
 async function refreshFinalVersionIfShown() {
-    if (state.finalVersion && state.analysis && state.finalVersion.analysis_id === state.analysis.analysis_id) {
-        await generateFinalVersion();
-    }
+    const current = (doc) => doc && state.analysis && doc.analysis_id === state.analysis.analysis_id;
+    if (current(state.finalVersion)) await generateFinalVersion();
+    if (current(state.report)) await generateReport();
 }
 
 // Texto con las apariciones de `needles` envueltas en <mark> (primera aparición libre de cada una).
@@ -874,6 +877,111 @@ function renderFinalVersion(data) {
 }
 
 // ---------------------------------------------------------------------------
+// 7. Informe final
+// ---------------------------------------------------------------------------
+
+async function generateReport() {
+    const analysisId = requireAnalysisId();
+    state.report = await api("GET", "/adaptations/report", {
+        query: { analysis_id: analysisId },
+        busyText: "Generando informe…",
+    });
+    renderReport(state.report);
+}
+
+function fmtDelta(delta) {
+    return delta > 0 ? `+${delta}` : String(delta);
+}
+
+// Penalizaciones de antes y después por regla, para ver qué cambió en el puntaje de reglas.
+function penaltiesComparison(before, after) {
+    const rows = new Map();
+    for (const p of (before && before.penalties) || []) rows.set(p.rule, { category: p.category, before: p.points, after: 0 });
+    for (const p of (after && after.penalties) || []) {
+        const row = rows.get(p.rule) || { category: p.category, before: 0, after: 0 };
+        row.after = p.points;
+        rows.set(p.rule, row);
+    }
+    if (!rows.size) return el("p", { class: "muted" }, "Sin penalizaciones de reglas antes ni después.");
+    return el("table", {},
+        el("tr", {}, el("th", {}, "Regla"), el("th", {}, "Categoría"), el("th", {}, "Antes"), el("th", {}, "Después")),
+        [...rows].map(([rule, r]) => el("tr", {},
+            el("td", {}, rule), el("td", {}, r.category),
+            el("td", {}, r.before ? `-${r.before}` : "—"),
+            el("td", { class: r.after < r.before ? "delta-up" : r.after > r.before ? "delta-down" : "" }, r.after ? `-${r.after}` : "—"))),
+    );
+}
+
+function reportAsText(r) {
+    const lines = [
+        "Informe final de adaptación",
+        `Diagnóstico: ${r.analysis_id}`,
+        `Generado: ${r.generated_at}`,
+        "",
+        `Puntaje: ${r.score_before} → ${r.score_after} (${fmtDelta(r.score_delta)})`,
+        r.disclaimer,
+        "",
+        "Resumen:",
+        ...r.executive_summary.map((s) => `- ${s}`),
+        "",
+        `Barreras: ${r.total_barriers} · resueltas ${r.resolved_count} · descartadas ${r.discarded_count} · pendientes ${r.pending_count}`,
+        "",
+        ...r.barriers_detail.flatMap((b) => [
+            `[${b.resolution_status}] ${b.barrier_id} · ${b.category} · ${b.severity} · ${b.issue}`,
+            `  Original: ${b.original_text}`,
+            ...(b.final_text ? [`  Final: ${b.final_text}`] : []),
+        ]),
+        ...(r.warnings.length ? ["", "Advertencias:", ...r.warnings.map((w) => `- ${w}`)] : []),
+    ];
+    return lines.join("\n");
+}
+
+function renderReport(r) {
+    const box = $("report");
+    const deltaClass = r.score_delta > 0 ? "delta-up" : r.score_delta < 0 ? "delta-down" : "";
+    fill(box,
+        el("div", { class: "cols" },
+            el("div", {},
+                el("div", { class: "score" }, `${r.score_before} → ${r.score_after} `,
+                    el("span", { class: deltaClass }, `(${fmtDelta(r.score_delta)})`)),
+                el("p", { class: "muted" }, r.disclaimer),
+            ),
+            kv([
+                ["Barreras", r.total_barriers],
+                ["Resueltas", r.resolved_count],
+                ["Descartadas", r.discarded_count],
+                ["Pendientes", r.pending_count],
+                ["Propuestas generadas", r.total_proposals],
+                ["Generado", fmtDate(r.generated_at)],
+            ]),
+        ),
+        el("h3", {}, "Resumen"),
+        el("ul", {}, r.executive_summary.map((s) => el("li", {}, s))),
+        el("h3", {}, "Barreras y decisiones"),
+        el("table", {},
+            el("tr", {}, el("th", {}, "Barrera"), el("th", {}, "Problema"), el("th", {}, "Decisión"), el("th", {}, "Texto final")),
+            r.barriers_detail.map((b) => el("tr", {},
+                el("td", {}, badge(b.barrier_id, "id"), badge(b.severity), el("div", { class: "muted" }, b.category)),
+                el("td", {}, b.issue, el("div", { class: "muted" }, b.original_text)),
+                el("td", {}, badge(b.resolution_status)),
+                el("td", {}, b.final_text || "—"))),
+        ),
+        el("h3", {}, "Penalizaciones de reglas"),
+        penaltiesComparison(r.score_breakdown_before, r.score_breakdown_after),
+        r.warnings && r.warnings.length
+            ? el("div", {}, el("h3", {}, "Advertencias"), el("ul", {}, r.warnings.map((w) => el("li", {}, w))))
+            : null,
+        el("div", { class: "row" },
+            el("button", {
+                type: "button", class: "secondary",
+                onclick: () => downloadText(`informe-${r.analysis_id.slice(0, 8)}.txt`, reportAsText(r)),
+            }, "Descargar informe .txt"),
+        ),
+        rawJson(r),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Inicio
 // ---------------------------------------------------------------------------
 
@@ -905,6 +1013,7 @@ function init() {
     $("btn-refresh-proposals").addEventListener("click", () => run($("proposals").parentElement, refreshProposals));
     $("btn-refresh-decisions").addEventListener("click", () => run($("decisions").parentElement, refreshDecisions));
     $("btn-final-version").addEventListener("click", () => run($("final-version").parentElement, generateFinalVersion));
+    $("btn-report").addEventListener("click", () => run($("report").parentElement, generateReport));
     $("btn-clear-log").addEventListener("click", () =>
         $("log-entries").replaceChildren(el("p", { class: "muted" }, "Todavía no se hizo ninguna llamada.")));
 

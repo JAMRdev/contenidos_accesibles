@@ -11,7 +11,7 @@
     <h1>InnovaLab · Web de pruebas</h1>
     <p class="muted">
         Recorre el flujo completo de la API: carga del material → diagnóstico → propuestas de adaptación
-        → revisión docente (aceptar, editar, descartar, deshacer) → registro de decisiones → versión adaptada.
+        → revisión docente (aceptar, editar, descartar, deshacer) → registro de decisiones → versión adaptada → informe final.
         Cada llamada queda en el <a href="#log">registro de requests</a> con su JSON.
     </p>
 
@@ -126,6 +126,19 @@
             <button type="button" id="btn-final-version">Generar versión adaptada</button>
         </div>
         <div id="final-version"><p class="muted">Todavía no se generó.</p></div>
+    </section>
+
+    <!-- 7. Informe final -->
+    <section>
+        <h2>7. Informe final</h2>
+        <div class="row">
+            <span class="muted grow">
+                Barreras detectadas, decisión del docente sobre cada una y puntaje antes/después
+                (<code>GET /adaptations/report</code>, 0 tokens).
+            </span>
+            <button type="button" id="btn-report">Generar informe</button>
+        </div>
+        <div id="report"><p class="muted">Todavía no se generó.</p></div>
     </section>
 
     <!-- Registro de requests -->
