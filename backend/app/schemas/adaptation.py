@@ -144,3 +144,28 @@ class DecisionLogEntry(BaseModel):
     to_status: ProposalStatus
     edited_text: str | None = Field(default=None, description="Texto del docente cuando la decisión fue 'editada'.")
     created_at: str = Field(description="Momento de la modificación (UTC, ISO 8601).")
+
+
+# ---------------------------------------------------------------------------
+# Versión final adaptada (Issue #38).
+# ---------------------------------------------------------------------------
+
+
+class AdaptedDocumentResponse(BaseModel):
+    """Versión final del material generada aplicando únicamente las propuestas aceptadas y editadas."""
+
+    analysis_id: str = Field(description="ID del diagnóstico al que pertenece el documento adaptado.")
+    original_text: str = Field(description="Texto original completo del material analizado.")
+    adapted_text: str = Field(description="Texto final con las adaptaciones aceptadas y editadas aplicadas.")
+    total_proposals: int = Field(description="Cantidad total de propuestas registradas para este diagnóstico.")
+    applied_count: int = Field(description="Cantidad de propuestas aceptadas o editadas aplicadas con éxito.")
+    discarded_count: int = Field(default=0, description="Cantidad de propuestas descartadas (no aplicadas).")
+    pending_count: int = Field(default=0, description="Cantidad de propuestas pendientes (no aplicadas).")
+    applied_proposals: list[str] = Field(
+        default_factory=list,
+        description="IDs de las propuestas aplicadas en el texto final.",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Advertencias durante la aplicación (ej. solapamientos resueltos o citas no encontradas).",
+    )

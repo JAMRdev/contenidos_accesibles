@@ -5,6 +5,7 @@ from app.db import adaptation_repository
 from app.schemas.adaptation import (
     AdaptationProposal,
     AdaptationRequest,
+    AdaptedDocumentResponse,
     DecisionLogEntry,
     DecisionRequest,
 )
@@ -122,6 +123,32 @@ async def list_decisions(
     """
     try:
         return adaptation_service.list_decisions(analysis_id)
+    except AdaptationNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/final-version",
+    response_model=AdaptedDocumentResponse,
+    summary="Generar la versión final del documento aplicando solo los cambios aceptados (Issue #38)",
+)
+async def get_final_version(
+    analysis_id: str = Query(description="ID del diagnóstico cuyo documento adaptado se quiere generar."),
+):
+    """
+    ## Versión final adaptada (Issue #38)
+
+    Construye el texto adaptado del material analizado:
+    - Aplica únicamente las propuestas en estado `aceptada` (con `proposed_text`)
+      o `editada` (respetando textualmente `edited_text`).
+    - Las propuestas `descartada` y `pendiente` no se aplican: su fragmento
+      original se conserva intacto.
+    - Si dos propuestas aceptadas/editadas se solapan en el mismo fragmento, se resuelve
+      priorizando la edición del docente (`editada` > `aceptada`) o la decisión más
+      reciente, y se documenta en `warnings`.
+    """
+    try:
+        return adaptation_service.build_adapted_document(analysis_id)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

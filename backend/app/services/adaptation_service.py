@@ -9,6 +9,7 @@ aplican solas: se guardan como 'pendiente' hasta que el docente decide.
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.db import adaptation_repository, analysis_repository
@@ -18,6 +19,7 @@ from app.schemas.adaptation import (
     AdaptationProposal,
     AdaptationRequest,
     AdaptationType,
+    AdaptedDocumentResponse,
     DecisionLogEntry,
     DecisionRequest,
 )
@@ -396,3 +398,161 @@ def undo(proposal_id: str) -> AdaptationProposal:
 def list_decisions(analysis_id: str) -> list[DecisionLogEntry]:
     load_analysis(analysis_id)  # 404 si el diagnóstico no existe o venció
     return [DecisionLogEntry(**r) for r in adaptation_repository.list_decisions(analysis_id)]
+
+
+# --- Generar versión final adaptada (Issue #38) -----------------------------------
+
+
+@dataclass
+class _ReplacementCandidate:
+    proposal: AdaptationProposal
+    start: int
+    end: int
+    replacement_text: str
+
+
+def _find_candidate_span(
+    text: str,
+    fragment: str,
+    used_spans: set[tuple[int, int]],
+) -> tuple[int, int] | None:
+    """
+    Encuentra la posición (inicio, fin) de un fragmento en el texto original.
+    Evita reutilizar el mismo span si varias propuestas comparten fragmento idéntico.
+    """
+    if not fragment or not fragment.strip():
+        return None
+
+    # 1. Búsqueda exacta
+    start = 0
+    while True:
+        idx = text.find(fragment, start)
+        if idx == -1:
+            break
+        span = (idx, idx + len(fragment))
+        if span not in used_spans:
+            return span
+        start = idx + 1
+
+    # 2. Búsqueda con strip()
+    stripped = fragment.strip()
+    start = 0
+    while True:
+        idx = text.find(stripped, start)
+        if idx == -1:
+            break
+        span = (idx, idx + len(stripped))
+        if span not in used_spans:
+            return span
+        start = idx + 1
+
+    # 3. Búsqueda con espacios flexibles (regex)
+    words = [re.escape(w) for w in re.split(r"\s+", stripped) if w]
+    if words:
+        pattern = re.compile(r"\s+".join(words))
+        for match in pattern.finditer(text):
+            span = match.span()
+            if span not in used_spans:
+                return span
+
+    return None
+
+
+def build_adapted_document(analysis_id: str) -> AdaptedDocumentResponse:
+    """
+    Construye la versión final del material aplicando únicamente las adaptaciones aceptadas y editadas (Issue #38).
+
+    Reglas:
+    - Solo propuestas con status 'aceptada' o 'editada'.
+    - Si está 'editada', se respeta textualmente el texto del docente ('edited_text').
+    - Si está 'aceptada', se aplica 'proposed_text'.
+    - Las propuestas 'descartada' o 'pendiente' se omiten (el fragmento original se preserva).
+    - Solapamientos: si dos propuestas colisionan en los mismos caracteres, se prioriza la
+      propuesta editada por el docente ('editada' > 'aceptada') y la decisión más reciente.
+      La propuesta no elegida se omite y se documenta en warnings.
+    - Reemplazo seguro: de derecha a izquierda (índices decrecientes) para no desfasar coordenadas.
+    """
+    _analysis, extracted_text = load_analysis(analysis_id)
+    proposals = list_proposals(analysis_id)
+
+    warnings: list[str] = []
+    used_spans: set[tuple[int, int]] = set()
+    candidates: list[_ReplacementCandidate] = []
+
+    # Filtrar únicamente aceptadas y editadas
+    for p in proposals:
+        if p.status not in ("aceptada", "editada"):
+            continue
+
+        if p.status == "editada":
+            replacement = p.edited_text if p.edited_text is not None else (p.final_text or "")
+        else:
+            replacement = p.proposed_text if p.proposed_text is not None else (p.final_text or "")
+
+        span = _find_candidate_span(extracted_text, p.original_text, used_spans)
+        if span is None:
+            warnings.append(
+                f"No se encontró en el material el fragmento original de la propuesta '{p.proposal_id}' "
+                f"({p.barrier_id}). No se aplicó."
+            )
+            continue
+
+        used_spans.add(span)
+        candidates.append(
+            _ReplacementCandidate(
+                proposal=p,
+                start=span[0],
+                end=span[1],
+                replacement_text=replacement,
+            )
+        )
+
+    # Prioridad para resolver solapamientos:
+    # 1) status == "editada" > "aceptada" (criterio docente sobre IA)
+    # 2) decisión más reciente (decided_at descendente)
+    # 3) desempate por proposal_id
+    def _cand_priority(cand: _ReplacementCandidate) -> tuple:
+        is_edited = 1 if cand.proposal.status == "editada" else 0
+        timestamp = cand.proposal.decided_at or cand.proposal.created_at or ""
+        return (is_edited, timestamp, cand.proposal.proposal_id)
+
+    sorted_candidates = sorted(candidates, key=_cand_priority, reverse=True)
+
+    # Selección voraz de intervalos sin solapamientos
+    selected: list[_ReplacementCandidate] = []
+    for cand in sorted_candidates:
+        conflicting = next(
+            (sel for sel in selected if max(cand.start, sel.start) < min(cand.end, sel.end)),
+            None,
+        )
+        if conflicting:
+            warnings.append(
+                f"Propuesta '{cand.proposal.proposal_id}' ({cand.proposal.barrier_id}, {cand.proposal.adaptation_type}) "
+                f"no aplicada por solapamiento con la propuesta '{conflicting.proposal.proposal_id}'."
+            )
+        else:
+            selected.append(cand)
+
+    # Reemplazo de atrás hacia adelante (Right-to-Left)
+    selected.sort(key=lambda c: c.start, reverse=True)
+    adapted_text = extracted_text
+    for item in selected:
+        adapted_text = (
+            adapted_text[:item.start]
+            + item.replacement_text
+            + adapted_text[item.end:]
+        )
+
+    applied_proposal_ids = [item.proposal.proposal_id for item in selected]
+
+    return AdaptedDocumentResponse(
+        analysis_id=analysis_id,
+        original_text=extracted_text,
+        adapted_text=adapted_text,
+        total_proposals=len(proposals),
+        applied_count=len(selected),
+        discarded_count=sum(1 for p in proposals if p.status == "descartada"),
+        pending_count=sum(1 for p in proposals if p.status == "pendiente"),
+        applied_proposals=applied_proposal_ids,
+        warnings=warnings,
+    )
