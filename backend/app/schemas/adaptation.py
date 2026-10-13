@@ -169,3 +169,90 @@ class AdaptedDocumentResponse(BaseModel):
         default_factory=list,
         description="Advertencias durante la aplicación (ej. solapamientos resueltos o citas no encontradas).",
     )
+
+
+# ---------------------------------------------------------------------------
+# Informe final (Issue #39).
+# ---------------------------------------------------------------------------
+
+BarrierResolutionStatus = Literal["aceptada", "editada", "descartada", "pendiente"]
+
+
+class BarrierResolutionDetail(BaseModel):
+    """Barrera del diagnóstico original junto con la decisión docente que se tomó sobre ella."""
+
+    barrier_id: str = Field(description="Identificador de la barrera en el diagnóstico original (ej. 'bar-1').")
+    category: str = Field(description="Categoría de la barrera ('comprension', 'estructura', 'accesibilidad_visual').")
+    severity: str = Field(description="Severidad original ('para_revisar', 'barrera_detectada').")
+    issue: str = Field(description="Nombre breve del problema detectado.")
+    original_text: str = Field(description="Fragmento original del material citado por la barrera.")
+    resolution_status: BarrierResolutionStatus = Field(
+        description=(
+            "'aceptada': la propuesta de la IA se aplicó tal cual. "
+            "'editada': el docente aplicó su propia versión. "
+            "'descartada': el docente decidió no cambiar este fragmento. "
+            "'pendiente': no se tomó ninguna decisión sobre esta barrera."
+        )
+    )
+    final_text: str | None = Field(
+        default=None,
+        description="Texto aplicado en el documento final ('aceptada' o 'editada'). None si no se aplicó.",
+    )
+    proposal_id: str | None = Field(
+        default=None,
+        description="ID de la propuesta de adaptación vinculada a esta barrera, si existe.",
+    )
+
+
+class FinalReportResponse(BaseModel):
+    """Informe ejecutivo de cierre del proceso de adaptación del material (Issue #39)."""
+
+    analysis_id: str = Field(description="ID del diagnóstico de referencia.")
+    generated_at: str = Field(description="Fecha y hora de generación del informe (UTC, ISO 8601).")
+
+    # Puntajes
+    score_before: int = Field(ge=0, le=100, description="Puntaje de accesibilidad del material original.")
+    score_after: int = Field(ge=0, le=100, description="Puntaje de accesibilidad estimado del material adaptado (calculado con el motor de reglas).")
+    score_delta: int = Field(description="Diferencial de puntaje (score_after − score_before). Positivo indica mejora.")
+    score_breakdown_before: "ScoreBreakdown | None" = Field(
+        default=None,
+        description="Detalle del cálculo de puntaje del material original.",
+    )
+    score_breakdown_after: "ScoreBreakdown | None" = Field(
+        default=None,
+        description="Detalle del cálculo de puntaje del material adaptado (solo reglas, sin IA).",
+    )
+    disclaimer: str = Field(
+        default=(
+            "El puntaje obtenido es de carácter orientativo para la mejora de la "
+            "accesibilidad pedagógica y no constituye una certificación oficial de accesibilidad (WCAG)."
+        ),
+        description="Aclaración sobre el carácter orientativo del puntaje.",
+    )
+
+    # Resumen ejecutivo en lenguaje natural
+    executive_summary: list[str] = Field(
+        description="Frases legibles que describen los cambios realizados (ej. 'Se simplificaron 2 consignas...')."
+    )
+
+    # Métricas consolidadas
+    total_barriers: int = Field(description="Cantidad total de barreras detectadas en el diagnóstico original.")
+    resolved_count: int = Field(description="Barreras resueltas (aceptadas + editadas).")
+    discarded_count: int = Field(description="Barreras descartadas por el docente.")
+    pending_count: int = Field(description="Barreras sin decisión tomada.")
+    total_proposals: int = Field(description="Total de propuestas de adaptación generadas.")
+
+    # Detalle por barrera
+    barriers_detail: list[BarrierResolutionDetail] = Field(
+        description="Estado de cada barrera del diagnóstico original con la decisión correspondiente."
+    )
+
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Advertencias del proceso de generación del informe.",
+    )
+
+
+# Referencia diferida para ScoreBreakdown (importado en el servicio)
+from app.schemas.analysis import ScoreBreakdown  # noqa: E402
+FinalReportResponse.model_rebuild()
