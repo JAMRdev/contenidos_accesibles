@@ -9,7 +9,7 @@ aplican solas: se guardan como 'pendiente' hasta que el docente decide.
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from app.db import adaptation_repository, analysis_repository
@@ -29,7 +29,7 @@ from app.schemas.analysis import AccessibilityAnalysisResponse, BarrierReport
 from app.services.accessibility_service import _fragment_parts, _normalize
 from app.services.llm.base import LLMInvalidResponseError
 from app.services.llm_service import llm_service
-from app.services.rules_service import compute_score, split_paragraphs, split_sentences
+from app.services.rules_service import RuleFinding, compute_score, run_rules, split_paragraphs, split_sentences
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 
 logger = logging.getLogger(__name__)
@@ -572,6 +572,12 @@ def build_adapted_document(analysis_id: str) -> AdaptedDocumentResponse:
 
 # --- Informe final (Issue #39) ------------------------------------------------
 
+# Reglas que dependen del archivo y no del texto (imágenes, escaneo, títulos del PDF/Word/PowerPoint):
+# adaptar el texto no las cambia y el texto plano no permite recalcularlas, así que se conservan.
+_FILE_RULES = {"pdf_escaneado", "imagenes_sin_verificar", "pdf_sin_titulos", "salto_jerarquia_titulos", "secciones_extensas"}
+# De esas, las que el diagnóstico informa como barrera grave (aplican el tope de puntaje).
+_SEVERE_FILE_RULES = {"pdf_sin_titulos"}
+
 
 def _text_doc_from_text(text: str) -> "ExtractedDocument":
     """Construye un ExtractedDocument mínimo a partir de texto plano, para pasarlo al motor de reglas."""
@@ -591,6 +597,35 @@ def _text_doc_from_text(text: str) -> "ExtractedDocument":
         is_scanned_pdf=False,
         structure=DocumentStructure(),
     )
+
+
+def _score_after(before: "ScoreBreakdown | None", adapted_text: str) -> "ScoreBreakdown":
+    """
+    Puntaje del material adaptado, comparable con el del diagnóstico original:
+
+    - La IA no se vuelve a consultar: se conserva su puntaje y su peso.
+    - Las reglas de texto se recalculan sobre el texto adaptado.
+    - Las reglas del archivo (_FILE_RULES) se conservan del diagnóstico original.
+
+    Así la diferencia solo refleja los cambios aplicados: sin cambios, el puntaje es el mismo.
+    Comparar contra un puntaje de solo reglas sobre texto plano mostraba mejoras o caídas que
+    no ocurrieron (sin el peso de la IA y sin las penalizaciones de imágenes o escaneo).
+    """
+    rules_after = run_rules(_text_doc_from_text(adapted_text))
+    if before is None:  # diagnósticos viejos sin desglose: solo queda el motor de reglas
+        return compute_score(ai_score=None, rules=rules_after)
+
+    carried = [p for p in before.penalties if p.rule in _FILE_RULES]
+    findings = list(rules_after.findings)
+    if any(p.rule in _SEVERE_FILE_RULES for p in carried):
+        findings.append(RuleFinding(barrier={"severity": "barrera_detectada"}))
+    rules = replace(
+        rules_after,
+        findings=findings,
+        penalties=carried + rules_after.penalties,
+        is_scanned_pdf=any(p.rule == "pdf_escaneado" for p in carried),
+    )
+    return compute_score(ai_score=before.ai_score, rules=rules)
 
 
 _ADAPTATION_TYPE_LABELS: dict[str, str] = {
@@ -647,12 +682,10 @@ def build_final_report(analysis_id: str) -> FinalReportResponse:
     Genera el informe ejecutivo de cierre del proceso de adaptación (Issue #39).
 
     - score_before: tomado directamente del diagnóstico original (no se recalcula).
-    - score_after: calculado aplicando solo el motor de reglas sobre el texto adaptado (0 tokens, determinístico).
+    - score_after: comparable con score_before (ver _score_after); sin cambios aplicados, es igual.
     - barriers_detail: cada barrera del diagnóstico original vinculada con la decisión docente.
     - executive_summary: frases legibles que describen los cambios realizados.
     """
-    from app.services.rules_service import run_rules
-
     analysis, extracted_text = load_analysis(analysis_id)
     proposals = list_proposals(analysis_id)
 
@@ -660,11 +693,9 @@ def build_final_report(analysis_id: str) -> FinalReportResponse:
     score_before = analysis.estimated_score
     breakdown_before = analysis.score_breakdown  # puede ser None si es muy antiguo
 
-    # ---- Texto adaptado y puntaje después (solo reglas) ---------------------
+    # ---- Texto adaptado y puntaje después (0 tokens, determinístico) ---------
     adapted = build_adapted_document(analysis_id)
-    adapted_doc = _text_doc_from_text(adapted.adapted_text)
-    rules_after = run_rules(adapted_doc)
-    breakdown_after = compute_score(ai_score=None, rules=rules_after)
+    breakdown_after = _score_after(breakdown_before, adapted.adapted_text)
     score_after = breakdown_after.final_score
 
     # ---- Mapear barreras a decisiones docentes --------------------------------
