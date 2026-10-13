@@ -2,8 +2,8 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "POST /api/v1/analysis/pdf · Secuencia",
-    "output": "app/admin/diagrams/secuencia-analisis-pdf.html",
+    "title": "POST /api/v1/analysis/pdf · /file · Secuencia",
+    "output": "backend/app/admin/diagrams/secuencia-analisis-pdf.html",
     "locale": "es",
     "viewBox": [
       1080,
@@ -13,7 +13,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/e18-innovalab/contenidos_accesibles.git",
-      "revision": "004e4b5106d204d858e1d40ea40bdf48fc4e2814",
+      "revision": "4be3a2cdc965b363aafce25049d8430e6bc1b715",
       "link_mode": "local-only"
     },
     "translations": {
@@ -467,13 +467,20 @@
     {
       "id": "endpoint",
       "type": "backend",
-      "label": "Endpoint /pdf",
-      "sublabel": "analysis.py",
+      "label": "Endpoint",
+      "sublabel": "/pdf · /file",
       "sources": [
         {
-          "path": "app/api/v1/endpoints/analysis.py",
-          "line": 125,
-          "end_line": 216
+          "path": "backend/app/api/v1/endpoints/analysis.py",
+          "line": 159,
+          "end_line": 274,
+          "label": "POST /pdf"
+        },
+        {
+          "path": "backend/app/api/v1/endpoints/analysis.py",
+          "line": 277,
+          "end_line": 352,
+          "label": "POST /file"
         }
       ]
     },
@@ -481,12 +488,25 @@
       "id": "docsvc",
       "type": "backend",
       "label": "DocumentService",
-      "sublabel": "PyMuPDF",
+      "sublabel": "PDF · docx · pptx",
       "sources": [
         {
-          "path": "app/services/document_service.py",
-          "line": 105,
-          "end_line": 150
+          "path": "backend/app/services/document_service.py",
+          "line": 446,
+          "end_line": 527,
+          "label": "process_pdf"
+        },
+        {
+          "path": "backend/app/services/document_service.py",
+          "line": 529,
+          "end_line": 554,
+          "label": "process_file"
+        },
+        {
+          "path": "backend/app/services/office_service.py",
+          "line": 70,
+          "end_line": 651,
+          "label": "Word y PowerPoint"
         }
       ]
     },
@@ -497,9 +517,9 @@
       "sublabel": "analyze_document",
       "sources": [
         {
-          "path": "app/services/accessibility_service.py",
-          "line": 290,
-          "end_line": 403
+          "path": "backend/app/services/accessibility_service.py",
+          "line": 321,
+          "end_line": 490
         }
       ]
     },
@@ -510,9 +530,9 @@
       "sublabel": "reglas + puntaje",
       "sources": [
         {
-          "path": "app/services/rules_service.py",
-          "line": 296,
-          "end_line": 390
+          "path": "backend/app/services/rules_service.py",
+          "line": 770,
+          "end_line": 938
         }
       ]
     },
@@ -523,9 +543,9 @@
       "sublabel": "reintentos",
       "sources": [
         {
-          "path": "app/services/llm_service.py",
+          "path": "backend/app/services/llm_service.py",
           "line": 78,
-          "end_line": 198
+          "end_line": 202
         }
       ]
     },
@@ -536,9 +556,9 @@
       "sublabel": "SQLite + cooldowns",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 87,
-          "end_line": 123
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 94,
+          "end_line": 142
         }
       ]
     },
@@ -549,14 +569,14 @@
       "sublabel": "Groq / Gemini",
       "sources": [
         {
-          "path": "app/services/llm/openai_adapter.py",
-          "line": 138,
-          "end_line": 165
+          "path": "backend/app/services/llm/openai_adapter.py",
+          "line": 159,
+          "end_line": 187
         },
         {
-          "path": "app/services/llm/gemini_adapter.py",
+          "path": "backend/app/services/llm/gemini_adapter.py",
           "line": 70,
-          "end_line": 110
+          "end_line": 128
         }
       ]
     }
@@ -584,16 +604,16 @@
       "from": "front",
       "to": "endpoint",
       "y": 174,
-      "label": "POST /analysis/pdf",
+      "label": "POST /analysis/file",
       "variant": "emphasis",
-      "note": "Valida .pdf, Content-Type y firma %PDF-; lee en chunks de 1 MB (413 si supera 10 MB)"
+      "note": "Valida extensión (.pdf, .docx, .pptx), Content-Type y firma binaria; lee en chunks de 1 MB (413 si supera 10 MB). /analysis/pdf hace lo mismo solo para PDF"
     },
     {
       "id": "extract",
       "from": "endpoint",
       "to": "docsvc",
       "y": 202,
-      "label": "process_pdf (to_thread)"
+      "label": "process_file (to_thread)"
     },
     {
       "id": "extracted",
@@ -601,7 +621,8 @@
       "to": "endpoint",
       "y": 230,
       "label": "ExtractedDocument",
-      "variant": "return"
+      "variant": "return",
+      "note": "Mismo contrato para los tres formatos; en Word y PowerPoint informa qué imágenes ya tienen texto alternativo"
     },
     {
       "id": "analyze",
@@ -749,7 +770,7 @@
       "dot": "cyan",
       "title": "Entrada",
       "items": [
-        "PDF de hasta 10 MB, procesado solo en memoria",
+        "PDF, Word o PowerPoint de hasta 10 MB, procesado solo en memoria",
         "La extracción corre en un hilo para no bloquear el event loop",
         "Un PDF escaneado sin texto se analiza solo con reglas"
       ]
@@ -758,7 +779,7 @@
       "dot": "amber",
       "title": "Errores HTTP",
       "items": [
-        "400: archivo o PDF inválido · 413: supera 10 MB",
+        "400: archivo inválido, protegido o con macros · 413: supera 10 MB",
         "422: sin texto analizable · 429: todas las conexiones agotadas",
         "502: JSON inválido del modelo · 503: ningún proveedor respondió"
       ]

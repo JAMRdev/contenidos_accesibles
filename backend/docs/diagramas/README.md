@@ -9,13 +9,13 @@ Fuentes de los diagramas que se ven en **`/admin/diagramas`** (con las credencia
 | `rotacion-keys.json` | `app/admin/diagrams/rotacion-keys.html` | dataflow |
 | `ciclo-vida-conexion.json` | `app/admin/diagrams/ciclo-vida-conexion.html` | lifecycle |
 
-Cada caja cita en `sources` los archivos y las líneas de donde sale; `meta.repository.revision` indica el commit que describe. **No se actualizan solos**: si cambia el código que describen, hay que editar el JSON y regenerar.
+Cada caja cita en `sources` los archivos y las líneas de donde sale; `meta.repository.revision` indica el commit que describe. `arquitectura` y `secuencia-analisis-pdf` están al día con la carga de Word y PowerPoint (Issue #47); `rotacion-keys` y `ciclo-vida-conexion` todavía describen el commit del repo de desarrollo previo a la migración. **No se actualizan solos**: si cambia el código que describen, hay que editar el JSON y regenerar.
 
 ## Regenerar
 
 Requisitos: Node 18+, la skill instalada (`npx skills add tt-a1i/archify -g`) y Chrome o Chromium para la verificación en navegador.
 
-Desde la raíz del repo:
+Desde la raíz del monorepo (Archify exige que `--repo-root` sea la raíz de git, por eso las rutas de `sources` empiezan con `backend/`):
 
 ```bash
 export ARCHIFY_UPDATE_CHECK_DISABLED=1
@@ -23,7 +23,7 @@ export ARCHIFY_CHROME=/ruta/a/chrome          # si no se detecta solo
 # export ARCHIFY_CHROME_NO_SANDBOX=1           # solo si Chrome falla en un sandbox (flatpak, contenedor)
 
 node ~/.claude/skills/archify/bin/archify.mjs finalize architecture \
-  docs/diagramas/arquitectura.json app/admin/diagrams/arquitectura.html \
+  backend/docs/diagramas/arquitectura.json backend/app/admin/diagrams/arquitectura.html \
   --repo-root . --quality showcase --json
 ```
 

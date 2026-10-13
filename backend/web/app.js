@@ -5,7 +5,13 @@
 // ---------------------------------------------------------------------------
 
 const API_PREFIX = "/api/v1";
-const MAX_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+// Formatos que aceptan /documents/upload y /analysis/file (Issue #47), con su Content-Type.
+const FILE_TYPES = {
+    pdf: { label: "PDF", mime: "application/pdf" },
+    docx: { label: "Word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+    pptx: { label: "PowerPoint", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+};
 const MIN_TEXT_CHARS = 10;
 const MAX_TEXT_CHARS = 20000;
 const REQUEST_TIMEOUT_MS = 180000; // la IA real puede tardar; Railway corta antes si algo se cuelga
@@ -147,7 +153,8 @@ function toCurl(method, url, body) {
     if (body && body.kind === "json") {
         parts.push(`-H 'Content-Type: application/json'`, `-d ${shellQuote(JSON.stringify(body.value))}`);
     } else if (body && body.kind === "file") {
-        parts.push(`-F ${shellQuote(`file=@${body.value.name};type=application/pdf`)}`);
+        const type = (FILE_TYPES[fileExtension(body.value.name)] || FILE_TYPES.pdf).mime;
+        parts.push(`-F ${shellQuote(`file=@${body.value.name};type=${type}`)}`);
     }
     return parts.join(" \\\n  ");
 }
@@ -291,7 +298,7 @@ async function checkHealth() {
 function switchTab(name) {
     for (const tab of document.querySelectorAll(".tab")) tab.classList.toggle("active", tab.dataset.tab === name);
     $("tab-text").hidden = name !== "text";
-    $("tab-pdf").hidden = name !== "pdf";
+    $("tab-file").hidden = name !== "file";
 }
 
 function updateTextCount() {
@@ -308,17 +315,23 @@ function readText() {
     return text;
 }
 
-function readPdf() {
-    const file = $("pdf-input").files[0];
-    if (!file) throw new InputError("Elegí un archivo PDF.");
-    if (!file.name.toLowerCase().endsWith(".pdf")) throw new InputError("El archivo debe tener extensión .pdf.");
-    if (file.size > MAX_PDF_BYTES) throw new InputError(`El archivo pesa ${fmtBytes(file.size)}; el máximo es 10 MB.`);
+function fileExtension(name) {
+    const dot = name.lastIndexOf(".");
+    return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+function readFile() {
+    const file = $("file-input").files[0];
+    if (!file) throw new InputError("Elegí un archivo PDF, Word o PowerPoint.");
+    if (!FILE_TYPES[fileExtension(file.name)]) throw new InputError("El archivo debe tener extensión .pdf, .docx o .pptx.");
+    if (file.size > MAX_FILE_BYTES) throw new InputError(`El archivo pesa ${fmtBytes(file.size)}; el máximo es 10 MB.`);
     return file;
 }
 
-function updatePdfInfo() {
-    const file = $("pdf-input").files[0];
-    $("pdf-info").textContent = file ? `${file.name} · ${fmtBytes(file.size)}` : "";
+function updateFileInfo() {
+    const file = $("file-input").files[0];
+    const type = file && FILE_TYPES[fileExtension(file.name)];
+    $("file-info").textContent = file ? `${file.name} · ${type ? type.label : "formato no admitido"} · ${fmtBytes(file.size)}` : "";
 }
 
 function renderExtraction(doc) {
@@ -330,11 +343,12 @@ function renderExtraction(doc) {
         kv([
             ["Origen", doc.source_type],
             ["Archivo", doc.filename],
-            ["Páginas", doc.page_count],
+            [doc.source_type === "pptx" ? "Diapositivas" : "Páginas", doc.page_count],
             ["Palabras", doc.word_count],
             ["Caracteres", doc.character_count],
             ["Imágenes", doc.image_count],
-            ["PDF escaneado", doc.is_scanned_pdf ? "sí" : "no"],
+            ["Con texto alternativo", doc.source_type === "docx" || doc.source_type === "pptx" ? doc.images_with_alt_text : undefined],
+            ["PDF escaneado", doc.source_type === "pdf" ? (doc.is_scanned_pdf ? "sí" : "no") : undefined],
             ["Títulos detectados", (s.headings || []).length],
             ["Niveles de jerarquía", s.hierarchy_levels],
             ["Ítems de lista", s.list_items_count],
@@ -345,7 +359,10 @@ function renderExtraction(doc) {
             : null,
         (s.headings || []).length
             ? el("details", {}, el("summary", {}, "Títulos detectados"),
-                el("ul", {}, s.headings.map((h) => el("li", {}, `H${h.level} · pág. ${h.page_number} · ${h.text}`))))
+                el("ul", {}, s.headings.map((h) => el("li", {},
+                    doc.source_type === "docx"
+                        ? `H${h.level} · ${h.text}`
+                        : `H${h.level} · ${doc.source_type === "pptx" ? "diap." : "pág."} ${h.page_number} · ${h.text}`))))
             : null,
         el("details", {}, el("summary", {}, "Texto extraído"), el("pre", {}, doc.raw_text || "")),
         rawJson(doc),
@@ -357,9 +374,10 @@ async function processText() {
     renderExtraction(await api("POST", "/documents/process-text", { body: { kind: "json", value: { text } } }));
 }
 
-async function processPdf() {
-    const file = readPdf();
-    renderExtraction(await api("POST", "/documents/upload-pdf", { body: { kind: "file", value: file }, busyText: "Extrayendo PDF…" }));
+async function processFile() {
+    const file = readFile();
+    const label = FILE_TYPES[fileExtension(file.name)].label;
+    renderExtraction(await api("POST", "/documents/upload", { body: { kind: "file", value: file }, busyText: `Extrayendo ${label}…` }));
 }
 
 const ANALYSIS_BUSY = () => isMock()
@@ -376,9 +394,9 @@ async function analyzeText() {
     await showAnalysis(data);
 }
 
-async function analyzePdf() {
-    const file = readPdf();
-    const data = await api("POST", "/analysis/pdf", {
+async function analyzeFile() {
+    const file = readFile();
+    const data = await api("POST", "/analysis/file", {
         query: { mock: isMock() },
         body: { kind: "file", value: file },
         busyText: ANALYSIS_BUSY(),
@@ -431,7 +449,7 @@ function renderDiagnosis(d) {
                 ["Latencia", m.latency_ms !== undefined ? `${m.latency_ms} ms` : undefined],
                 ["Tokens", m.total_tokens ?? "—"],
                 ["Origen", m.source_type + (m.filename ? ` · ${m.filename}` : "")],
-                ["Páginas / imágenes", `${m.page_count} / ${m.image_count}`],
+                [m.source_type === "pptx" ? "Diapositivas / imágenes" : "Páginas / imágenes", `${m.page_count} / ${m.image_count}`],
                 ["Palabras analizadas", `${m.analyzed_word_count}${m.is_truncated ? " (truncado)" : ""}`],
                 ["Fragmentos no verificados", m.unverified_fragments],
             ]),
@@ -704,13 +722,13 @@ function init() {
     for (const tab of document.querySelectorAll(".tab")) tab.addEventListener("click", () => switchTab(tab.dataset.tab));
     $("text-input").addEventListener("input", updateTextCount);
     $("btn-sample-text").addEventListener("click", () => { $("text-input").value = SAMPLE_TEXT; updateTextCount(); });
-    $("pdf-input").addEventListener("change", updatePdfInfo);
+    $("file-input").addEventListener("change", updateFileInfo);
 
     const material = document.querySelector("#tab-text").parentElement;
     $("btn-process-text").addEventListener("click", () => run(material, processText));
     $("btn-analyze-text").addEventListener("click", () => run(material, analyzeText));
-    $("btn-process-pdf").addEventListener("click", () => run(material, processPdf));
-    $("btn-analyze-pdf").addEventListener("click", () => run(material, analyzePdf));
+    $("btn-process-file").addEventListener("click", () => run(material, processFile));
+    $("btn-analyze-file").addEventListener("click", () => run(material, analyzeFile));
 
     const diagnosisSection = $("diagnosis").parentElement;
     $("btn-load-analysis").addEventListener("click", () => run(diagnosisSection, loadAnalysis));

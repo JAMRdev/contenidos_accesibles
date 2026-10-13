@@ -3,12 +3,12 @@
   "diagram_type": "architecture",
   "meta": {
     "title": "Backend InnovaLab · Arquitectura en runtime",
-    "output": "app/admin/diagrams/arquitectura.html",
+    "output": "backend/app/admin/diagrams/arquitectura.html",
     "locale": "es",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/e18-innovalab/contenidos_accesibles.git",
-      "revision": "004e4b5106d204d858e1d40ea40bdf48fc4e2814",
+      "revision": "4be3a2cdc965b363aafce25049d8430e6bc1b715",
       "link_mode": "local-only"
     },
     "translations": {
@@ -468,15 +468,15 @@
       ],
       "sources": [
         {
-          "path": "app/core/config.py",
-          "line": 61,
-          "end_line": 79,
+          "path": "backend/app/core/config.py",
+          "line": 65,
+          "end_line": 83,
           "label": "BACKEND_CORS_ORIGINS"
         },
         {
-          "path": "app/main.py",
-          "line": 74,
-          "end_line": 81,
+          "path": "backend/app/main.py",
+          "line": 77,
+          "end_line": 83,
           "label": "CORSMiddleware"
         }
       ]
@@ -496,13 +496,13 @@
       ],
       "sources": [
         {
-          "path": "app/main.py",
-          "line": 20,
-          "end_line": 90,
+          "path": "backend/app/main.py",
+          "line": 21,
+          "end_line": 92,
           "label": "lifespan + routers"
         },
         {
-          "path": "railway.json",
+          "path": "backend/railway.json",
           "line": 6,
           "end_line": 12,
           "label": "Railway deploy"
@@ -524,14 +524,14 @@
       ],
       "sources": [
         {
-          "path": "app/core/docs.py",
+          "path": "backend/app/core/docs.py",
           "line": 8,
           "end_line": 29
         },
         {
-          "path": "app/core/config.py",
-          "line": 81,
-          "end_line": 95,
+          "path": "backend/app/core/config.py",
+          "line": 109,
+          "end_line": 123,
           "label": "docs_protected"
         }
       ]
@@ -540,7 +540,7 @@
       "id": "analysis",
       "type": "backend",
       "label": "Análisis",
-      "sublabel": "/sample · /pdf · ?mock",
+      "sublabel": "/sample · /pdf · /file · ?mock",
       "pos": [
         505,
         250
@@ -551,16 +551,22 @@
       ],
       "sources": [
         {
-          "path": "app/api/v1/endpoints/analysis.py",
-          "line": 62,
-          "end_line": 114,
+          "path": "backend/app/api/v1/endpoints/analysis.py",
+          "line": 82,
+          "end_line": 148,
           "label": "POST /sample"
         },
         {
-          "path": "app/api/v1/endpoints/analysis.py",
-          "line": 125,
-          "end_line": 216,
+          "path": "backend/app/api/v1/endpoints/analysis.py",
+          "line": 159,
+          "end_line": 274,
           "label": "POST /pdf"
+        },
+        {
+          "path": "backend/app/api/v1/endpoints/analysis.py",
+          "line": 277,
+          "end_line": 352,
+          "label": "POST /file"
         }
       ]
     },
@@ -568,7 +574,7 @@
       "id": "docsvc",
       "type": "backend",
       "label": "DocumentService",
-      "sublabel": "PyMuPDF en memoria",
+      "sublabel": "PDF · Word · PowerPoint",
       "pos": [
         500,
         410
@@ -579,10 +585,22 @@
       ],
       "sources": [
         {
-          "path": "app/services/document_service.py",
-          "line": 105,
-          "end_line": 150,
+          "path": "backend/app/services/document_service.py",
+          "line": 446,
+          "end_line": 527,
           "label": "process_pdf"
+        },
+        {
+          "path": "backend/app/services/document_service.py",
+          "line": 529,
+          "end_line": 554,
+          "label": "process_file"
+        },
+        {
+          "path": "backend/app/services/office_service.py",
+          "line": 70,
+          "end_line": 651,
+          "label": "Word y PowerPoint"
         }
       ]
     },
@@ -601,9 +619,9 @@
       ],
       "sources": [
         {
-          "path": "app/services/accessibility_service.py",
-          "line": 290,
-          "end_line": 403,
+          "path": "backend/app/services/accessibility_service.py",
+          "line": 321,
+          "end_line": 490,
           "label": "analyze_document"
         }
       ]
@@ -623,15 +641,15 @@
       ],
       "sources": [
         {
-          "path": "app/services/rules_service.py",
-          "line": 296,
-          "end_line": 360,
+          "path": "backend/app/services/rules_service.py",
+          "line": 770,
+          "end_line": 908,
           "label": "run_rules"
         },
         {
-          "path": "app/services/rules_service.py",
-          "line": 365,
-          "end_line": 390,
+          "path": "backend/app/services/rules_service.py",
+          "line": 913,
+          "end_line": 938,
           "label": "compute_score"
         }
       ]
@@ -651,9 +669,9 @@
       ],
       "sources": [
         {
-          "path": "app/services/llm_service.py",
+          "path": "backend/app/services/llm_service.py",
           "line": 78,
-          "end_line": 131,
+          "end_line": 132,
           "label": "_generate"
         }
       ]
@@ -673,18 +691,18 @@
       ],
       "sources": [
         {
-          "path": "app/services/llm/providers.py",
+          "path": "backend/app/services/llm/providers.py",
           "line": 33,
           "end_line": 50,
           "label": "presets"
         },
         {
-          "path": "app/services/llm/openai_adapter.py",
-          "line": 73,
-          "end_line": 80
+          "path": "backend/app/services/llm/openai_adapter.py",
+          "line": 76,
+          "end_line": 83
         },
         {
-          "path": "app/services/llm/gemini_adapter.py",
+          "path": "backend/app/services/llm/gemini_adapter.py",
           "line": 64,
           "end_line": 67
         }
@@ -705,15 +723,15 @@
       ],
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 87,
-          "end_line": 108,
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 94,
+          "end_line": 126,
           "label": "get_active_connection"
         },
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 170,
-          "end_line": 207,
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 189,
+          "end_line": 226,
           "label": "sync_env_connection"
         }
       ]
@@ -733,18 +751,18 @@
       ],
       "sources": [
         {
-          "path": "app/db/database.py",
+          "path": "backend/app/db/database.py",
           "line": 11,
-          "end_line": 55
+          "end_line": 100
         },
         {
-          "path": "app/db/api_key_repository.py",
+          "path": "backend/app/db/api_key_repository.py",
           "line": 186,
           "end_line": 245,
           "label": "usage + resets"
         },
         {
-          "path": "app/core/crypto.py",
+          "path": "backend/app/core/crypto.py",
           "line": 1,
           "end_line": 18
         }
@@ -765,12 +783,12 @@
       ],
       "sources": [
         {
-          "path": "app/admin/router.py",
-          "line": 38,
-          "end_line": 80
+          "path": "backend/app/admin/router.py",
+          "line": 51,
+          "end_line": 103
         },
         {
-          "path": "app/core/security.py",
+          "path": "backend/app/core/security.py",
           "line": 50,
           "end_line": 64,
           "label": "verify_same_origin"
@@ -792,7 +810,7 @@
       ],
       "sources": [
         {
-          "path": "app/core/security.py",
+          "path": "backend/app/core/security.py",
           "line": 15,
           "end_line": 30,
           "label": "get_current_admin"
@@ -906,8 +924,8 @@
       "dot": "cyan",
       "title": "Flujo principal",
       "items": [
-        "El front llama a /api/v1/analysis con texto o PDF (máx. 10 MB)",
-        "El PDF se procesa en memoria con PyMuPDF en un hilo aparte",
+        "El front llama a /api/v1/analysis con texto o un PDF, Word o PowerPoint (máx. 10 MB)",
+        "El archivo se procesa en memoria (PyMuPDF, python-docx, python-pptx) en un hilo aparte",
         "?mock=true simula la IA y corre las reglas reales"
       ]
     },

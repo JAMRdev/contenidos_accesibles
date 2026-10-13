@@ -37,7 +37,7 @@
         <h2>1. Material</h2>
         <div class="tabs" role="tablist">
             <button type="button" class="tab active" data-tab="text" role="tab">Texto</button>
-            <button type="button" class="tab" data-tab="pdf" role="tab">PDF</button>
+            <button type="button" class="tab" data-tab="file" role="tab">Archivo</button>
         </div>
 
         <div id="tab-text" class="tab-panel">
@@ -54,14 +54,14 @@
             </div>
         </div>
 
-        <div id="tab-pdf" class="tab-panel" hidden>
-            <label>Archivo PDF (máximo 10 MB)
-                <input id="pdf-input" type="file" accept="application/pdf,.pdf">
+        <div id="tab-file" class="tab-panel" hidden>
+            <label>Archivo PDF, Word (.docx) o PowerPoint (.pptx), máximo 10 MB
+                <input id="file-input" type="file" accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation">
             </label>
-            <p id="pdf-info" class="muted"></p>
+            <p id="file-info" class="muted"></p>
             <div class="row">
-                <button type="button" id="btn-process-pdf" class="secondary">Ver extracción (opcional)</button>
-                <button type="button" id="btn-analyze-pdf">Analizar PDF</button>
+                <button type="button" id="btn-process-file" class="secondary">Ver extracción (opcional)</button>
+                <button type="button" id="btn-analyze-file">Analizar archivo</button>
             </div>
         </div>
 
