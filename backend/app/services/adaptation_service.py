@@ -421,9 +421,16 @@ def _find_candidate_span(
     """
     Encuentra la posición (inicio, fin) de un fragmento en el texto original.
     Evita reutilizar el mismo span si varias propuestas comparten fragmento idéntico.
+
+    Si el fragmento aparece en el material pero todas sus apariciones ya las tomó otra
+    propuesta (p. ej. dos barreras que citan la misma oración), devuelve esa aparición
+    igual: el solapamiento se resuelve después por prioridad y queda en warnings, en
+    lugar de informarse como "no encontrado".
     """
     if not fragment or not fragment.strip():
         return None
+
+    taken: tuple[int, int] | None = None
 
     # 1. Búsqueda exacta
     start = 0
@@ -434,6 +441,7 @@ def _find_candidate_span(
         span = (idx, idx + len(fragment))
         if span not in used_spans:
             return span
+        taken = taken or span
         start = idx + 1
 
     # 2. Búsqueda con strip()
@@ -446,6 +454,7 @@ def _find_candidate_span(
         span = (idx, idx + len(stripped))
         if span not in used_spans:
             return span
+        taken = taken or span
         start = idx + 1
 
     # 3. Búsqueda con espacios flexibles (regex)
@@ -456,8 +465,9 @@ def _find_candidate_span(
             span = match.span()
             if span not in used_spans:
                 return span
+            taken = taken or span
 
-    return None
+    return taken
 
 
 def build_adapted_document(analysis_id: str) -> AdaptedDocumentResponse:
