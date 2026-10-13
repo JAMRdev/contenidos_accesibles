@@ -88,6 +88,12 @@ class EmptyDocumentError(ValueError):
     """El documento no tiene texto analizable (p. ej. PDF escaneado sin OCR)."""
 
 
+_EMPTY_DOCUMENT_MESSAGE = (
+    "El material no contiene texto analizable. Si es un PDF escaneado, "
+    "subí una versión con texto seleccionable."
+)
+
+
 @dataclass
 class _AIPart:
     """Lo que aporta la IA (real o simulada) al diagnóstico, antes de unirlo con las reglas."""
@@ -341,6 +347,10 @@ async def analyze_document(
   # Si hay datos personales no descartados por el docente, lanza SensitiveDataError.
     dismissed = ensure_no_sensitive_data(doc.raw_text, dismissed_findings or ())
 
+    # Antes de la rama mock: el modo mock tiene que responder los mismos errores que la IA real.
+    if not doc.text_for_analysis.strip() and not doc.is_scanned_pdf:
+        raise EmptyDocumentError(_EMPTY_DOCUMENT_MESSAGE)
+
     if mock:
         response = build_mock_analysis_response(doc)
     else:
@@ -405,10 +415,7 @@ async def analyze_document(
                 unverified_fragments=0,
             )
         elif not text:
-            raise EmptyDocumentError(
-                "El material no contiene texto analizable. Si es un PDF escaneado, "
-                "subí una versión con texto seleccionable."
-            )
+            raise EmptyDocumentError(_EMPTY_DOCUMENT_MESSAGE)
         else:
             # Las reglas no dependen de la IA: si fallan, falla el análisis antes de gastar tokens.
             rules = run_rules(doc)
