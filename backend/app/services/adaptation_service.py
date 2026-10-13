@@ -20,14 +20,16 @@ from app.schemas.adaptation import (
     AdaptationRequest,
     AdaptationType,
     AdaptedDocumentResponse,
+    BarrierResolutionDetail,
     DecisionLogEntry,
     DecisionRequest,
+    FinalReportResponse,
 )
 from app.schemas.analysis import AccessibilityAnalysisResponse, BarrierReport
 from app.services.accessibility_service import _fragment_parts, _normalize
 from app.services.llm.base import LLMInvalidResponseError
 from app.services.llm_service import llm_service
-from app.services.rules_service import split_paragraphs, split_sentences
+from app.services.rules_service import compute_score, split_paragraphs, split_sentences
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 
 logger = logging.getLogger(__name__)
@@ -555,4 +557,159 @@ def build_adapted_document(analysis_id: str) -> AdaptedDocumentResponse:
         pending_count=sum(1 for p in proposals if p.status == "pendiente"),
         applied_proposals=applied_proposal_ids,
         warnings=warnings,
+    )
+
+
+# --- Informe final (Issue #39) ------------------------------------------------
+
+
+def _text_doc_from_text(text: str) -> "ExtractedDocument":
+    """Construye un ExtractedDocument mínimo a partir de texto plano, para pasarlo al motor de reglas."""
+    from app.schemas.document import ExtractedDocument, DocumentStructure
+    from app.services.rules_service import count_words
+    return ExtractedDocument(
+        source_type="text",
+        filename=None,
+        raw_text=text,
+        text_for_analysis=text,
+        is_truncated=False,
+        page_count=1,
+        word_count=count_words(text),
+        character_count=len(text),
+        has_images=False,
+        image_count=0,
+        is_scanned_pdf=False,
+        structure=DocumentStructure(),
+    )
+
+
+_ADAPTATION_TYPE_LABELS: dict[str, str] = {
+    "lenguaje_claro": "simplificación de lenguaje",
+    "consigna_en_pasos": "división de consignas en pasos",
+    "reorganizar": "reorganización de contenido",
+    "mejorar_estructura": "mejora de estructura",
+}
+
+
+def _generate_executive_summary(
+    barriers_detail: list[BarrierResolutionDetail],
+    proposals: list[AdaptationProposal],
+) -> list[str]:
+    """
+    Genera frases descriptivas legibles para el docente que resumen los cambios aplicados.
+    Agrupa por tipo de adaptación y categoría de barrera.
+    """
+    summary: list[str] = []
+
+    # Contar cambios aplicados por tipo de adaptación
+    applied_by_type: dict[str, int] = {}
+    for p in proposals:
+        if p.status in ("aceptada", "editada"):
+            label = _ADAPTATION_TYPE_LABELS.get(p.adaptation_type, p.adaptation_type)
+            applied_by_type[label] = applied_by_type.get(label, 0) + 1
+
+    for label, count in sorted(applied_by_type.items(), key=lambda x: -x[1]):
+        if count == 1:
+            summary.append(f"Se aplicó 1 adaptación de {label}.")
+        else:
+            summary.append(f"Se aplicaron {count} adaptaciones de {label}.")
+
+    # Barreras sin decisión
+    pending = sum(1 for b in barriers_detail if b.resolution_status == "pendiente")
+    discarded = sum(1 for b in barriers_detail if b.resolution_status == "descartada")
+
+    if pending > 0:
+        summary.append(
+            f"Quedaron {pending} barrera(s) sin decisión tomada: el texto original se preserva en esas secciones."
+        )
+    if discarded > 0:
+        summary.append(
+            f"El docente optó por mantener el texto original en {discarded} barrera(s) detectada(s)."
+        )
+    if not summary:
+        summary.append("No se aplicaron adaptaciones en este material.")
+
+    return summary
+
+
+def build_final_report(analysis_id: str) -> FinalReportResponse:
+    """
+    Genera el informe ejecutivo de cierre del proceso de adaptación (Issue #39).
+
+    - score_before: tomado directamente del diagnóstico original (no se recalcula).
+    - score_after: calculado aplicando solo el motor de reglas sobre el texto adaptado (0 tokens, determinístico).
+    - barriers_detail: cada barrera del diagnóstico original vinculada con la decisión docente.
+    - executive_summary: frases legibles que describen los cambios realizados.
+    """
+    from app.services.rules_service import run_rules
+
+    analysis, extracted_text = load_analysis(analysis_id)
+    proposals = list_proposals(analysis_id)
+
+    # ---- Puntaje antes -------------------------------------------------------
+    score_before = analysis.estimated_score
+    breakdown_before = analysis.score_breakdown  # puede ser None si es muy antiguo
+
+    # ---- Texto adaptado y puntaje después (solo reglas) ---------------------
+    adapted = build_adapted_document(analysis_id)
+    adapted_doc = _text_doc_from_text(adapted.adapted_text)
+    rules_after = run_rules(adapted_doc)
+    breakdown_after = compute_score(ai_score=None, rules=rules_after)
+    score_after = breakdown_after.final_score
+
+    # ---- Mapear barreras a decisiones docentes --------------------------------
+    # Índice: barrier_id -> propuesta más relevante (editada > aceptada > descartada > pendiente)
+    _STATUS_PRIORITY = {"editada": 0, "aceptada": 1, "descartada": 2, "pendiente": 3}
+    proposal_by_barrier: dict[str, AdaptationProposal] = {}
+    for p in sorted(proposals, key=lambda x: _STATUS_PRIORITY.get(x.status, 9)):
+        if p.barrier_id not in proposal_by_barrier:
+            proposal_by_barrier[p.barrier_id] = p
+
+    barriers_detail: list[BarrierResolutionDetail] = []
+    for barrier in analysis.barriers:
+        p = proposal_by_barrier.get(barrier.id)
+        if p is None:
+            status: str = "pendiente"
+            final_text = None
+            proposal_id = None
+        else:
+            status = p.status
+            final_text = p.final_text
+            proposal_id = p.proposal_id
+
+        barriers_detail.append(BarrierResolutionDetail(
+            barrier_id=barrier.id,
+            category=barrier.category,
+            severity=barrier.severity,
+            issue=barrier.issue,
+            original_text=barrier.original_text,
+            resolution_status=status,
+            final_text=final_text,
+            proposal_id=proposal_id,
+        ))
+
+    # ---- Métricas consolidadas -----------------------------------------------
+    resolved_count = sum(1 for b in barriers_detail if b.resolution_status in ("aceptada", "editada"))
+    discarded_count = sum(1 for b in barriers_detail if b.resolution_status == "descartada")
+    pending_count = sum(1 for b in barriers_detail if b.resolution_status == "pendiente")
+
+    # ---- Resumen ejecutivo ---------------------------------------------------
+    executive_summary = _generate_executive_summary(barriers_detail, proposals)
+
+    return FinalReportResponse(
+        analysis_id=analysis_id,
+        generated_at=_now_utc_iso(),
+        score_before=score_before,
+        score_after=score_after,
+        score_delta=score_after - score_before,
+        score_breakdown_before=breakdown_before,
+        score_breakdown_after=breakdown_after,
+        executive_summary=executive_summary,
+        total_barriers=len(analysis.barriers),
+        resolved_count=resolved_count,
+        discarded_count=discarded_count,
+        pending_count=pending_count,
+        total_proposals=len(proposals),
+        barriers_detail=barriers_detail,
+        warnings=adapted.warnings,
     )

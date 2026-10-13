@@ -8,6 +8,7 @@ from app.schemas.adaptation import (
     AdaptedDocumentResponse,
     DecisionLogEntry,
     DecisionRequest,
+    FinalReportResponse,
 )
 from app.services import adaptation_service
 from app.services.adaptation_service import (
@@ -149,6 +150,34 @@ async def get_final_version(
     """
     try:
         return adaptation_service.build_adapted_document(analysis_id)
+    except AdaptationNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/report",
+    response_model=FinalReportResponse,
+    summary="Informe final: barreras detectadas, cambios aplicados y puntaje antes/después (Issue #39)",
+)
+async def get_final_report(
+    analysis_id: str = Query(description="ID del diagnóstico para el cual se genera el informe de cierre."),
+):
+    """
+    ## Informe final de adaptación (Issue #39)
+
+    Genera un informe ejecutivo del proceso de mejora de accesibilidad:
+
+    - **score_before / score_after**: puntaje del material original y del adaptado.
+      El puntaje posterior se calcula con el motor de reglas determinístico (sin tokens de IA).
+    - **score_delta**: diferencial. Positivo indica mejora de accesibilidad.
+    - **barriers_detail**: cada barrera del diagnóstico original con su decisión docente
+      (`aceptada`, `editada`, `descartada` o `pendiente`).
+    - **executive_summary**: frases legibles que describen los cambios realizados.
+    - **disclaimer**: aclaración de que el puntaje es orientativo y no constituye
+      certificación oficial de accesibilidad (WCAG).
+    """
+    try:
+        return adaptation_service.build_final_report(analysis_id)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
