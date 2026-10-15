@@ -18,13 +18,24 @@ os.environ.setdefault("DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ["AI_API_KEY"] = ""
 
 
+# TEST_DATABASE_BACKEND=d1 corre toda la suite contra el adaptador de D1 (app/db/d1_connection.py)
+# con un D1 de prueba sobre SQLite (tests/fake_d1.py). Por defecto, SQLite directo como en local.
+D1_MODE = os.environ.get("TEST_DATABASE_BACKEND") == "d1"
+
+
 @pytest.fixture(autouse=True, scope="session")
 def isolated_database(tmp_path_factory):
     from app.core.config import settings
+    from app.db import database
     from app.db.database import init_db
 
-    original = settings.DATABASE_PATH
+    original = (settings.DATABASE_PATH, settings.DATABASE_BACKEND, database._d1_client)
     settings.DATABASE_PATH = str(tmp_path_factory.mktemp("db") / "test.db")
+    if D1_MODE:
+        from tests.fake_d1 import FakeD1Client
+
+        settings.DATABASE_BACKEND = "d1"
+        database._d1_client = FakeD1Client()
     init_db()
     yield
-    settings.DATABASE_PATH = original
+    settings.DATABASE_PATH, settings.DATABASE_BACKEND, database._d1_client = original

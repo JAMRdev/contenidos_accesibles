@@ -30,7 +30,7 @@ router = APIRouter()
         404: {"description": "Diagnóstico no encontrado o expirado."},
     },
 )
-async def export_content(
+def export_content(
     analysis_id: str = Query(description="ID del diagnóstico cuyo material adaptado se desea exportar."),
     format: str = Query(default="docx", description="Formato de salida: 'docx', 'pdf', 'md' o 'txt'."),
 ):
@@ -80,7 +80,7 @@ async def export_content(
         404: {"description": "Diagnóstico no encontrado o expirado."},
     },
 )
-async def export_report(
+def export_report(
     analysis_id: str = Query(description="ID del diagnóstico cuyo informe se desea exportar."),
     format: str = Query(default="pdf", description="Formato de salida: 'pdf', 'md' o 'txt'."),
 ):

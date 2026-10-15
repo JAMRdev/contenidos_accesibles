@@ -100,7 +100,7 @@ async def create_adaptation(
     response_model=list[AdaptationProposal],
     summary="Listar las propuestas de adaptación de un diagnóstico",
 )
-async def list_adaptations(
+def list_adaptations(
     analysis_id: str = Query(description="ID del diagnóstico cuyas propuestas se quieren listar."),
 ):
     """Propuestas generadas para un diagnóstico, de la más antigua a la más reciente."""
@@ -115,7 +115,7 @@ async def list_adaptations(
     response_model=list[DecisionLogEntry],
     summary="Registro de decisiones docentes de un diagnóstico (para el informe)",
 )
-async def list_decisions(
+def list_decisions(
     analysis_id: str = Query(description="ID del diagnóstico cuyo registro de modificaciones se quiere obtener."),
 ):
     """
@@ -133,7 +133,7 @@ async def list_decisions(
     response_model=AdaptedDocumentResponse,
     summary="Generar la versión final del documento aplicando solo los cambios aceptados (Issue #38)",
 )
-async def get_final_version(
+def get_final_version(
     analysis_id: str = Query(description="ID del diagnóstico cuyo documento adaptado se quiere generar."),
 ):
     """
@@ -159,7 +159,7 @@ async def get_final_version(
     response_model=FinalReportResponse,
     summary="Informe final: barreras detectadas, cambios aplicados y puntaje antes/después (Issue #39)",
 )
-async def get_final_report(
+def get_final_report(
     analysis_id: str = Query(description="ID del diagnóstico para el cual se genera el informe de cierre."),
 ):
     """
@@ -189,7 +189,7 @@ async def get_final_report(
     response_model=AdaptationProposal,
     summary="Recuperar una propuesta de adaptación por ID",
 )
-async def get_adaptation(proposal_id: str):
+def get_adaptation(proposal_id: str):
     try:
         return adaptation_service.get_proposal(proposal_id)
     except AdaptationNotFoundError as e:
@@ -201,7 +201,7 @@ async def get_adaptation(proposal_id: str):
     response_model=AdaptationProposal,
     summary="Aceptar, editar o descartar una propuesta",
 )
-async def decide_adaptation(proposal_id: str, payload: DecisionRequest):
+def decide_adaptation(proposal_id: str, payload: DecisionRequest):
     """
     ## Revisión docente (Issue #29)
 
@@ -227,7 +227,7 @@ async def decide_adaptation(proposal_id: str, payload: DecisionRequest):
     response_model=AdaptationProposal,
     summary="Deshacer la decisión sobre una propuesta",
 )
-async def undo_adaptation(proposal_id: str):
+def undo_adaptation(proposal_id: str):
     """Revierte la decisión vigente: la propuesta vuelve a `pendiente`. Si ya estaba pendiente, `409`."""
     try:
         return adaptation_service.undo(proposal_id)

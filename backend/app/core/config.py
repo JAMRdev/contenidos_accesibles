@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     # --- Cloudflare D1 vía Worker pasarela (backend/d1-gateway, Issue #58) ---
     # "sqlite" (por defecto): base local, como siempre. "d1": usar D1 a través del Worker
     # (producción, o desde local solo para probar la conexión con Cloudflare).
-    # El backend empieza a leer y escribir en D1 con #59; hasta entonces "d1" solo habilita
-    # el cliente (scripts/d1_ping.py).
+    # Con "d1" toda la capa de datos usa D1 (app/db/d1_connection.py) y el esquema sale de las
+    # migraciones de wrangler (d1-gateway/migrations); al arrancar solo se verifica que estén.
     DATABASE_BACKEND: Literal["sqlite", "d1"] = "sqlite"
     D1_GATEWAY_URL: str | None = None
     D1_GATEWAY_TOKEN: SecretStr | None = None

@@ -48,3 +48,10 @@ jobs:
       # tests/conftest.py define variables de prueba y una base SQLite temporal: no hace falta .env.
       - name: pytest
         run: python -m pytest -q
+
+      # La misma suite contra el adaptador de Cloudflare D1 (app/db/d1_connection.py), con un D1
+      # de prueba sobre SQLite que aplica las migraciones de d1-gateway/migrations (Issue #59).
+      - name: pytest (adaptador D1)
+        env:
+          TEST_DATABASE_BACKEND: d1
+        run: python -m pytest -q -p no:cacheprovider

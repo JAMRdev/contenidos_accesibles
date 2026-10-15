@@ -81,6 +81,17 @@ def _log_event(
         logger.exception("No se pudo registrar el uso de la conexión '%s'", conn.label)
 
 
+def _log_failure(conn: AIConnection, kind: str, started: float) -> None:
+    """5xx: registra el intento y lo cuenta para la cuota de la conexión."""
+    _log_event(conn, kind, "server_error", started)
+    key_rotation_service.record_failed_request(conn.id)
+
+
+def _log_success(conn: AIConnection, kind: str, started: float, usage: Usage | None) -> None:
+    _log_event(conn, kind, "ok", started, usage)
+    key_rotation_service.record_usage(conn.id, usage)
+
+
 class LLMService:
     """
     Capa de servicio para modelos de lenguaje, independiente del proveedor.
@@ -111,7 +122,8 @@ class LLMService:
         last_error: Exception | None = None
         while True:
             try:
-                conn = key_rotation_service.get_active_connection(require_vision=require_vision)
+                # La base va fuera del event loop: con D1 cada consulta es una llamada de red
+                conn = await asyncio.to_thread(key_rotation_service.get_active_connection, require_vision=require_vision)
             except AllKeysExhaustedError:
                 if last_error is not None:
                     raise LLMUnavailableError(
@@ -135,12 +147,11 @@ class LLMService:
                         extra_params=params,
                     )
                 except ProviderRateLimitError as e:
-                    _log_event(conn, kind, "rate_limited", attempt_started)
+                    await asyncio.to_thread(_log_event, conn, kind, "rate_limited", attempt_started)
                     key_rotation_service.mark_rate_limited(conn.id, e.until)
                     break
                 except ProviderServerError as e:
-                    _log_event(conn, kind, "server_error", attempt_started)
-                    key_rotation_service.record_failed_request(conn.id)
+                    await asyncio.to_thread(_log_failure, conn, kind, attempt_started)
                     last_error = e
                     if attempt < MAX_SERVER_RETRIES:
                         await asyncio.sleep(2 ** (attempt + 1))
@@ -149,14 +160,13 @@ class LLMService:
                     break
                 except Exception as e:
                     # Key inválida, modelo inexistente, parámetro no soportado, etc.
-                    _log_event(conn, kind, "error", attempt_started)
+                    await asyncio.to_thread(_log_event, conn, kind, "error", attempt_started)
                     logger.warning("Conexión de IA '%s' falló: %s", conn.label, e)
                     last_error = e
                     self._cooldown(conn, CONFIG_ERROR_COOLDOWN_S)
                     break
 
-                _log_event(conn, kind, "ok", attempt_started, result.usage)
-                key_rotation_service.record_usage(conn.id, result.usage)
+                await asyncio.to_thread(_log_success, conn, kind, attempt_started, result.usage)
                 return conn, result
 
     @staticmethod

@@ -10,6 +10,8 @@ iniciar sesión). Las llamadas desde otros orígenes siguen como antes: la API e
 que se implemente el login de docentes (#60). Con rol de solo lectura, la web solo puede usar
 la IA en modo mock (ver limit_ai_usage).
 """
+import asyncio
+
 from clerk_backend_api.security.types import TokenVerificationError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -46,7 +48,8 @@ async def require_test_web_session(request: Request, call_next):
         and path.startswith(settings.API_V1_STR)
         and not path.startswith(_PUBLIC_PATHS)
     ):
-        principal = principal_from_request(request)
+        # Fuera del event loop: el rol se consulta en la base (D1 en producción)
+        principal = await asyncio.to_thread(principal_from_request, request)
         if principal is None:
             return JSONResponse(
                 status_code=401,

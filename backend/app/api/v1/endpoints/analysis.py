@@ -358,7 +358,7 @@ async def analyze_file_document(
     summary="Recuperar un diagnóstico previo por ID",
     response_description="Diagnóstico estructurado previamente guardado",
 )
-async def get_analysis_by_id(analysis_id: str):
+def get_analysis_by_id(analysis_id: str):
     """
     ## Recuperación de Diagnóstico por ID (Semana 4 - Issue #26)
 

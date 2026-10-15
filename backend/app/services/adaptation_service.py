@@ -5,7 +5,7 @@ Después del diagnóstico, el docente elige una barrera y un tipo de adaptación
 servicio devuelve original + propuesta + explicación. Las propuestas nunca se
 aplican solas: se guardan como 'pendiente' hasta que el docente decide.
 """
-
+import asyncio
 import logging
 import re
 import uuid
@@ -230,7 +230,8 @@ async def create_proposal( request: AdaptationRequest, *, mock: bool = False, di
     if request.fragment:
         ensure_no_sensitive_data(request.fragment, dismissed_findings or ())
 
-    analysis, extracted_text = load_analysis(request.analysis_id)
+    # Base de datos fuera del event loop: con D1 cada consulta es una llamada de red
+    analysis, extracted_text = await asyncio.to_thread(load_analysis, request.analysis_id)
     barrier = next((b for b in analysis.barriers if b.id == request.barrier_id), None)
 
     if barrier is None:
@@ -299,7 +300,8 @@ async def create_proposal( request: AdaptationRequest, *, mock: bool = False, di
         expires_at=analysis.expires_at or _now_utc_iso(),
         metadata=metadata,
     )
-    adaptation_repository.save(
+    await asyncio.to_thread(
+        adaptation_repository.save,
         proposal_id=proposal.proposal_id,
         analysis_id=proposal.analysis_id,
         barrier_id=proposal.barrier_id,
