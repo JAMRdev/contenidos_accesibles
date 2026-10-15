@@ -2,7 +2,7 @@
 
 Guía para probar la API del backend: qué hace cada endpoint, cómo probarlo, qué respuesta esperar y cómo hacer pruebas de estrés sin tirar el servicio ni gastar la cuota de IA del equipo.
 
-> Estado: backend en `main` al 15/10/2026 (panel `/admin` con login de GitHub vía Clerk, #81 y #83). Si algo de esta guía no coincide con lo que ves, la referencia es la documentación de la API: [Swagger](https://innovalab-educacion-e18-test.up.railway.app/docs) y [ReDoc](https://innovalab-educacion-e18-test.up.railway.app/redoc). Avisá al equipo de Backend de la diferencia.
+> Estado: backend en `main` al 15/10/2026 (panel `/admin` con login de GitHub vía Clerk, #81 y #83; exportación del material y del informe, #40). Si algo de esta guía no coincide con lo que ves, la referencia es la documentación de la API: [Swagger](https://innovalab-educacion-e18-test.up.railway.app/docs) y [ReDoc](https://innovalab-educacion-e18-test.up.railway.app/redoc). Avisá al equipo de Backend de la diferencia.
 
 ---
 
@@ -259,6 +259,8 @@ Resumen (todos bajo `/api/v1`, salvo los marcados):
 | GET | `/adaptations/decisions?analysis_id=` | Registro de decisiones | – | – |
 | GET | `/adaptations/final-version?analysis_id=` | Versión adaptada final | – | – |
 | GET | `/adaptations/report?analysis_id=` | Informe final con puntaje antes/después | – (0 tokens) | – |
+| GET | `/export/content?analysis_id=&format=` | Descargar el material adaptado (`docx`, `pdf`, `md`, `txt`) | – | – |
+| GET | `/export/report?analysis_id=&format=` | Descargar el informe (`pdf`, `md`, `txt`) | – (0 tokens) | – |
 
 ### 4.1 `GET /` y `GET /api/v1/health`
 
@@ -467,7 +469,31 @@ Informe final: `score_before`, `score_after`, `score_delta`, `executive_summary[
 | Barrera sin propuesta | `resolution_status = "pendiente"` |
 | Diagnóstico inexistente | 404 |
 
-### 4.14 Acceso: panel `/admin`, documentación y web de pruebas
+### 4.14 `GET /export/content` y `GET /export/report`
+
+Descargan el material adaptado y el informe como archivo (`Content-Disposition: attachment`). Se generan en memoria a partir de la versión final (#38) y del informe (#39): no llaman a la IA ni modifican el original.
+
+| Endpoint | Formatos (`format=`) | Por defecto | Nombre del archivo |
+| :--- | :--- | :--- | :--- |
+| `/export/content?analysis_id=` | `docx`, `pdf`, `md`, `txt` | `docx` | `material_adaptado_<8 primeros caracteres del id>.<formato>` |
+| `/export/report?analysis_id=` | `pdf`, `md`, `txt` | `pdf` | `informe_accesibilidad_<8 primeros caracteres del id>.<formato>` |
+
+```bash
+curl -o material.docx "$API/export/content?analysis_id=$ID&format=docx"
+curl -o informe.pdf   "$API/export/report?analysis_id=$ID&format=pdf"
+```
+
+| Caso | Esperado |
+| :--- | :--- |
+| Cada formato válido | 200, `Content-Type` correcto y el archivo abre (Word, visor de PDF, editor de texto) |
+| Propuestas aceptadas, editadas y descartadas | El material incluye las aceptadas y el texto editado; nunca las descartadas |
+| Sin ninguna decisión | El material es igual al original |
+| Texto con acentos, ñ, ¿ y ¡ | Se ven bien en todos los formatos |
+| Texto con flechas, ≥, emojis o escrituras no latinas | En `md`, `txt` y `docx` se conservan; en `pdf` salen como `?` (limitación conocida, ver sección 10) |
+| `format` inválido (por ejemplo `exe`, o `docx` en el informe) | 400 |
+| Diagnóstico inexistente o vencido | 404 |
+
+### 4.15 Acceso: panel `/admin`, documentación y web de pruebas
 
 El panel (`/admin`) es HTML, no forma parte de la API. Se entra en `/admin/login` con GitHub (Clerk) o, como respaldo, con el usuario de administración del backend. En QA probar el acceso y la seguridad; **no modificar conexiones en producción**.
 
@@ -494,7 +520,7 @@ El panel (`/admin`) es HTML, no forma parte de la API. Se entra en `/admin/login
 
 Se pueden hacer desde la web de pruebas (pasos 1 a 7) o con `curl`. Siempre con mock salvo indicación.
 
-**F1. Texto completo.** Analizar el material con barreras → pedir propuestas para 3 barreras → aceptar una, editar otra y descartar la tercera → ver el registro de decisiones (3 entradas) → versión final (2 aplicadas, 1 descartada; la edición aparece textual) → informe (puntaje después ≥ antes). Deshacer la aceptada → versión final e informe se actualizan.
+**F1. Texto completo.** Analizar el material con barreras → pedir propuestas para 3 barreras → aceptar una, editar otra y descartar la tercera → ver el registro de decisiones (3 entradas) → versión final (2 aplicadas, 1 descartada; la edición aparece textual) → informe (puntaje después ≥ antes) → exportar el material en `docx` y el informe en `pdf` y abrirlos. Deshacer la aceptada → versión final, informe y exportaciones se actualizan.
 
 **F2. PDF.** Subir un PDF con texto e imágenes → revisar `alt_text_proposals` → proponer y aceptar una adaptación → versión final.
 
@@ -515,7 +541,7 @@ Se pueden hacer desde la web de pruebas (pasos 1 a 7) o con `curl`. Siempre con 
 | Código | Significado | Qué revisar |
 | :--- | :--- | :--- |
 | 200 / 201 | OK / propuesta creada | |
-| 400 | Archivo inválido, extensión o Content-Type incorrecto, protegido, con macros, vacío, sin conexiones de IA | `detail` con mensaje para el docente |
+| 400 | Archivo inválido, extensión o Content-Type incorrecto, protegido, con macros, vacío, sin conexiones de IA, formato de exportación inválido | `detail` con mensaje para el docente |
 | 303 | Página del panel o `/docs` sin sesión: redirige a `/admin/login` | Que después del login vuelva a la página pedida |
 | 401 | Falta sesión (`/admin/api/...`, `openapi.json` fuera de desarrollo, web de pruebas sin login) o login incorrecto | |
 | 403 | `POST` al panel desde otro origen, acción de edición con rol de solo lectura o IA real desde la web de pruebas con solo lectura | `detail` explica el motivo |
@@ -756,5 +782,6 @@ Prioridad sugerida: **alta** para cualquier 500, reinicios del servidor, datos p
 - Un texto de **solo signos** (por ejemplo `"............ ----"`) pasa como válido y se analiza; con IA real gastaría tokens. Pendiente en el issue #42.
 - Con muchos archivos pesados en simultáneo la memoria del proceso crece unos 60 MB por archivo (ver 7.4).
 - Los contadores del rate limit y las pausas de las conexiones viven en memoria: se reinician con cada deploy o reinicio.
-- La exportación del material adaptado (Word) y del informe todavía no existe: la web de pruebas permite copiar o descargar en `.txt`. Pendiente en #40.
+- En la exportación a **PDF**, los caracteres fuera de latin-1 (flechas, ≥, emojis, escrituras no latinas) salen como `?`, y el PDF no está etiquetado para lectores de pantalla. El español común se ve bien. Para material accesible conviene **DOCX** (el formato por defecto). Pendiente en #87.
+- La web de pruebas todavía no tiene botones de exportación: usar `curl` o Swagger.
 - `POST /ai/test-gemini` está obsoleto; usar `/ai/test-connection`.
