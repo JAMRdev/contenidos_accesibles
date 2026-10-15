@@ -11,7 +11,7 @@ CHUNK_SIZE = 1024 * 1024  # 1 MB por lectura
 
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx")
 
-_ALLOWED_CONTENT_TYPES = {
+ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "application/x-pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -38,7 +38,7 @@ async def read_supported_upload(file: UploadFile) -> tuple[bytes, str]:
             detail="Formato no admitido. Se aceptan archivos .pdf, .docx (Word) y .pptx (PowerPoint).",
         )
 
-    if file.content_type and file.content_type.lower() not in _ALLOWED_CONTENT_TYPES:
+    if file.content_type and file.content_type.lower() not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Content-Type '{file.content_type}' no válido para un archivo {extension}.",
@@ -47,7 +47,7 @@ async def read_supported_upload(file: UploadFile) -> tuple[bytes, str]:
     content = bytearray()
     while chunk := await file.read(CHUNK_SIZE):
         if not content:
-            _check_signature(chunk, extension)
+            check_signature(chunk, extension)
         content.extend(chunk)
         if len(content) > MAX_UPLOAD_SIZE_BYTES:
             raise HTTPException(
@@ -63,7 +63,7 @@ async def read_supported_upload(file: UploadFile) -> tuple[bytes, str]:
     return bytes(content), filename
 
 
-def _check_signature(first_chunk: bytes, extension: str) -> None:
+def check_signature(first_chunk: bytes, extension: str) -> None:
     if extension == ".pdf":
         if not first_chunk.lstrip().startswith(_PDF_MAGIC):
             raise HTTPException(

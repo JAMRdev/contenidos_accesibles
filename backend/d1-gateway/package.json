@@ -2,13 +2,15 @@
   "name": "contenidos-accesibles-d1-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "Worker pasarela entre el backend (Railway) y Cloudflare D1",
+  "description": "Worker pasarela entre el backend (Railway) y Cloudflare D1, y configuración del bucket R2",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local --port 8787",
     "deploy": "wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply DB --local",
-    "migrate:remote": "wrangler d1 migrations apply DB --remote"
+    "migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "r2:create": "wrangler r2 bucket create contenidos-accesibles-archivos --location enam",
+    "r2:cors": "wrangler r2 bucket cors set contenidos-accesibles-archivos --file r2-cors.json --force"
   },
   "devDependencies": {
     "wrangler": "4.145.0"

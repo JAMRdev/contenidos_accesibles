@@ -15,6 +15,8 @@ __pycache__/
 # Archivos temporales de subida
 uploads/
 temp/
+# Almacenamiento local de archivos en desarrollo (STORAGE_BACKEND=local, Issue #62)
+local_storage/
 
 # Base de datos local (API keys de Gemini y contadores de uso)
 *.db

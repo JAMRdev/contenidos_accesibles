@@ -142,6 +142,26 @@ async def check_d1_gateway(client: httpx.AsyncClient) -> Check:
     return await _http_check(client, f"{settings.D1_GATEWAY_URL.rstrip('/')}/health", expect_json_ok=True)
 
 
+async def check_storage(_client: httpx.AsyncClient) -> Check:
+    """Archivos de los docentes: HEAD del bucket de R2, o escritura de prueba en la carpeta local."""
+    from app.services import storage_service
+
+    if settings.STORAGE_BACKEND == "r2":
+        facts = [("Bucket", settings.R2_BUCKET or "—")]
+    else:
+        facts = [("Carpeta", settings.LOCAL_STORAGE_PATH)]
+    start = time.perf_counter()
+    try:
+        await asyncio.to_thread(storage_service.get_storage().ping)
+    except Exception as e:  # noqa: BLE001 - cualquier falla del almacenamiento es "caída"
+        return Check("down", f"No responde ({e.__class__.__name__})", facts=facts)
+    latency = _elapsed_ms(start)
+    if settings.STORAGE_BACKEND == "local" and settings.ENVIRONMENT != "development":
+        # En Railway el disco del contenedor se borra en cada deploy
+        return Check("degraded", "Disco local fuera de desarrollo: los archivos se pierden en cada deploy", latency, facts=facts)
+    return _by_latency(latency, "Bucket accesible" if settings.STORAGE_BACKEND == "r2" else "Carpeta local accesible", facts=facts)
+
+
 async def check_ai(_client: httpx.AsyncClient) -> Check:
     """Estado de las conexiones de IA según el propio backend (no consulta a los proveedores)."""
     from app.services import key_rotation_service
@@ -217,6 +237,8 @@ def _registry() -> list[Service]:
                 "API keys cifradas, diagnósticos, uso de la IA y usuarios del panel.", check_database),
         Service("d1-gateway", "Worker d1-gateway", "Cloudflare Workers",
                 "Pasarela entre el backend y D1 (/health, sin token).", check_d1_gateway),
+        Service("storage", "Archivos", "Cloudflare R2" if settings.STORAGE_BACKEND == "r2" else "Disco local",
+                "Archivos de los docentes y exportaciones (subida directa con URL firmada).", check_storage),
         Service("ai", "Conexiones de IA", "Proveedores de IA",
                 "Según el estado de rotación del backend; no gasta cuota.", check_ai),
         Service("clerk", "Login con Clerk", "Clerk", "Login del panel y de /docs con GitHub.", check_clerk),

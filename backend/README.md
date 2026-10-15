@@ -173,8 +173,12 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `POST` | `/api/v1/adaptations/{proposal_id}/undo` | Deshacer la decisión: la propuesta vuelve a `pendiente` | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/decisions?analysis_id=` | Registro cronológico de decisiones y deshaceres del diagnóstico (para el informe) | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/final-version?analysis_id=` | Versión final del material: aplica solo las propuestas aceptadas o editadas (solapamientos resueltos a favor de la edición del docente y la decisión más reciente) | ✅ Operativo |
-| `GET` | `/api/v1/export/content?analysis_id=&format=` | Descarga del material adaptado en `docx` (por defecto), `pdf`, `md` o `txt`, generado en memoria con solo los cambios aceptados o editados | ✅ Operativo |
-| `GET` | `/api/v1/export/report?analysis_id=&format=` | Descarga del informe en `pdf` (por defecto), `md` o `txt`. En PDF, los caracteres fuera de latin-1 salen como `?` (#87) | ✅ Operativo |
+| `GET` | `/api/v1/export/content?analysis_id=&format=` | Descarga del material adaptado en `docx` (por defecto), `pdf`, `md` o `txt`, generado en memoria con solo los cambios aceptados o editados. Con `&delivery=link`, en lugar del archivo devuelve una URL firmada de descarga (#62) | ✅ Operativo |
+| `GET` | `/api/v1/export/report?analysis_id=&format=` | Descarga del informe en `pdf` (por defecto), `md` o `txt`. En PDF, los caracteres fuera de latin-1 salen como `?` (#87). Con `&delivery=link`, URL firmada (#62) | ✅ Operativo |
+| `POST` | `/api/v1/files/upload-url` | Pide una URL firmada `PUT` para subir un `.pdf`, `.docx` o `.pptx` (máx. 10 MB) directo al almacenamiento (#62) | ✅ Operativo |
+| `POST` | `/api/v1/files/{file_id}/complete` | Confirma la subida: verifica tamaño, tipo y firma del archivo | ✅ Operativo |
+| `GET` | `/api/v1/files/{file_id}` | Metadatos del archivo (estado, tamaño, vencimiento) | ✅ Operativo |
+| `GET` | `/api/v1/files/{file_id}/download-url` | URL firmada `GET` de descarga, con el nombre original | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
@@ -285,6 +289,11 @@ Pasos en el dashboard de Railway:
    DATABASE_BACKEND=d1
    D1_GATEWAY_URL=https://contenidos-accesibles-d1-gateway.jamrdev2.workers.dev
    D1_GATEWAY_TOKEN=<el mismo secreto cargado en el Worker con wrangler secret put>
+   STORAGE_BACKEND=r2
+   R2_ACCOUNT_ID=<ID de la cuenta de Cloudflare>
+   R2_ACCESS_KEY_ID=<del token de API de R2>
+   R2_SECRET_ACCESS_KEY=<del token de API de R2>
+   R2_BUCKET=contenidos-accesibles-archivos
    BACKEND_CORS_ORIGINS=https://<dominio-del-frontend>,http://localhost:5173
    ```
    `BACKEND_CORS_ORIGINS` acepta orígenes separados por comas o una lista JSON (`["https://a.app","http://localhost:5173"]`). Reemplaza la lista por defecto, así que hay que incluir los orígenes locales si se van a usar. Cada origen va sin `/` final ni ruta.
@@ -387,6 +396,36 @@ npm run deploy
 La base vive en ENAM (este de Norteamérica). Con el servicio de Railway en US West cada consulta tardaba ~320 ms; al pasarlo a **US East (Virginia)** bajó a ~95 ms. Si hace falta más velocidad: evaluar *Smart Placement* en el Worker y agrupar las escrituras de cada llamada a la IA (contadores de uso e historial) en un solo `batch`.
 
 Los tests unitarios del cliente corren sin red. El de integración usa el Worker local si se define `D1_GATEWAY_TEST_URL` (ver `tests/test_d1_client.py`).
+
+---
+
+## 📁 Archivos de los docentes (Cloudflare R2)
+
+Regla de diseño (#62): **la API no transporta archivos** y **los archivos no se guardan en la base**, solo sus metadatos (tabla `files`). El navegador sube y descarga directo con URLs firmadas de pocos minutos:
+
+1. `POST /api/v1/files/upload-url` con `filename`, `content_type` y `size_bytes`. El backend valida formato (`.pdf`, `.docx`, `.pptx`), tipo y tamaño (máx. 10 MB), crea el registro (`pending`) y devuelve `upload.url` con `upload.headers`.
+2. El navegador hace `PUT upload.url` con el archivo y **esos headers** (el `Content-Type` va firmado: si cambia, se rechaza).
+3. `POST /api/v1/files/{file_id}/complete`. El backend verifica con `HEAD` que el objeto llegó con el tamaño y el tipo declarados, y que la firma binaria corresponde a la extensión (`%PDF-` o ZIP de Office). Si no coincide, lo borra y responde 422.
+
+Para descargar: `GET /api/v1/files/{file_id}/download-url`. Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
+
+- **Claves**: `users/<usuario>/uploads/<aleatorio>.<ext>` y `users/<usuario>/exports/...`. No son adivinables y tienen prefijo por usuario.
+- **Dueño provisional**: hasta el login de docentes (#60), todos los archivos son del usuario `anon` (`app/core/owner.py`) y el acceso depende de conocer el `file_id` (UUID aleatorio). Con #60 solo cambia `current_owner()`; los endpoints, la tabla y las claves no cambian.
+- **Vencimiento**: cada archivo vence a las `FILE_TTL_HOURS` (24 h). Después ya no se puede consultar ni descargar. Borrarlo del bucket es #64.
+- **Desarrollo** (`STORAGE_BACKEND=local`, por defecto): los archivos van a `LOCAL_STORAGE_PATH` (`local_storage/`, fuera de Git). Las URLs firmadas (HMAC) apuntan a `/api/v1/files/local/...`, que hace de R2 y solo responde en este modo. El frontend no distingue el modo.
+- **Producción** (`STORAGE_BACKEND=r2`): bucket privado `contenidos-accesibles-archivos` (ENAM) con CORS solo para el frontend y la web de pruebas (`d1-gateway/r2-cors.json`). La pestaña **Estado** de `/admin` lo chequea con un `HEAD` del bucket.
+
+**Crear el bucket** (una vez, con la cuenta del proyecto; R2 tiene que estar habilitado en el dashboard):
+
+```bash
+cd d1-gateway
+npm run r2:create   # bucket privado en ENAM
+npm run r2:cors     # aplica r2-cors.json (repetir si cambian los orígenes)
+```
+
+Después, en el dashboard: **R2 → Manage API tokens → Create API token** con permiso **Object Read & Write** solo sobre ese bucket. El *Access Key ID* y el *Secret Access Key* van a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY` en Railway, junto con `R2_ACCOUNT_ID`, `R2_BUCKET` y `STORAGE_BACKEND=r2`.
+
+**Antes de desplegar este cambio en producción** hay que aplicar la migración `0002_files.sql` en D1 (`npm run migrate:remote`): con D1, el arranque verifica que estén todas las tablas.
 
 ---
 

@@ -71,9 +71,9 @@ def test_todo_en_orden(env):
     _connection()
     data = _status()
     s = _by_id(data)
-    assert [x["id"] for x in data["services"]] == ["api", "database", "d1-gateway", "ai", "clerk", "test-web", "frontend"]
+    assert [x["id"] for x in data["services"]] == ["api", "database", "d1-gateway", "storage", "ai", "clerk", "test-web", "frontend"]
     assert {k: s[k]["state"] for k in s} == {
-        "api": "ok", "database": "ok", "d1-gateway": "ok", "ai": "ok",
+        "api": "ok", "database": "ok", "d1-gateway": "ok", "storage": "ok", "ai": "ok",
         "clerk": "unconfigured", "test-web": "ok", "frontend": "ok",
     }
     assert data["overall"] == "ok" and data["counts"]["unconfigured"] == 1

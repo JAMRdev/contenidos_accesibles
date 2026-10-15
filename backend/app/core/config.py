@@ -71,6 +71,21 @@ class Settings(BaseSettings):
     D1_GATEWAY_TOKEN: SecretStr | None = None
     D1_GATEWAY_TIMEOUT_S: float = 10.0
 
+    # --- Archivos de los docentes (Issue #62) ---
+    # "local" (por defecto, desarrollo): carpeta LOCAL_STORAGE_PATH, con URLs firmadas que
+    # sirve el propio backend. "r2": bucket privado de Cloudflare R2 (producción); los
+    # archivos van directo del navegador a R2 y nunca pasan por la API.
+    STORAGE_BACKEND: Literal["local", "r2"] = "local"
+    LOCAL_STORAGE_PATH: str = "local_storage"
+    R2_ACCOUNT_ID: str | None = None
+    R2_ACCESS_KEY_ID: str | None = None
+    R2_SECRET_ACCESS_KEY: SecretStr | None = None
+    R2_BUCKET: str | None = None
+    # Vigencia de las URLs firmadas de subida y descarga, y de los archivos (la limpieza es #64)
+    FILE_UPLOAD_URL_TTL_S: int = Field(default=300, ge=30, le=3600)
+    FILE_DOWNLOAD_URL_TTL_S: int = Field(default=300, ge=30, le=3600)
+    FILE_TTL_HOURS: int = Field(default=24, ge=1)
+
     # Tiempo de retención de diagnósticos antes de expirar (TTL en horas, Semana 4)
     ANALYSIS_TTL_HOURS: int = 24
 
@@ -108,6 +123,22 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"DATABASE_BACKEND=d1 requiere {' y '.join(missing)}.")
+        return self
+
+    @model_validator(mode="after")
+    def require_r2_credentials(self) -> "Settings":
+        """Fail-Fast: con STORAGE_BACKEND=r2 la app no arranca sin la cuenta, las credenciales y el bucket."""
+        if self.STORAGE_BACKEND == "r2":
+            values = {
+                "R2_ACCOUNT_ID": self.R2_ACCOUNT_ID, "R2_ACCESS_KEY_ID": self.R2_ACCESS_KEY_ID,
+                "R2_SECRET_ACCESS_KEY": self.R2_SECRET_ACCESS_KEY, "R2_BUCKET": self.R2_BUCKET,
+            }
+            missing = [
+                name for name, value in values.items()
+                if not value or (isinstance(value, SecretStr) and not value.get_secret_value())
+            ]
+            if missing:
+                raise ValueError(f"STORAGE_BACKEND=r2 requiere {', '.join(missing)}.")
         return self
 
     @field_validator("ADMIN_CLERK_JWT_KEY", mode="before")
