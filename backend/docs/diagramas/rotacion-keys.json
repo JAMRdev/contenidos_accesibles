@@ -3,7 +3,7 @@
   "diagram_type": "dataflow",
   "meta": {
     "title": "Rotación de conexiones de IA · Flujo de datos",
-    "output": "app/admin/diagrams/rotacion-keys.html",
+    "output": "backend/app/admin/diagrams/rotacion-keys.html",
     "locale": "es",
     "viewBox": [
       1080,
@@ -12,7 +12,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/e18-innovalab/contenidos_accesibles.git",
-      "revision": "004e4b5106d204d858e1d40ea40bdf48fc4e2814",
+      "revision": "a917521f03c0e705eb5eaa6d124b208e070972c6",
       "link_mode": "local-only"
     },
     "translations": {
@@ -484,14 +484,14 @@
       "tag": "arranque",
       "sources": [
         {
-          "path": "app/core/config.py",
-          "line": 27,
-          "end_line": 36
+          "path": "backend/app/core/config.py",
+          "line": 29,
+          "end_line": 38
         },
         {
-          "path": "app/main.py",
-          "line": 20,
-          "end_line": 24,
+          "path": "backend/app/main.py",
+          "line": 28,
+          "end_line": 42,
           "label": "lifespan"
         }
       ]
@@ -503,12 +503,19 @@
       "sublabel": "conexiones de respaldo",
       "stage": 0,
       "row": 2,
-      "tag": "Basic Auth",
+      "tag": "Clerk o .env",
       "sources": [
         {
-          "path": "app/admin/router.py",
-          "line": 51,
-          "end_line": 80
+          "path": "backend/app/admin/router.py",
+          "line": 327,
+          "end_line": 392,
+          "label": "create_key · update_key"
+        },
+        {
+          "path": "backend/app/admin/session.py",
+          "line": 166,
+          "end_line": 171,
+          "label": "require_editor"
         }
       ]
     },
@@ -522,18 +529,18 @@
       "tag": "Fernet",
       "sources": [
         {
-          "path": "app/db/database.py",
+          "path": "backend/app/db/database.py",
           "line": 11,
-          "end_line": 50
+          "end_line": 48
         },
         {
-          "path": "app/db/api_key_repository.py",
+          "path": "backend/app/db/api_key_repository.py",
           "line": 23,
           "end_line": 69,
           "label": "create"
         },
         {
-          "path": "app/core/crypto.py",
+          "path": "backend/app/core/crypto.py",
           "line": 14,
           "end_line": 18
         }
@@ -549,14 +556,14 @@
       "tag": "rotación",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 52,
-          "end_line": 108
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 57,
+          "end_line": 126
         },
         {
-          "path": "app/db/api_key_repository.py",
-          "line": 206,
-          "end_line": 245,
+          "path": "backend/app/db/api_key_repository.py",
+          "line": 219,
+          "end_line": 258,
           "label": "resets"
         }
       ],
@@ -572,9 +579,9 @@
       "tag": "_generate",
       "sources": [
         {
-          "path": "app/services/llm_service.py",
-          "line": 78,
-          "end_line": 137
+          "path": "backend/app/services/llm_service.py",
+          "line": 100,
+          "end_line": 160
         }
       ]
     },
@@ -588,14 +595,14 @@
       "tag": "api_keys",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 111,
-          "end_line": 129
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 130,
+          "end_line": 148
         },
         {
-          "path": "app/db/api_key_repository.py",
-          "line": 186,
-          "end_line": 203
+          "path": "backend/app/db/api_key_repository.py",
+          "line": 199,
+          "end_line": 216
         }
       ]
     },
@@ -609,9 +616,9 @@
       "tag": "HTTPS",
       "sources": [
         {
-          "path": "app/services/llm/providers.py",
-          "line": 33,
-          "end_line": 90
+          "path": "backend/app/services/llm/providers.py",
+          "line": 31,
+          "end_line": 87
         }
       ]
     },
@@ -625,14 +632,14 @@
       "tag": "volátil",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
+          "path": "backend/app/services/key_rotation_service.py",
           "line": 10,
           "end_line": 15
         },
         {
-          "path": "app/services/llm_service.py",
-          "line": 30,
-          "end_line": 35
+          "path": "backend/app/services/llm_service.py",
+          "line": 32,
+          "end_line": 36
         }
       ]
     }

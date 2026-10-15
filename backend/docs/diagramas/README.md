@@ -1,6 +1,6 @@
 # Diagramas de arquitectura
 
-Fuentes de los diagramas que se ven en **`/admin/diagramas`** (con las credenciales de `/admin`). Se generan con [Archify](https://github.com/tt-a1i/archify), una skill para agentes de IA (Claude Code, Codex, Cursor) que valida un JSON y lo convierte en un HTML autocontenido.
+Fuentes de los diagramas que se ven en la pestaña **Diagramas** del panel (`/admin/diagramas/{slug}`, con sesión iniciada). Se generan con [Archify](https://github.com/tt-a1i/archify), una skill para agentes de IA (Claude Code, Codex, Cursor) que valida un JSON y lo convierte en un HTML autocontenido.
 
 | Fuente | HTML servido | Tipo |
 | :--- | :--- | :--- |
@@ -9,7 +9,7 @@ Fuentes de los diagramas que se ven en **`/admin/diagramas`** (con las credencia
 | `rotacion-keys.json` | `app/admin/diagrams/rotacion-keys.html` | dataflow |
 | `ciclo-vida-conexion.json` | `app/admin/diagrams/ciclo-vida-conexion.html` | lifecycle |
 
-Cada caja cita en `sources` los archivos y las líneas de donde sale; `meta.repository.revision` indica el commit que describe. `arquitectura` y `secuencia-analisis-pdf` están al día con la carga de Word y PowerPoint (Issue #47); `rotacion-keys` y `ciclo-vida-conexion` todavía describen el commit del repo de desarrollo previo a la migración. **No se actualizan solos**: si cambia el código que describen, hay que editar el JSON y regenerar.
+Cada caja cita en `sources` los archivos y las líneas de donde sale; `meta.repository.revision` indica el commit que describe. `arquitectura`, `rotacion-keys` y `ciclo-vida-conexion` describen el panel en `/admin` con login por Clerk o el usuario del `.env` (#83); `secuencia-analisis-pdf`, la carga de Word y PowerPoint (#47). Todas las rutas de `sources` empiezan con `backend/`. **No se actualizan solos**: si cambia el código que describen, hay que editar el JSON y regenerar.
 
 ## Regenerar
 
