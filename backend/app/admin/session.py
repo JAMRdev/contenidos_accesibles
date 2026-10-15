@@ -1,5 +1,5 @@
 """
-Sesión del panel /adminv2 (login propio o Clerk, en lugar del Basic Auth del navegador).
+Sesión del panel /admin (Clerk o el usuario del .env, en lugar del Basic Auth del navegador).
 
 - La cookie identifica a la persona ("local:<usuario>" o "github:<usuario>"); el rol se
   consulta en cada request, así quitar o bajar el rol a alguien tiene efecto inmediato.
@@ -26,7 +26,9 @@ from fastapi.responses import Response
 from app.core.config import settings
 from app.db import admin_member_repository as members
 
-COOKIE_NAME = "adminv2_session"
+COOKIE_NAME = "admin_session"
+# Cookie usada mientras el panel vivía en /adminv2: se borra al cerrar sesión
+LEGACY_COOKIE_NAME = "adminv2_session"
 SESSION_TTL_S = 8 * 60 * 60
 MAX_FAILED_LOGINS = 5
 # Tope para todos los clientes juntos: detrás del proxy de Railway la IP sale de
@@ -46,7 +48,7 @@ def _signing_key() -> bytes:
             settings.ADMIN_PASSWORD.get_secret_value(),
         )
     )
-    return hashlib.sha256(f"adminv2-session|{material}".encode()).digest()
+    return hashlib.sha256(f"admin-session|{material}".encode()).digest()
 
 
 def _sign(payload: str) -> str:
@@ -228,5 +230,6 @@ def set_session_cookie(response: Response, subject: str) -> None:
 
 def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
-    # Sesiones creadas antes de que la cookie valiera para todo el sitio
-    response.delete_cookie(COOKIE_NAME, path="/adminv2", httponly=True, samesite="strict")
+    # Cookies de cuando el panel vivía en /adminv2
+    for path in ("/", "/adminv2"):
+        response.delete_cookie(LEGACY_COOKIE_NAME, path=path, httponly=True, samesite="strict")

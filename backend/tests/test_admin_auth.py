@@ -1,5 +1,5 @@
 """
-Panel /adminv2: roles (admin y solo lectura), zona de usuarios y login con Clerk.
+Panel /admin: roles (admin y solo lectura), zona de usuarios y login con Clerk.
 
 Los tokens de Clerk se firman con una clave RSA de prueba y la API de Clerk se reemplaza
 por dobles: ningún test hace llamadas de red.
@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.admin import clerk_auth, session
-from app.admin.router_v2 import PREFIX
-from app.admin.router_v2 import router as admin_v2_router
+from app.admin.router import PREFIX
+from app.admin.router import router as admin_router
 from app.core.config import settings
 from app.db import admin_member_repository as members
 from app.db import api_key_repository as repo
@@ -47,7 +47,7 @@ def client(tmp_path, monkeypatch):
     init_db()
     session.reset()
     app = FastAPI()
-    app.include_router(admin_v2_router, prefix=PREFIX)
+    app.include_router(admin_router, prefix=PREFIX)
     return TestClient(app)
 
 

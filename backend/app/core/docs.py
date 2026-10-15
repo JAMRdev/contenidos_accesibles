@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.admin import session
 
-LOGIN_URL = "/adminv2/login"
+LOGIN_URL = "/admin/login"
 
 
 def setup_protected_docs(app: FastAPI, openapi_url: str) -> None:

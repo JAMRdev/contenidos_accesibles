@@ -1,4 +1,4 @@
-"""Usuarios de GitHub con acceso al panel /adminv2 y su rol ('admin' o 'viewer')."""
+"""Usuarios de GitHub con acceso al panel /admin y su rol ('admin' o 'viewer')."""
 import re
 
 from app.db.database import get_connection

@@ -1,212 +1,431 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>InnovaLab · Conexiones de IA</title>
-    <style>
-        body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-        h1 { font-size: 1.4rem; }
-        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.9rem; vertical-align: top; }
-        th { background: #f5f5f5; }
-        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-        .badge-active { background: #d7f3df; color: #1a6b34; }
-        .badge-standby { background: #e8e8e8; color: #555; }
-        .badge-near-limit { background: #fdecc8; color: #8a5b00; }
-        .badge-exhausted { background: #fbdadb; color: #a4262c; }
-        .badge-disabled { background: #eee; color: #999; }
-        .bar-track { background: #eee; border-radius: 4px; height: 6px; width: 100%; margin-top: 0.25rem; }
-        .bar-fill { background: #6b6bd6; height: 6px; border-radius: 4px; }
-        form.inline { display: inline; }
-        details.edit-form { margin-top: 0.4rem; }
-        fieldset { margin-top: 1.5rem; }
-        label { display: block; margin-top: 0.5rem; font-size: 0.85rem; }
-        input[type=text], input[type=password], input[type=number], select, textarea { width: 100%; padding: 0.35rem; box-sizing: border-box; font: inherit; }
-        textarea { font-family: ui-monospace, monospace; font-size: 0.8rem; }
-        button { margin-top: 0.6rem; padding: 0.4rem 0.9rem; cursor: pointer; }
-        .danger { background: #fbdadb; border: 1px solid #a4262c; color: #a4262c; }
-        .muted { color: #777; font-size: 0.85rem; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 1rem; }
-        code { font-size: 0.8rem; }
-    </style>
-</head>
-<body>
-    <p>
-        <a href="/admin/diagramas">Diagramas de arquitectura →</a>
-        {% if test_web_url %}
-        &nbsp;·&nbsp; <a href="{{ test_web_url }}" target="_blank" rel="noopener">Web de pruebas: flujo completo texto y PDF →</a>
+{% extends "base.html" %}
+
+{% macro select(id, label, options, name=None, extra_class="") -%}
+{# Desplegable de selección de Obelisco: el valor elegido viaja en un input oculto #}
+<div class="o-select {{ extra_class }}" data-select="{{ id }}">
+    <div class="form-label-container">
+        <span class="form-label" id="{{ id }}-label">{{ label }}</span>
+    </div>
+    <div class="dropdown">
+        <button type="button" class="btn btn-dropdown btn-dropdown-border o-select-button" id="{{ id }}-button"
+                data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="listbox"
+                aria-labelledby="{{ id }}-label {{ id }}-button">
+            <span class="btn-dropdown-text ellipsis-1" data-select-text></span>
+            <span class="material-symbols-rounded btn-dropdown-icon" aria-hidden="true">expand_more</span>
+        </button>
+        <ul class="dropdown-menu o-select-menu" role="listbox" aria-labelledby="{{ id }}-label">
+            {% for opt_value, opt_label in options %}
+            <li role="presentation">
+                <button type="button" class="dropdown-item" role="option" data-value="{{ opt_value }}" aria-selected="false">
+                    <span class="item-text">{{ opt_label }}</span>
+                    <span class="material-symbols-rounded o-select-check" aria-hidden="true">check</span>
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    <input type="hidden" id="{{ id }}" {% if name %}name="{{ name }}"{% endif %} value="">
+    {{ caller() if caller is defined else "" }}
+</div>
+{%- endmacro %}
+
+{% block content %}
+<div class="admin-title-row">
+    <div>
+        <h1 class="admin-h1">Panel de administración</h1>
+        <p class="lead admin-lead">Consumo de la IA, conexiones y uso del producto en un solo lugar.</p>
+    </div>
+    <div class="admin-toolbar">
+        <div class="btn-group admin-range" role="group" aria-label="Período de los gráficos">
+            <button type="button" class="btn btn-sm btn-outline-secondary active" data-range="24h" aria-pressed="true">24 h</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-range="7d" aria-pressed="false">7 días</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-range="30d" aria-pressed="false">30 días</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-refresh">
+            <span class="material-symbols-rounded" aria-hidden="true">refresh</span> Actualizar
+        </button>
+        <span class="admin-updated" id="updated-at" aria-live="polite"></span>
+    </div>
+</div>
+
+{% if not admin.can_edit %}
+<div class="alert alert-info readonly-banner" role="status">
+    <p class="mb-0"><strong>Modo solo lectura.</strong> Podés ver todo el panel, pero no crear, editar ni borrar. Si necesitás cambiar algo, pedíselo a un admin.</p>
+</div>
+{% endif %}
+<div id="alerts" aria-live="polite"></div>
+
+<nav class="tabs-box" aria-label="Secciones del panel">
+    <ul class="nav nav-pills tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-resumen" data-bs-toggle="tab" data-bs-target="#panel-resumen" type="button" role="tab" aria-controls="panel-resumen" aria-selected="true">Resumen</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-conexiones" data-bs-toggle="tab" data-bs-target="#panel-conexiones" type="button" role="tab" aria-controls="panel-conexiones" aria-selected="false">Conexiones de IA</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-producto" data-bs-toggle="tab" data-bs-target="#panel-producto" type="button" role="tab" aria-controls="panel-producto" aria-selected="false">Uso del producto</button>
+        </li>
+        {% if admin.can_edit %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-usuarios" data-bs-toggle="tab" data-bs-target="#panel-usuarios" type="button" role="tab" aria-controls="panel-usuarios" aria-selected="false">Usuarios</button>
+        </li>
         {% endif %}
-    </p>
-    <h1>Conexiones de IA</h1>
-    <p class="muted">
-        Cada conexión es un proveedor + modelo + API key. Se usa la de <strong>menor prioridad</strong>
-        disponible; si alcanza su umbral, el proveedor la limita (429) o falla, se pasa automáticamente
-        a la siguiente, aunque sea de otro proveedor.
-    </p>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-diagramas" data-bs-toggle="tab" data-bs-target="#panel-diagramas" type="button" role="tab" aria-controls="panel-diagramas" aria-selected="false">Diagramas</button>
+        </li>
+    </ul>
+</nav>
 
-    <datalist id="provider-options">
-        {% for p in presets %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}
-    </datalist>
+<div class="tab-content">
+    <!-- Resumen -->
+    <section class="tab-pane show active" id="panel-resumen" role="tabpanel" aria-labelledby="tab-resumen" tabindex="0">
+        <h2 class="visually-hidden">Resumen</h2>
+        <div class="kpi-grid" id="kpis"></div>
+        <div class="chart-grid">
+            <div class="chart-card chart-wide" id="chart-tokens"></div>
+            <div class="chart-card chart-wide" id="chart-outcomes"></div>
+        </div>
+        <p class="admin-note">
+            <span class="material-symbols-rounded" aria-hidden="true">info</span>
+            Se registra cada intento contra un proveedor (sin el material ni la respuesta) y se conserva {{ retention_days }} días.
+        </p>
+    </section>
 
-    <table>
-        <thead>
-            <tr>
-                <th>Prioridad</th>
-                <th>Conexión</th>
-                <th>Proveedor / Modelo</th>
-                <th>Estado</th>
-                <th>RPM</th>
-                <th>TPM</th>
-                <th>RPD</th>
-                <th>Uso</th>
-                <th>Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for k in keys %}
-            <tr>
-                <td>{{ k.priority }}</td>
-                <td>{{ k.label }}{% if k.managed_by_env %} <span class="badge badge-standby" title="Se restaura desde .env (AI_API_KEY) en cada arranque">.env</span>{% endif %}<br><code>{{ k.masked_key }}</code></td>
-                <td>{{ k.provider }}<br><code>{{ k.model }}</code></td>
-                <td><span class="badge badge-{{ k.status }}">{{ k.status }}</span></td>
-                <td>{{ k.minute_request_count }}{% if k.rpm_threshold %} / {{ k.rpm_threshold }}{% endif %}</td>
-                <td>{{ k.minute_token_count }}{% if k.tpm_threshold %} / {{ k.tpm_threshold }}{% endif %}</td>
-                <td>{{ k.request_count }}{% if k.rpd_threshold %} / {{ k.rpd_threshold }}{% endif %}</td>
-                <td>
-                    {{ k.usage_pct }}%
-                    <div class="bar-track"><div class="bar-fill" style="width: {{ [k.usage_pct, 100] | min }}%;"></div></div>
-                </td>
-                <td>
-                    <details class="edit-form">
-                        <summary>Editar</summary>
-                        <form method="post" action="/admin/keys/{{ k.id }}/update">
-                            <label>Nombre
-                                <input type="text" name="label" value="{{ k.label }}" required>
-                            </label>
-                            <label>Proveedor
-                                <input type="text" name="provider" value="{{ k.provider }}" list="provider-options" required>
-                            </label>
-                            <label>Base URL (vacío para Gemini nativo)
-                                <input type="text" name="base_url" value="{{ k.base_url }}">
-                            </label>
-                            <label>Modelo
-                                <input type="text" name="model" value="{{ k.model }}" required>
-                            </label>
-                            <label>Prioridad (menor = se usa primero)
-                                <input type="number" name="priority" value="{{ k.priority }}" required>
-                            </label>
-                            <label>Nueva API key (dejar vacío para no cambiarla)
-                                <input type="password" name="key_value" placeholder="••••••••">
-                            </label>
-                            <label>Parámetros extra (JSON)
-                                <textarea name="extra_params" rows="2">{{ k.extra_params }}</textarea>
-                            </label>
-                            <div class="grid">
-                                <label>RPM (opcional)
-                                    <input type="number" name="rpm_threshold" value="{{ k.rpm_threshold or '' }}">
-                                </label>
-                                <label>TPM (opcional)
-                                    <input type="number" name="tpm_threshold" value="{{ k.tpm_threshold or '' }}">
-                                </label>
-                                <label>RPD (opcional)
-                                    <input type="number" name="rpd_threshold" value="{{ k.rpd_threshold or '' }}">
-                                </label>
-                                <label>TPD (opcional)
-                                    <input type="number" name="tpd_threshold" value="{{ k.tpd_threshold or '' }}">
-                                </label>
-                            </div>
-                            <label>
-                                <input type="checkbox" name="enabled" {% if k.enabled %}checked{% endif %} style="width:auto;display:inline-block;">
-                                Habilitada
-                            </label>
-                            <button type="submit">Guardar</button>
-                        </form>
-                    </details>
-                    <form class="inline" method="post" action="/admin/keys/{{ k.id }}/delete"
-                          onsubmit="return confirm('¿Borrar esta conexión?');">
-                        <button type="submit" class="danger">Borrar</button>
-                    </form>
-                </td>
-            </tr>
-        {% else %}
-            <tr><td colspan="9" class="muted">Todavía no hay ninguna conexión de IA cargada.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
-
-    <fieldset>
-        <legend>Agregar conexión de IA</legend>
-        <form method="post" action="/admin/keys" id="create-form">
-            <label>Plantilla
-                <select id="preset-select">
-                    {% for p in presets %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}
-                </select>
-            </label>
-            <p class="muted" id="preset-notes"></p>
-            <div class="grid">
-                <label>Nombre
-                    <input type="text" name="label" placeholder="Ej: Groq principal" required>
-                </label>
-                <label>Proveedor
-                    <input type="text" name="provider" list="provider-options" required>
-                </label>
-                <label>Modelo
-                    <input type="text" name="model" required>
-                </label>
-                <label>Prioridad (menor = se usa primero)
-                    <input type="number" name="priority" value="100" required>
-                </label>
+    <!-- Conexiones -->
+    <section class="tab-pane" id="panel-conexiones" role="tabpanel" aria-labelledby="tab-conexiones" tabindex="0">
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Conexiones de IA</h2>
+                <p class="admin-muted admin-section-lead">
+                    Se usa la conexión disponible de menor prioridad. Si alcanza un umbral, el proveedor la limita (429)
+                    o falla, se pasa a la siguiente, aunque sea de otro proveedor.
+                </p>
             </div>
-            <label>Base URL (vacío para Gemini nativo; cualquier API compatible con OpenAI)
-                <input type="text" name="base_url" placeholder="https://.../v1">
-            </label>
-            <label>API key
-                <input type="password" name="key_value" required>
-            </label>
-            <label>Parámetros extra (JSON, opcional). Se envían tal cual al proveedor.
-                <textarea name="extra_params" rows="2" placeholder='{"reasoning_effort": "low"}'></textarea>
-            </label>
-            <div class="grid">
-                <label>RPM — requests/minuto
-                    <input type="number" name="rpm_threshold">
-                </label>
-                <label>TPM — tokens/minuto
-                    <input type="number" name="tpm_threshold">
-                </label>
-                <label>RPD — requests/día
-                    <input type="number" name="rpd_threshold">
-                </label>
-                <label>TPD — tokens/día
-                    <input type="number" name="tpd_threshold">
-                </label>
+            {% if admin.can_edit %}
+            <button type="button" class="btn btn-primary" id="btn-new-connection">
+                <span class="material-symbols-rounded" aria-hidden="true">add</span> Agregar conexión
+            </button>
+            {% endif %}
+        </div>
+        <div class="table-filters">
+            <div class="form-group">
+                <div class="form-label-container">
+                    <label class="form-label" for="conn-search">Buscar</label>
+                </div>
+                <div class="search-field">
+                    <span class="material-symbols-rounded" aria-hidden="true">search</span>
+                    <input class="form-control" type="search" id="conn-search" placeholder="Nombre, proveedor o modelo">
+                </div>
             </div>
-            <p class="muted">Los umbrales sugeridos por cada plantilla son orientativos: verificá los límites reales en la consola del proveedor.</p>
-            <button type="submit">Agregar</button>
+            {{ select("conn-status", "Estado", [("", "Todos los estados"), ("active", "Activa"), ("standby", "En espera"), ("near-limit", "Cerca del límite"), ("exhausted", "Agotada"), ("disabled", "Deshabilitada")]) }}
+        </div>
+        <div class="table-card">
+            <table class="table table-borderless admin-table" id="connections-table">
+                <caption class="visually-hidden">Conexiones de IA ordenadas por prioridad</caption>
+                <thead>
+                    <tr>
+                        <th scope="col" class="num col-priority">Prioridad</th>
+                        <th scope="col">
+                            <span class="th-title">Conexión</span>
+                            <span class="th-subtitle">Nombre y key enmascarada</span>
+                        </th>
+                        <th scope="col">
+                            <span class="th-title">Proveedor</span>
+                            <span class="th-subtitle">Modelo</span>
+                        </th>
+                        <th scope="col">Estado</th>
+                        <th scope="col" class="col-usage">
+                            <span class="th-title">Consumo</span>
+                            <span class="th-subtitle">Valor actual contra el umbral</span>
+                        </th>
+                        <th scope="col">Habilitada</th>
+                        <th scope="col" class="col-actions"><span class="visually-hidden">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody id="connections-body">
+                    <tr><td colspan="7" class="admin-muted">Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-card" id="chart-conn-tokens"></div>
+            <div class="chart-card" id="chart-latency"></div>
+        </div>
+    </section>
+
+    <!-- Producto -->
+    <section class="tab-pane" id="panel-producto" role="tabpanel" aria-labelledby="tab-producto" tabindex="0">
+        <h2 class="visually-hidden">Uso del producto</h2>
+        <p class="admin-note">
+            <span class="material-symbols-rounded" aria-hidden="true">schedule</span>
+            Diagnósticos y propuestas vigentes: se borran a las {{ analysis_ttl_hours }} h, así que esta pestaña no depende del período elegido.
+        </p>
+        <div class="kpi-grid" id="product-kpis"></div>
+        <div class="chart-grid">
+            <div class="chart-card" id="chart-scores"></div>
+            <div class="chart-card" id="chart-barriers"></div>
+            <div class="chart-card chart-wide" id="chart-decisions"></div>
+        </div>
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Últimos diagnósticos</h2>
+                <p class="admin-muted admin-section-lead">Solo metadatos: el material analizado nunca se muestra en el panel.</p>
+            </div>
+        </div>
+        <div class="table-card">
+            <table class="table table-borderless admin-table">
+                <caption class="visually-hidden">Últimos diagnósticos vigentes</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Fecha</th>
+                        <th scope="col">Origen</th>
+                        <th scope="col" class="num">Puntaje</th>
+                        <th scope="col" class="num">Barreras</th>
+                        <th scope="col">Proveedor / Modelo</th>
+                        <th scope="col" class="num">Latencia</th>
+                        <th scope="col" class="num">Tokens</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-body"></tbody>
+            </table>
+        </div>
+    </section>
+
+    {% if admin.can_edit %}
+    <!-- Usuarios (solo admins) -->
+    <section class="tab-pane" id="panel-usuarios" role="tabpanel" aria-labelledby="tab-usuarios" tabindex="0">
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Usuarios del panel</h2>
+                <p class="admin-muted admin-section-lead">
+                    Quién puede entrar con su cuenta de GitHub. <strong>Admin</strong> modifica todo y administra usuarios;
+                    <strong>Solo lectura</strong> ve el panel completo menos esta sección. Los cambios aplican al instante, también en sesiones abiertas.
+                </p>
+            </div>
+        </div>
+
+        <form class="member-add" id="member-form" novalidate>
+            <div class="form-group">
+                <div class="form-label-container"><label class="form-label" for="member-username">Usuario de GitHub</label></div>
+                <div class="search-field">
+                    <span class="material-symbols-rounded" aria-hidden="true">alternate_email</span>
+                    <input class="form-control" id="member-username" required placeholder="usuario" autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+            {{ select("member-role", "Rol", [("viewer", "Solo lectura"), ("admin", "Admin")]) }}
+            <button type="submit" class="btn btn-primary member-add-submit">
+                <span class="material-symbols-rounded" aria-hidden="true">person_add</span> Dar acceso
+            </button>
         </form>
-    </fieldset>
+        <div id="member-feedback" aria-live="polite"></div>
 
-    <script>
-        const PRESETS = {{ presets_json | tojson }};
-        const form = document.getElementById("create-form");
-        const select = document.getElementById("preset-select");
-        const notes = document.getElementById("preset-notes");
+        <div class="table-card">
+            <table class="table table-borderless admin-table members-table">
+                <caption class="visually-hidden">Usuarios con acceso al panel</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Usuario</th>
+                        <th scope="col">Rol</th>
+                        <th scope="col">Acceso</th>
+                        <th scope="col">Último ingreso</th>
+                        <th scope="col">Agregado por</th>
+                        <th scope="col" class="col-actions"><span class="visually-hidden">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody id="members-body">
+                    <tr><td colspan="6" class="admin-muted">Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="admin-note" id="local-account-note"></p>
+    </section>
+    {% endif %}
 
-        function applyPreset(id) {
-            const p = PRESETS.find((x) => x.id === id);
-            if (!p) return;
-            form.provider.value = p.id;
-            form.base_url.value = p.base_url || "";
-            form.model.value = p.model || "";
-            form.rpm_threshold.value = p.rpm ?? "";
-            form.tpm_threshold.value = p.tpm ?? "";
-            form.rpd_threshold.value = p.rpd ?? "";
-            form.tpd_threshold.value = p.tpd ?? "";
-            form.extra_params.value = Object.keys(p.extra_params).length ? JSON.stringify(p.extra_params) : "";
-            notes.textContent = p.notes;
-        }
+    <!-- Diagramas -->
+    <section class="tab-pane" id="panel-diagramas" role="tabpanel" aria-labelledby="tab-diagramas" tabindex="0">
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Diagramas de arquitectura</h2>
+                <p class="admin-muted admin-section-lead">
+                    Generados con Archify a partir del código del backend. Cada caja indica el archivo y las líneas de donde sale.
+                </p>
+            </div>
+        </div>
+        <div class="diagram-grid">
+            {% for slug, (title, description) in diagrams.items() %}
+            <a class="card admin-card-diagram admin-card-link" href="{{ prefix }}/diagramas/{{ slug }}">
+                <div class="card-body">
+                    <span class="material-symbols-rounded admin-diagram-icon" aria-hidden="true">account_tree</span>
+                    <h3 class="card-title">{{ title }}</h3>
+                    <p class="card-text">{{ description }}</p>
+                    <span class="admin-card-cta">Ver diagrama <span class="material-symbols-rounded" aria-hidden="true">arrow_forward</span></span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+</div>
 
-        select.addEventListener("change", () => applyPreset(select.value));
-        applyPreset(select.value);
-    </script>
-</body>
-</html>
+<!-- Modal: crear o editar conexión -->
+<div class="modal fade" id="connection-modal" tabindex="-1" aria-labelledby="connection-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <form class="modal-content admin-modal" method="post" id="connection-form" novalidate>
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title admin-h2" id="connection-modal-title">Agregar conexión</h2>
+                    <p class="admin-muted admin-modal-lead" id="connection-modal-lead"></p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <fieldset class="form-section">
+                    <legend class="form-section-title">
+                        <span class="material-symbols-rounded" aria-hidden="true">hub</span> Conexión
+                    </legend>
+                    <div class="form-grid form-grid-3">
+                        {% call select("f-provider", "Proveedor", provider_options, name="provider", extra_class="span-1") %}
+                        <p class="form-label-description" id="preset-notes"></p>
+                        {% endcall %}
+                        <div class="form-group span-2">
+                            <div class="form-label-container"><label class="form-label" for="f-label">Nombre</label></div>
+                            <input class="form-control" id="f-label" name="label" required placeholder="Ej: Groq principal">
+                        </div>
+                        <div class="form-group span-2">
+                            <div class="form-label-container"><label class="form-label" for="f-model">Modelo</label></div>
+                            <input class="form-control" id="f-model" name="model" required placeholder="Ej: openai/gpt-oss-120b">
+                        </div>
+                        <div class="form-group span-1">
+                            <div class="form-label-container"><label class="form-label" for="f-priority">Prioridad</label></div>
+                            <input class="form-control" id="f-priority" name="priority" type="number" value="100" required aria-describedby="f-priority-help">
+                            <p class="form-label-description" id="f-priority-help">Menor número = se usa primero.</p>
+                        </div>
+                        <div class="form-group span-3">
+                            <div class="form-label-container"><label class="form-label" for="f-base-url">Base URL</label></div>
+                            <input class="form-control" id="f-base-url" name="base_url" placeholder="https://.../v1" aria-describedby="f-base-url-help">
+                            <p class="form-label-description" id="f-base-url-help">Vacía para Gemini nativo. Cualquier API compatible con OpenAI.</p>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                    <legend class="form-section-title">
+                        <span class="material-symbols-rounded" aria-hidden="true">key</span> Credenciales
+                    </legend>
+                    <div class="form-group">
+                        <div class="form-label-container"><label class="form-label" for="f-key">API key</label></div>
+                        <div class="password-field">
+                            <input class="form-control" id="f-key" name="key_value" type="password" autocomplete="new-password" aria-describedby="f-key-help">
+                            <button type="button" class="password-toggle" aria-label="Mostrar API key" aria-pressed="false" data-toggle-password="f-key">
+                                <span class="material-symbols-rounded" aria-hidden="true">visibility</span>
+                            </button>
+                        </div>
+                        <p class="form-label-description" id="f-key-help"></p>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                    <legend class="form-section-title">
+                        <span class="material-symbols-rounded" aria-hidden="true">tune</span> Umbrales y parámetros
+                    </legend>
+                    <p class="form-label-description form-section-lead">
+                        Opcionales. Los valores de las plantillas son orientativos: verificá los límites reales en la consola del proveedor.
+                    </p>
+                    <div class="form-grid form-grid-4">
+                        <div class="form-group">
+                            <div class="form-label-container"><label class="form-label" for="f-rpm">RPM</label></div>
+                            <input class="form-control" id="f-rpm" name="rpm_threshold" type="number" min="1" aria-describedby="f-rpm-help">
+                            <p class="form-label-description" id="f-rpm-help">Requests por minuto</p>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label-container"><label class="form-label" for="f-tpm">TPM</label></div>
+                            <input class="form-control" id="f-tpm" name="tpm_threshold" type="number" min="1" aria-describedby="f-tpm-help">
+                            <p class="form-label-description" id="f-tpm-help">Tokens por minuto</p>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label-container"><label class="form-label" for="f-rpd">RPD</label></div>
+                            <input class="form-control" id="f-rpd" name="rpd_threshold" type="number" min="1" aria-describedby="f-rpd-help">
+                            <p class="form-label-description" id="f-rpd-help">Requests por día</p>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-label-container"><label class="form-label" for="f-tpd">TPD</label></div>
+                            <input class="form-control" id="f-tpd" name="tpd_threshold" type="number" min="1" aria-describedby="f-tpd-help">
+                            <p class="form-label-description" id="f-tpd-help">Tokens por día</p>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="form-label-container"><label class="form-label" for="f-extra">Parámetros extra (JSON)</label></div>
+                        <textarea class="form-control admin-mono" id="f-extra" name="extra_params" rows="3" placeholder='{"reasoning_effort": "low"}' aria-describedby="f-extra-help"></textarea>
+                        <p class="form-label-description" id="f-extra-help">Se envían tal cual al proveedor en cada llamada.</p>
+                    </div>
+                </fieldset>
+
+                <div class="form-section" id="enabled-group" hidden>
+                    <label class="switch" for="f-enabled">
+                        <input type="checkbox" id="f-enabled" name="enabled" value="true">
+                        <span class="slider"></span>
+                        <span class="switch-label on">Habilitada</span>
+                        <span class="switch-label off">Deshabilitada</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="connection-submit">Agregar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: confirmar borrado -->
+<div class="modal fade" id="delete-modal" tabindex="-1" aria-labelledby="delete-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content admin-modal" method="post" id="delete-form">
+            <div class="modal-header">
+                <h2 class="modal-title admin-h2" id="delete-modal-title">Borrar conexión</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p>¿Borrar la conexión <strong id="delete-name"></strong>? Esta acción no se puede deshacer.</p>
+                <p class="admin-muted" id="delete-env-note" hidden>
+                    Es la conexión del <code>.env</code>: se vuelve a crear en el próximo arranque del backend.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Borrar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: confirmación genérica -->
+<div class="modal fade" id="confirm-modal" tabindex="-1" aria-labelledby="confirm-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content admin-modal">
+            <div class="modal-header">
+                <h2 class="modal-title admin-h2" id="confirm-modal-title"></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body"><p id="confirm-modal-text"></p></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="confirm-modal-ok"></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="chart-tooltip" id="chart-tooltip" role="status" hidden></div>
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true">
+        <div class="toast-body" id="toast-body"></div>
+    </div>
+</div>
+
+<script id="admin-config" type="application/json">{{ {"prefix": prefix, "presets": presets_json, "me": admin.as_public_dict()} | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ prefix }}/static/admin.js?v={{ asset_version }}"></script>
+{% endblock %}

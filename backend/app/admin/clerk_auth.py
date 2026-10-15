@@ -1,5 +1,5 @@
 """
-Login de /adminv2 con Clerk (aplicación de Clerk propia del panel, separada de la de docentes).
+Login del panel /admin con Clerk (aplicación de Clerk propia del panel, separada de la de docentes).
 
 Clerk autentica (GitHub o usuario/contraseña) y el backend autoriza:
 - El token de sesión se valida sin llamadas de red con la clave pública (ADMIN_CLERK_JWT_KEY)

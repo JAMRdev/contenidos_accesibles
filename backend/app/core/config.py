@@ -41,12 +41,12 @@ class Settings(BaseSettings):
     # (solo lo usa la migración de app/db/database.py).
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
-    # --- Panel de Administración (/admin, protegido con HTTP Basic Auth) ---
+    # --- Panel de Administración (/admin): cuenta del .env, siempre admin ---
     ADMIN_USERNAME: str = "admin"
     # Sin default: si falta en .env, la app NO arranca (Fail-Fast).
     ADMIN_PASSWORD: SecretStr
 
-    # --- Login de /adminv2 con Clerk (aplicación de Clerk propia del panel, separada de la de docentes) ---
+    # --- Login del panel /admin con Clerk (aplicación de Clerk propia del panel, separada de la de docentes) ---
     # "local": solo usuario/contraseña del .env · "clerk": solo Clerk · "ambos": Clerk + el login local como respaldo
     ADMIN_AUTH: Literal["local", "clerk", "ambos"] = "ambos"
     ADMIN_CLERK_PUBLISHABLE_KEY: str | None = None

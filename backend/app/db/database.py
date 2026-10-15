@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS adaptation_decisions (
 CREATE INDEX IF NOT EXISTS idx_adaptation_decisions_analysis
     ON adaptation_decisions(analysis_id);
 
--- Historial de llamadas a la IA para las métricas del panel (/adminv2).
+-- Historial de llamadas a la IA para las métricas del panel (/admin).
 -- Una fila por intento: nunca guarda el material ni la respuesta.
 CREATE TABLE IF NOT EXISTS ai_usage_events (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_events (
 CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created_at
     ON ai_usage_events(created_at);
 
--- Usuarios de GitHub con acceso al panel (/adminv2). 'admin' puede modificar todo y
+-- Usuarios de GitHub con acceso al panel (/admin). 'admin' puede modificar todo y
 -- administrar usuarios; 'viewer' solo ve. La cuenta del .env es admin y no vive acá.
 CREATE TABLE IF NOT EXISTS admin_members (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,

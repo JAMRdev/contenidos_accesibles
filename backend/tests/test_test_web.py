@@ -3,9 +3,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from app.admin import session
 from app.admin.router import router as admin_router
 from app.core.config import settings
-from app.services import key_rotation_service
+from app.db.database import init_db
 
 USER, PASSWORD = "admin", "clave-de-prueba"
 WEB_URL = "https://innovalab-web-pruebas.onrender.com/"
@@ -105,25 +106,31 @@ def test_preflight_cors_desde_la_web_de_pruebas(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def admin_client(monkeypatch):
-    """Solo el router de /admin, sin DB: el dashboard recibe una lista de conexiones vacía."""
+def admin_client(tmp_path, monkeypatch):
+    """Solo el router de /admin con una base temporal y la sesión de la cuenta del .env."""
+    monkeypatch.setattr(settings, "DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setattr(settings, "ADMIN_USERNAME", USER)
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", SecretStr(PASSWORD))
-    monkeypatch.setattr(key_rotation_service, "list_status_for_dashboard", lambda: [])
+    monkeypatch.setattr(settings, "ADMIN_AUTH", "local")
+    init_db()
+    session.reset()
     app = FastAPI()
     app.include_router(admin_router, prefix="/admin")
-    return TestClient(app, base_url="https://backend.example.com")
+    client = TestClient(app, base_url="https://backend.example.com")
+    r = client.post("/admin/login", data={"username": USER, "password": PASSWORD}, follow_redirects=False)
+    assert r.status_code == 303
+    return client
 
 
 def test_admin_muestra_enlace_a_la_web_apuntando_a_este_backend(admin_client, monkeypatch):
     monkeypatch.setattr(settings, "TEST_WEB_URL", WEB_URL)
-    r = admin_client.get("/admin/", auth=(USER, PASSWORD))
+    r = admin_client.get("/admin/")
     assert r.status_code == 200
     assert f'href="{WEB_URL}?api=https%3A%2F%2Fbackend.example.com"' in r.text
 
 
 def test_admin_sin_test_web_url_no_muestra_enlace(admin_client, monkeypatch):
     monkeypatch.setattr(settings, "TEST_WEB_URL", None)
-    r = admin_client.get("/admin/", auth=(USER, PASSWORD))
+    r = admin_client.get("/admin/")
     assert r.status_code == 200
     assert "Web de pruebas" not in r.text
