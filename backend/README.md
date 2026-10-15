@@ -48,6 +48,7 @@ backend/
 │   ├── db/
 │   │   ├── database.py               # Conexión SQLite + creación del esquema
 │   │   ├── d1_client.py              # Cliente del Worker pasarela de Cloudflare D1
+│   │   ├── d1_connection.py          # Conexión D1 con la interfaz de sqlite3 (batch atómico por bloque)
 │   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
 │   │   ├── ai_usage_repository.py    # Historial de llamadas a la IA (métricas del panel)
 │   │   └── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
@@ -73,7 +74,8 @@ backend/
 ├── d1-gateway/                       # Worker pasarela de Cloudflare D1 (wrangler, migraciones)
 ├── scripts/
 │   ├── benchmark_analysis.py         # Benchmark de IA y calibración de reglas (--rules-only)
-│   └── d1_ping.py                    # Conexión y latencia contra el Worker de D1
+│   ├── d1_ping.py                    # Conexión y latencia contra el Worker de D1
+│   └── migrate_sqlite_to_d1.py       # Copia los datos del SQLite de Railway a D1
 ├── tests/                            # Tests unitarios y de integración (pytest, modo mock) y fixtures
 ├── app_data.db                       # DB local SQLite: API keys y contadores (IGNORADO en Git)
 ├── .env                              # Variables sensibles locales (IGNORADO en Git)
@@ -307,7 +309,7 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 
 ## 🗄️ Cloudflare D1 (Worker pasarela)
 
-La base de datos se va a migrar de SQLite (volumen de Railway) a **Cloudflare D1**. El backend sigue en Railway, fuera de Cloudflare: no puede usar el *binding* de D1 y la API REST de D1 comparte el límite general de la API de Cloudflare (1200 requests cada 5 min), insuficiente porque el backend escribe en cada llamada a la IA. Por eso habla con un **Worker propio** (`d1-gateway/`) que sí tiene el binding (#58). El cambio del backend a D1 llega con #59; hasta entonces el backend sigue usando SQLite.
+El backend puede usar **SQLite** (local, por defecto) o **Cloudflare D1** (producción) según `DATABASE_BACKEND`. El backend sigue en Railway, fuera de Cloudflare: no puede usar el *binding* de D1 y la API REST de D1 comparte el límite general de la API de Cloudflare (1200 requests cada 5 min), insuficiente porque el backend escribe en cada llamada a la IA. Por eso habla con un **Worker propio** (`d1-gateway/`) que sí tiene el binding (#58).
 
 | Endpoint del Worker | Uso |
 | :--- | :--- |
@@ -329,7 +331,26 @@ npm run dev                             # Worker en http://127.0.0.1:8787
 D1_GATEWAY_URL=http://127.0.0.1:8787 D1_GATEWAY_TOKEN=token-local-de-prueba python scripts/d1_ping.py
 ```
 
-Para probar desde local contra el Worker de Cloudflare, poner en el `.env` `D1_GATEWAY_URL` y `D1_GATEWAY_TOKEN` del Worker desplegado y correr `python scripts/d1_ping.py` (lecturas y escrituras con latencia p50/p95). `DATABASE_BACKEND=d1` hace que la app exija esas dos variables al arrancar.
+Para probar desde local contra el Worker de Cloudflare, poner en el `.env` `D1_GATEWAY_URL` y `D1_GATEWAY_TOKEN` del Worker desplegado y correr `python scripts/d1_ping.py` (lecturas y escrituras con latencia p50/p95). Para correr **el backend completo** sobre D1 (el local o el de Cloudflare), además `DATABASE_BACKEND=d1`: la app exige la URL y el token y, al arrancar, que las migraciones estén aplicadas.
+
+**Cómo funciona la capa de datos sobre D1 (#59).** Los repositorios no cambian: `get_connection()` devuelve un `D1Connection` (`app/db/d1_connection.py`) con la misma interfaz que sqlite3.
+
+- Las lecturas se ejecutan al momento; las escrituras de un bloque `with get_connection()` se mandan juntas en **un batch atómico** al salir (equivale a la transacción de SQLite: si algo falla antes, no se aplica nada).
+- Si el código necesita el resultado de una escritura (`rowcount`, `lastrowid`) o lee después de escribir, primero se mandan las escrituras pendientes.
+- Los parámetros con nombre (`:nombre`) se pasan a `?`, el único formato que admite D1.
+- El esquema viene de `d1-gateway/migrations/` (`0001_schema_backend.sql` es el mismo `SCHEMA` de `app/db/database.py`; un test verifica que coincidan). Un cambio de esquema necesita una migración nueva y actualizar `SCHEMA`.
+- Las llamadas a la base desde código asíncrono van en hilos aparte (`asyncio.to_thread`) o en endpoints síncronos, para no bloquear el servidor mientras D1 responde.
+- `TEST_DATABASE_BACKEND=d1 pytest` corre toda la suite contra el adaptador con un D1 de prueba sobre SQLite que aplica las migraciones (`tests/fake_d1.py`); el CI la corre en los dos modos.
+
+Llamadas a D1 por request (cada una ~320 ms desde Railway hoy): análisis 2, propuesta 3, decisión 3, versión final 3, exportar 3, informe 6, métricas del panel 7, y 4 por cada llamada a la IA real.
+
+**Pasar producción a D1** (una vez, en este orden, para no perder datos):
+
+1. Aplicar el esquema en D1: `cd d1-gateway && npm run migrate:remote`.
+2. En la consola de Railway: `python scripts/migrate_sqlite_to_d1.py --dry-run` y, si está bien, `python scripts/migrate_sqlite_to_d1.py`. Copia todas las tablas con sus ids y las API keys cifradas, y no pisa tablas con datos (salvo `--force`).
+3. Enseguida, en Railway: `DATABASE_BACKEND=d1` y redeploy. El arranque verifica el esquema.
+4. Revisar el panel, un análisis y el log. **Volver atrás** es poner `DATABASE_BACKEND=sqlite` (el volumen sigue intacto), perdiendo lo escrito en D1 mientras tanto.
+5. Con unos días estables, quitar el volumen de Railway.
 
 **Producción (solo con `wrangler`).** Desde `d1-gateway/`, con la sesión de `wrangler` en la cuenta de Cloudflare del proyecto (`npx wrangler whoami` para confirmarla):
 

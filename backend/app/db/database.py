@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -131,8 +132,49 @@ CREATE TABLE IF NOT EXISTS admin_members (
 """
 
 
+_d1_client = None
+_d1_lock = threading.Lock()
+
+# Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members"}
+
+
+def _shared_d1_client():
+    """Un solo cliente HTTP para todo el proceso: reutiliza conexiones (sin un TLS nuevo por consulta)."""
+    global _d1_client
+    with _d1_lock:
+        if _d1_client is None:
+            from app.db.d1_client import client_from_settings
+
+            _d1_client = client_from_settings()
+        return _d1_client
+
+
+def using_d1() -> bool:
+    return settings.DATABASE_BACKEND == "d1"
+
+
 @contextmanager
 def get_connection() -> Iterator[sqlite3.Connection]:
+    """
+    Unidad de trabajo sobre la base: SQLite local (por defecto) o Cloudflare D1 vía el Worker
+    pasarela (DATABASE_BACKEND=d1). En D1 las escrituras del bloque se mandan en un batch
+    atómico al salir (ver app/db/d1_connection.py).
+    """
+    if using_d1():
+        from app.db.d1_connection import D1Connection
+
+        conn = D1Connection(_shared_d1_client())
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return
+
     Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(settings.DATABASE_PATH)
     conn.row_factory = sqlite3.Row
@@ -180,7 +222,22 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
 
 
 def init_db() -> None:
+    if using_d1():
+        _check_d1_schema()
+        return
     with get_connection() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
         _migrate_columns(conn)
+
+
+def _check_d1_schema() -> None:
+    """En D1 el esquema lo crean las migraciones de wrangler: acá solo se verifica que estén aplicadas."""
+    with get_connection() as conn:
+        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    missing = REQUIRED_TABLES - tables
+    if missing:
+        raise RuntimeError(
+            f"A la base D1 le faltan las tablas {', '.join(sorted(missing))}. "
+            "Aplicá las migraciones: cd d1-gateway && npm run migrate:remote"
+        )

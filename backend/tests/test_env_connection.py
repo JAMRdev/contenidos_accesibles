@@ -1,3 +1,4 @@
+import os
 import sqlite3
 
 import pytest
@@ -92,6 +93,7 @@ def test_proveedor_invalido_falla_al_arrancar(db, monkeypatch):
         krs.sync_env_connection()
 
 
+@pytest.mark.skipif(os.environ.get("TEST_DATABASE_BACKEND") == "d1", reason="En D1 el esquema viene de las migraciones de wrangler, no de ALTER TABLE")
 def test_migra_bases_sin_columna_managed_by_env(tmp_path, monkeypatch):
     path = tmp_path / "vieja.db"
     monkeypatch.setattr(settings, "DATABASE_PATH", str(path))

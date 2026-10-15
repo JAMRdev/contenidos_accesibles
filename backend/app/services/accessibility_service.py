@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import unicodedata
@@ -485,7 +486,9 @@ async def analyze_document(
         )   
     
     if persist and response.analysis_id and response.expires_at:
-        analysis_repository.save(
+        # Fuera del event loop: con D1 guardar es una llamada de red
+        await asyncio.to_thread(
+            analysis_repository.save,
             analysis_id=response.analysis_id,
             source_type=doc.source_type,
             filename=doc.filename,

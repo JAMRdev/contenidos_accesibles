@@ -25,6 +25,8 @@ _table_initialized = False
 
 def _ensure_table(conn: sqlite3.Connection) -> None:
     global _table_initialized
+    if getattr(conn, "is_d1", False):
+        return  # en D1 las tablas vienen de las migraciones de wrangler
     if not _table_initialized:
         conn.execute(
             """
