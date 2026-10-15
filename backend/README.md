@@ -162,6 +162,8 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `POST` | `/api/v1/adaptations/{proposal_id}/undo` | Deshacer la decisión: la propuesta vuelve a `pendiente` | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/decisions?analysis_id=` | Registro cronológico de decisiones y deshaceres del diagnóstico (para el informe) | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/final-version?analysis_id=` | Versión final del material: aplica solo las propuestas aceptadas o editadas (solapamientos resueltos a favor de la edición del docente y la decisión más reciente) | ✅ Operativo |
+| `GET` | `/api/v1/export/content?analysis_id=&format=` | Descarga del material adaptado en `docx` (por defecto), `pdf`, `md` o `txt`, generado en memoria con solo los cambios aceptados o editados | ✅ Operativo |
+| `GET` | `/api/v1/export/report?analysis_id=&format=` | Descarga del informe en `pdf` (por defecto), `md` o `txt`. En PDF, los caracteres fuera de latin-1 salen como `?` (#87) | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
@@ -345,9 +347,13 @@ npm run deploy
 | Desde | Lectura (`/query`) p50 / p95 | Escritura (`/batch` de 2) p50 / p95 | Fecha |
 | :--- | :--- | :--- | :--- |
 | Local (Argentina) | 164 / 171 ms | 191 / 199 ms | 15/10/2026 |
-| Railway (backend) | pendiente: correr `python scripts/d1_ping.py` en la consola del servicio | | |
+| Railway (backend) | 318 / 340 ms | 340 / 449 ms | 15/10/2026 |
 
-Con ~160 ms por consulta (contra microsegundos en SQLite local), en #59 conviene agrupar escrituras en `batch` y evitar consultas en serie dentro de una misma request.
+Desde Railway la latencia es casi el doble que desde Argentina: el Worker corre en el borde de Cloudflare más cercano al backend, pero cada consulta viaja hasta la base, que vive en ENAM (este de Norteamérica). Con ~320 ms por consulta (contra microsegundos en SQLite local), antes de pasar el backend a D1 en #59 conviene:
+
+- Revisar la región del servicio en Railway y acercarla a ENAM (o recrear la base con una *location hint* cerca de Railway).
+- Activar *Smart Placement* en el Worker, para que corra cerca de la base cuando hace varias consultas.
+- Agrupar escrituras en `batch` y evitar consultas en serie dentro de una misma request; en especial los contadores de uso que se escriben en cada llamada a la IA.
 
 Los tests unitarios del cliente corren sin red. El de integración usa el Worker local si se define `D1_GATEWAY_TEST_URL` (ver `tests/test_d1_client.py`).
 
