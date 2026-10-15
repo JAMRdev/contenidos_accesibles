@@ -8,6 +8,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from app.db import ai_usage_repository
 from app.services import key_rotation_service
 from app.services.key_rotation_service import AllKeysExhaustedError
 from app.services.llm.base import (
@@ -59,6 +60,27 @@ def _parse_json(text: str, schema: type[SchemaT]) -> SchemaT:
         ) from e
 
 
+def _log_event(
+    conn: AIConnection, kind: str, outcome: str, started: float, usage: Usage | None = None
+) -> None:
+    """Registra el intento para las métricas del panel. Si falla, la llamada a la IA sigue igual."""
+    try:
+        ai_usage_repository.record(
+            connection_id=conn.id,
+            connection_label=conn.label,
+            provider=conn.provider,
+            model=conn.model,
+            kind=kind,
+            outcome=outcome,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.output_tokens if usage else 0,
+            total_tokens=usage.total_tokens if usage else 0,
+        )
+    except Exception:
+        logger.exception("No se pudo registrar el uso de la conexión '%s'", conn.label)
+
+
 class LLMService:
     """
     Capa de servicio para modelos de lenguaje, independiente del proveedor.
@@ -99,7 +121,9 @@ class LLMService:
                 raise
 
             params = {**conn.extra_params, **(overrides or {})}
+            kind = "vision" if require_vision else "text"
             for attempt in range(MAX_SERVER_RETRIES + 1):
+                attempt_started = time.perf_counter()
                 try:
                     result = await self._adapter(conn).generate(
                         conn,
@@ -111,9 +135,11 @@ class LLMService:
                         extra_params=params,
                     )
                 except ProviderRateLimitError as e:
+                    _log_event(conn, kind, "rate_limited", attempt_started)
                     key_rotation_service.mark_rate_limited(conn.id, e.until)
                     break
                 except ProviderServerError as e:
+                    _log_event(conn, kind, "server_error", attempt_started)
                     key_rotation_service.record_failed_request(conn.id)
                     last_error = e
                     if attempt < MAX_SERVER_RETRIES:
@@ -123,11 +149,13 @@ class LLMService:
                     break
                 except Exception as e:
                     # Key inválida, modelo inexistente, parámetro no soportado, etc.
+                    _log_event(conn, kind, "error", attempt_started)
                     logger.warning("Conexión de IA '%s' falló: %s", conn.label, e)
                     last_error = e
                     self._cooldown(conn, CONFIG_ERROR_COOLDOWN_S)
                     break
 
+                _log_event(conn, kind, "ok", attempt_started, result.usage)
                 key_rotation_service.record_usage(conn.id, result.usage)
                 return conn, result
 

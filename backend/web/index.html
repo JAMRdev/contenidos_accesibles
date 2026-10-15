@@ -4,10 +4,92 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>InnovaLab · Web de pruebas</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="auth.css">
 </head>
-<body>
+<body class="auth-locked">
+<!-- Login: el mismo acceso que el panel /adminv2 (Clerk o el usuario del .env) -->
+<div id="auth-screen" class="auth-screen">
+    <div class="auth-wrap">
+        <div class="auth-brand">
+            <span class="material-symbols-rounded auth-brand-icon" aria-hidden="true">science</span>
+            <span>
+                <span class="auth-brand-title">Contenidos accesibles</span>
+                <span class="auth-brand-subtitle">Web de pruebas de la API</span>
+            </span>
+        </div>
+        <div class="auth-card">
+            <h1 class="auth-title">Iniciar sesión</h1>
+            <p class="auth-lead" id="auth-lead">Entrá con tu cuenta de GitHub o con el usuario de administración del backend.</p>
+
+            <div class="auth-alert auth-alert-ok" id="auth-notice" role="status" hidden>
+                <span class="material-symbols-rounded" aria-hidden="true">info</span><span id="auth-notice-text"></span>
+            </div>
+            <div class="auth-alert auth-alert-error" id="auth-error" role="alert" hidden>
+                <span class="material-symbols-rounded" aria-hidden="true">error</span>
+                <span>
+                    <span id="auth-error-text"></span>
+                    <button type="button" class="auth-btn auth-btn-small" id="auth-switch-account" hidden>Usar otra cuenta</button>
+                </span>
+            </div>
+
+            <div id="auth-clerk" hidden>
+                <div class="auth-clerk-slot" id="auth-clerk-slot" aria-live="polite">
+                    <span class="auth-loading" id="auth-clerk-loading">Cargando opciones de inicio de sesión…</span>
+                </div>
+            </div>
+
+            <details class="auth-fallback" id="auth-fallback">
+                <summary id="auth-fallback-summary">
+                    <span class="material-symbols-rounded" aria-hidden="true">key</span>
+                    Entrar sin Clerk (respaldo con el usuario del .env)
+                </summary>
+                <form id="auth-local-form" class="auth-form" novalidate>
+                    <div id="auth-local">
+                        <label class="auth-label" for="auth-username">Usuario</label>
+                        <input class="auth-input" id="auth-username" autocomplete="username" required>
+                        <label class="auth-label" for="auth-password">Contraseña</label>
+                        <div class="auth-password">
+                            <input class="auth-input" id="auth-password" type="password" autocomplete="current-password" required>
+                            <button type="button" class="auth-password-toggle" id="auth-password-toggle" aria-label="Mostrar contraseña" aria-pressed="false">
+                                <span class="material-symbols-rounded" aria-hidden="true">visibility</span>
+                            </button>
+                        </div>
+                        <button type="submit" class="auth-btn auth-btn-primary" id="auth-local-submit">
+                            Ingresar <span class="material-symbols-rounded" aria-hidden="true">arrow_forward</span>
+                        </button>
+                    </div>
+                </form>
+            </details>
+
+            <p class="auth-note">
+                <span class="material-symbols-rounded" aria-hidden="true">dns</span>
+                <span>Backend: <code id="auth-backend"></code>
+                    <button type="button" class="auth-link" id="auth-change-backend">Cambiar</button></span>
+            </p>
+            <form id="auth-backend-form" class="auth-backend-form" hidden>
+                <label class="auth-label" for="auth-backend-input">URL del backend</label>
+                <input class="auth-input" id="auth-backend-input" type="url" placeholder="https://...up.railway.app" required>
+                <button type="submit" class="auth-btn auth-btn-small">Usar este backend</button>
+            </form>
+            <p class="auth-note">
+                <span class="material-symbols-rounded" aria-hidden="true">lock</span>
+                <span>La sesión dura 8 horas. Después de 5 intentos fallidos se bloquea el acceso por 10 minutos.</span>
+            </p>
+        </div>
+    </div>
+</div>
+
 <main>
+    <div class="auth-userbar" id="auth-user" hidden>
+        <img id="auth-user-avatar" class="auth-avatar" alt="" width="28" height="28" hidden>
+        <span class="material-symbols-rounded" aria-hidden="true">account_circle</span>
+        <strong id="auth-user-name"></strong>
+        <span id="auth-user-role" class="auth-role"></span>
+        <button type="button" class="secondary" id="auth-logout">Cerrar sesión</button>
+    </div>
     <h1>InnovaLab · Web de pruebas</h1>
     <p class="muted">
         Recorre el flujo completo de la API: carga del material → diagnóstico → propuestas de adaptación
@@ -156,6 +238,7 @@
 </div>
 
 <script src="config.js"></script>
+<script src="auth.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,19 +1,25 @@
+import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.admin.router import router as admin_router
+from app.admin.router_v2 import PREFIX as ADMIN_V2_PREFIX
+from app.admin.router_v2 import router as admin_v2_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.docs import setup_protected_docs
-from app.db import analysis_repository
+from app.admin import clerk_auth, test_web_auth
+from app.db import admin_member_repository, ai_usage_repository, analysis_repository
 from app.db.database import init_db
 from app.services import key_rotation_service
 
 # En development, Swagger/ReDoc/openapi.json quedan abiertos (rutas por defecto
 # de FastAPI). En staging/production se desactivan y se registran de nuevo
-# detrás de HTTP Basic Auth (DOCS_USERNAME / DOCS_PASSWORD) con setup_protected_docs.
+# detrás de la sesión del panel (Clerk o el usuario del .env) con setup_protected_docs.
 _openapi_url = f"{settings.API_V1_STR}/openapi.json"
 _public_docs = not settings.docs_protected
 
@@ -23,6 +29,15 @@ async def lifespan(app: FastAPI):
     init_db()
     key_rotation_service.sync_env_connection()
     analysis_repository.delete_expired()
+    ai_usage_repository.delete_expired()
+    admin_member_repository.seed(settings.admin_github_seed)
+    # Cuenta del .env en Clerk: en segundo plano para no demorar el arranque si Clerk tarda
+    if settings.admin_clerk_enabled:
+        threading.Thread(
+            target=lambda: logging.getLogger("app.admin").warning(clerk_auth.sync_env_admin()),
+            name="clerk-sync-env-admin",
+            daemon=True,
+        ).start()
     yield
 
 
@@ -73,6 +88,10 @@ de `ENVIRONMENT`, siempre requiere las credenciales de admin).
     lifespan=lifespan,
 )
 
+# La web de pruebas (TEST_WEB_URL) necesita iniciar sesión para usar la API. Se registra antes
+# que CORS para que CORS quede por fuera y también agregue sus encabezados a los 401.
+app.add_middleware(BaseHTTPMiddleware, dispatch=test_web_auth.require_test_web_session)
+
 # Middleware de CORS: orígenes configurados en .env más el de la web de pruebas (TEST_WEB_URL)
 app.add_middleware(
     CORSMiddleware,
@@ -84,9 +103,13 @@ app.add_middleware(
 
 # Registro unificado de rutas bajo el prefijo /api/v1
 app.include_router(api_router, prefix=settings.API_V1_STR)
+# Login de la web de pruebas (fuera del esquema OpenAPI: no es parte del contrato de la API)
+app.include_router(test_web_auth.router, prefix=settings.API_V1_STR)
 
 # Panel de administración (HTML interno, protegido con HTTP Basic Auth)
 app.include_router(admin_router, prefix="/admin")
+# Rediseño del panel con Obelisco V2, en paralelo hasta reemplazar a /admin
+app.include_router(admin_v2_router, prefix=ADMIN_V2_PREFIX)
 
 if settings.docs_protected:
     setup_protected_docs(app, _openapi_url)
@@ -102,6 +125,6 @@ def root():
         "message": "Bienvenido a la API de Accesibilidad Educativa (Innova Lab).",
         "environment": settings.ENVIRONMENT,
         "version": settings.VERSION,
-        "docs": "/docs (requiere credenciales)" if settings.docs_protected else "/docs",
+        "docs": "/docs (requiere iniciar sesión en /adminv2)" if settings.docs_protected else "/docs",
         "health": f"{settings.API_V1_STR}/health",
     }

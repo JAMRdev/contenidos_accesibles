@@ -231,8 +231,13 @@ Pasos en el dashboard de Railway:
    ENVIRONMENT=production
    ADMIN_USERNAME=admin
    ADMIN_PASSWORD=<contraseña fuerte>
-   DOCS_USERNAME=docs
-   DOCS_PASSWORD=<contraseña fuerte, distinta de ADMIN_PASSWORD>
+   ADMIN_AUTH=ambos
+   ADMIN_CLERK_PUBLISHABLE_KEY=<pk_test_... de la aplicación de Clerk del panel>
+   ADMIN_CLERK_SECRET_KEY=<sk_test_...>
+   ADMIN_CLERK_JWT_KEY=<JWT public key en PEM, pegada tal cual>
+   ADMIN_GITHUB_ADMINS=JAMRdev,VictoriaMackenzie,malessan4
+   ADMIN_GITHUB_VIEWERS=camposmatias,Silvanam1,Jos022
+   TEST_WEB_URL=https://<sitio-de-render>.onrender.com
    AI_API_KEY=<API key de Groq>
    DB_ENCRYPTION_KEY=<generada con el comando Fernet de arriba>
    DATABASE_PATH=/data/app_data.db
@@ -246,7 +251,14 @@ Pasos en el dashboard de Railway:
 
 La conexión de IA principal sale de `AI_API_KEY`: en cada arranque se crea o actualiza la conexión **"IL-1 gpt-oss-120b - PROD"** (Groq, `openai/gpt-oss-120b`) con prioridad 0, por delante de las de `/admin`. Editarla o borrarla desde el panel no persiste. Proveedor, modelo y nombre se pueden cambiar con `AI_PROVIDER`, `AI_MODEL` y `AI_CONNECTION_LABEL`.
 
-Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi.json` piden usuario y contraseña (HTTP Basic Auth con `DOCS_USERNAME` / `DOCS_PASSWORD`). Son credenciales propias para poder compartir Swagger con Frontend/QA sin dar acceso a `/admin`. Si falta `DOCS_PASSWORD`, la app no arranca. Los endpoints de la API siguen públicos y en `development` (localhost) la documentación queda abierta.
+Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi.json` piden la **sesión del panel**: sin sesión llevan a `/adminv2/login` y vuelven solas después de entrar (con GitHub vía Clerk o con `ADMIN_USERNAME` / `ADMIN_PASSWORD`). Las cuentas de solo lectura también pueden verlas. Los endpoints de la API siguen públicos y en `development` (localhost) la documentación queda abierta. `DOCS_USERNAME` / `DOCS_PASSWORD` ya no se usan (si quedaron cargadas, se ignoran).
+
+#### Login del panel y de la web de pruebas
+
+- `ADMIN_AUTH=ambos` ofrece Clerk (GitHub o usuario/contraseña) y, como respaldo, el formulario con `ADMIN_USERNAME` / `ADMIN_PASSWORD`. En local se usa `ADMIN_AUTH=local` (solo el usuario del `.env`, sin Clerk).
+- Al arrancar con Clerk, el backend crea o actualiza en Clerk la cuenta `ADMIN_USERNAME` con `ADMIN_PASSWORD` (aparece en el log).
+- Los usuarios de GitHub y su rol (admin o solo lectura) se cargan desde `ADMIN_GITHUB_ADMINS` / `ADMIN_GITHUB_VIEWERS` y después se administran en la pestaña **Usuarios** de `/adminv2`.
+- La web de pruebas (`TEST_WEB_URL`) pide el mismo login: toda llamada a la API desde ese origen necesita sesión. Con solo lectura, la web funciona únicamente en modo mock.
 
 ### Rate limit de IA
 

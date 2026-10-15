@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<nav aria-label="Ruta de navegación">
+    <ol class="breadcrumb admin-breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ prefix }}">Panel</a></li>
+        <li class="breadcrumb-item"><a href="{{ prefix }}#diagramas">Diagramas</a></li>
+        <li class="breadcrumb-item active" aria-current="page">{{ title }}</li>
+    </ol>
+</nav>
+
+<div class="admin-title-row">
+    <div>
+        <h1 class="admin-h1">{{ title }}</h1>
+        <p class="lead admin-lead">{{ description }}</p>
+    </div>
+    <div class="admin-toolbar">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ prefix }}/diagramas/{{ slug }}/contenido" target="_blank" rel="noopener">
+            <span class="material-symbols-rounded" aria-hidden="true">open_in_new</span> Abrir en pantalla completa
+        </a>
+    </div>
+</div>
+
+<div class="diagram-frame">
+    <iframe src="{{ prefix }}/diagramas/{{ slug }}/contenido" title="Diagrama: {{ title }}" loading="lazy"></iframe>
+</div>
+
+<h2 class="admin-h2 diagram-others-title">Otros diagramas</h2>
+<div class="diagram-grid">
+    {% for other, (other_title, other_description) in diagrams.items() if other != slug %}
+    <a class="card admin-card-diagram admin-card-link" href="{{ prefix }}/diagramas/{{ other }}">
+        <div class="card-body">
+            <span class="material-symbols-rounded admin-diagram-icon" aria-hidden="true">account_tree</span>
+            <h3 class="card-title">{{ other_title }}</h3>
+            <p class="card-text">{{ other_description }}</p>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}

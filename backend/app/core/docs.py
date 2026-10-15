@@ -1,29 +1,41 @@
-from fastapi import Depends, FastAPI
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import HTMLResponse, JSONResponse
+from urllib.parse import quote
 
-from app.core.security import get_docs_user
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse, RedirectResponse
+
+from app.admin import session
+
+LOGIN_URL = "/adminv2/login"
 
 
 def setup_protected_docs(app: FastAPI, openapi_url: str) -> None:
     """
-    Registra /docs, /redoc y openapi.json detrás de HTTP Basic Auth.
+    Registra /docs, /redoc y openapi.json detrás de la sesión del panel de administración
+    (Clerk o el usuario y la contraseña del .env; admin y solo lectura pueden verla).
 
-    Se usa en staging/production, donde la app se crea con docs_url, redoc_url
-    y openapi_url en None para que FastAPI no exponga sus rutas públicas.
-    Las tres rutas comparten realm, así el navegador reenvía las credenciales
-    cuando Swagger/ReDoc piden el esquema y no vuelve a pedir login.
+    Se usa en staging/production, donde la app se crea con docs_url, redoc_url y
+    openapi_url en None para que FastAPI no exponga sus rutas públicas. Sin sesión,
+    las páginas llevan al login y vuelven solas después de entrar.
     """
-    auth = [Depends(get_docs_user)]
 
-    @app.get(openapi_url, include_in_schema=False, dependencies=auth)
-    def openapi_json() -> JSONResponse:
+    def _login(request: Request) -> RedirectResponse:
+        return RedirectResponse(f"{LOGIN_URL}?next={quote(request.url.path)}", status_code=303)
+
+    @app.get(openapi_url, include_in_schema=False)
+    def openapi_json(request: Request) -> JSONResponse:
+        if session.current_admin(request) is None:
+            raise HTTPException(status_code=401, detail="Iniciá sesión en el panel para ver la documentación.")
         return JSONResponse(app.openapi())
 
-    @app.get("/docs", include_in_schema=False, dependencies=auth)
-    def swagger_ui() -> HTMLResponse:
+    @app.get("/docs", include_in_schema=False)
+    def swagger_ui(request: Request):
+        if session.current_admin(request) is None:
+            return _login(request)
         return get_swagger_ui_html(openapi_url=openapi_url, title=f"{app.title} - Swagger UI")
 
-    @app.get("/redoc", include_in_schema=False, dependencies=auth)
-    def redoc() -> HTMLResponse:
+    @app.get("/redoc", include_in_schema=False)
+    def redoc(request: Request):
+        if session.current_admin(request) is None:
+            return _login(request)
         return get_redoc_html(openapi_url=openapi_url, title=f"{app.title} - ReDoc")

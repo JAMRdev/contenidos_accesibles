@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated, Literal, Union
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -46,22 +46,34 @@ class Settings(BaseSettings):
     # Sin default: si falta en .env, la app NO arranca (Fail-Fast).
     ADMIN_PASSWORD: SecretStr
 
+    # --- Login de /adminv2 con Clerk (aplicación de Clerk propia del panel, separada de la de docentes) ---
+    # "local": solo usuario/contraseña del .env · "clerk": solo Clerk · "ambos": Clerk + el login local como respaldo
+    ADMIN_AUTH: Literal["local", "clerk", "ambos"] = "ambos"
+    ADMIN_CLERK_PUBLISHABLE_KEY: str | None = None
+    ADMIN_CLERK_SECRET_KEY: SecretStr | None = None
+    # Clave pública PEM de Clerk (JWT public key): valida los tokens sin llamadas de red
+    ADMIN_CLERK_JWT_KEY: str | None = None
+    # Usuarios de GitHub con acceso al panel, separados por comas. Se cargan al arrancar si no existen;
+    # después se administran desde la zona de usuarios del panel.
+    ADMIN_GITHUB_ADMINS: str = ""
+    ADMIN_GITHUB_VIEWERS: str = ""
+
     # --- Persistencia local (SQLite) de conexiones de IA y contadores de uso ---
     DATABASE_PATH: str = "app_data.db"
 
     # Tiempo de retención de diagnósticos antes de expirar (TTL en horas, Semana 4)
     ANALYSIS_TTL_HOURS: int = 24
 
+    # Días que se conserva el historial de llamadas a la IA (métricas del panel)
+    AI_USAGE_RETENTION_DAYS: int = 30
+
     # Clave simétrica (Fernet) para cifrar las API keys guardadas en la DB.
     # Generarla con: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     DB_ENCRYPTION_KEY: SecretStr
 
     # --- Documentación (/docs, /redoc, openapi.json) ---
-    # En development queda abierta. En staging/production exige HTTP Basic Auth
-    # con estas credenciales, separadas de las de /admin para poder compartir
-    # Swagger con Frontend/QA sin dar acceso a las API keys.
-    DOCS_USERNAME: str = "docs"
-    DOCS_PASSWORD: SecretStr | None = None
+    # En development queda abierta. En staging/production exige la sesión del panel
+    # (Clerk o ADMIN_USERNAME/ADMIN_PASSWORD; admin y solo lectura pueden verla).
 
     # --- Seguridad / CORS ---
     # Acepta string separado por comas o lista JSON desde el .env:
@@ -75,6 +87,18 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
     ]
+
+    @field_validator("ADMIN_CLERK_JWT_KEY", mode="before")
+    @classmethod
+    def normalize_pem(cls, v: str | None) -> str | None:
+        """
+        La PEM puede llegar en una línea con "\\n" literales (así queda al pegarla en el panel de
+        Railway, que no interpreta escapes como el .env): se convierten en saltos de línea reales.
+        """
+        if not isinstance(v, str):
+            return v
+        v = v.strip().strip('"').strip("'").replace("\\r\\n", "\n").replace("\\n", "\n").strip()
+        return v or None
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
@@ -106,6 +130,14 @@ class Settings(BaseSettings):
     TEST_WEB_URL: str | None = None
 
     @property
+    def test_web_origin(self) -> str | None:
+        """Origen (esquema + host) de la web de pruebas, o None si TEST_WEB_URL no está definida."""
+        if not self.TEST_WEB_URL:
+            return None
+        parts = urlsplit(self.TEST_WEB_URL.strip())
+        return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else None
+
+    @property
     def cors_origins(self) -> list[str]:
         """BACKEND_CORS_ORIGINS más el origen (esquema + host) de TEST_WEB_URL."""
         origins = list(self.BACKEND_CORS_ORIGINS)
@@ -117,20 +149,32 @@ class Settings(BaseSettings):
         return origins
 
     @property
+    def admin_clerk_enabled(self) -> bool:
+        """Clerk solo se ofrece si el modo lo permite y están las tres claves."""
+        return self.ADMIN_AUTH != "local" and bool(
+            self.ADMIN_CLERK_PUBLISHABLE_KEY and self.ADMIN_CLERK_SECRET_KEY and self.ADMIN_CLERK_JWT_KEY
+        )
+
+    @property
+    def admin_local_login_enabled(self) -> bool:
+        """El login con usuario/contraseña del .env queda como respaldo si Clerk no está configurado."""
+        return self.ADMIN_AUTH != "clerk" or not self.admin_clerk_enabled
+
+    @property
+    def admin_github_seed(self) -> dict[str, str]:
+        """{usuario_de_github: rol} a cargar al arrancar. Si alguien figura en las dos listas, queda como admin."""
+        def parse(raw: str) -> list[str]:
+            return [u.strip().lstrip("@") for u in raw.split(",") if u.strip()]
+
+        seed = {u: "viewer" for u in parse(self.ADMIN_GITHUB_VIEWERS)}
+        seed.update({u: "admin" for u in parse(self.ADMIN_GITHUB_ADMINS)})
+        return seed
+
+    @property
     def docs_protected(self) -> bool:
         """True si /docs, /redoc y openapi.json exigen credenciales."""
         return self.ENVIRONMENT != "development"
 
-    @model_validator(mode="after")
-    def require_docs_password(self) -> "Settings":
-        """Fail-Fast: fuera de development la app no arranca sin DOCS_PASSWORD."""
-        if self.docs_protected and not (
-            self.DOCS_PASSWORD and self.DOCS_PASSWORD.get_secret_value()
-        ):
-            raise ValueError(
-                f"DOCS_PASSWORD es obligatoria con ENVIRONMENT={self.ENVIRONMENT}."
-            )
-        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

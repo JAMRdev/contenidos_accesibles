@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Iniciar sesión{% endblock %}
+{% block body_class %}admin-login-page{% endblock %}
+{% block header %}{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+    <div class="login-brand">
+        <span class="material-symbols-rounded admin-brand-icon" aria-hidden="true">accessibility_new</span>
+        <span>
+            <span class="admin-brand-title">Contenidos accesibles</span>
+            <span class="admin-brand-subtitle">Panel de administración</span>
+        </span>
+    </div>
+
+    <div class="login-card">
+        <h1 class="login-title">Iniciar sesión</h1>
+        <p class="login-lead">
+            {% if clerk_enabled %}Entrá con tu cuenta de GitHub o con el usuario de administración del backend.
+            {% else %}Ingresá con el usuario y la contraseña de administración del backend.{% endif %}
+        </p>
+
+        {% if bye %}
+        <div class="alert alert-success" role="status"><p class="mb-0">Cerraste la sesión.</p></div>
+        {% endif %}
+        {% if error %}
+        <div class="alert alert-danger" role="alert"><p class="mb-0">{{ error }}</p></div>
+        {% endif %}
+        <div class="alert alert-danger" role="alert" id="clerk-error" hidden>
+            <p class="mb-0" id="clerk-error-text"></p>
+            <button type="button" class="btn btn-sm btn-outline-danger mt-2" id="clerk-switch-account">Usar otra cuenta</button>
+        </div>
+
+        {% if clerk_enabled %}
+        <div class="clerk-slot" id="clerk-sign-in" aria-live="polite">
+            <div class="clerk-loading" id="clerk-loading">
+                <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando opciones de inicio de sesión…
+            </div>
+        </div>
+        {% endif %}
+
+        {% if local_enabled %}
+        {% if clerk_enabled %}
+        <details class="login-fallback" {% if error %}open{% endif %}>
+            <summary>
+                <span class="material-symbols-rounded" aria-hidden="true">key</span>
+                Entrar sin Clerk (respaldo con el usuario del .env)
+            </summary>
+        {% endif %}
+        <form method="post" action="{{ prefix }}/login" class="login-form" novalidate>
+            <input type="hidden" name="next" value="{{ next }}">
+            <div class="form-group">
+                <div class="form-label-container">
+                    <label for="username" class="form-label">Usuario</label>
+                </div>
+                <input type="text" class="form-control{% if error %} is-invalid{% endif %}" id="username" name="username"
+                       value="{{ username }}" autocomplete="username" required {% if not clerk_enabled %}autofocus{% endif %}>
+            </div>
+            <div class="form-group">
+                <div class="form-label-container">
+                    <label for="password" class="form-label">Contraseña</label>
+                </div>
+                <div class="password-field">
+                    <input type="password" class="form-control{% if error %} is-invalid{% endif %}" id="password" name="password"
+                           autocomplete="current-password" required>
+                    <button type="button" class="password-toggle" aria-label="Mostrar contraseña" aria-pressed="false" data-toggle-password="password">
+                        <span class="material-symbols-rounded" aria-hidden="true">visibility</span>
+                    </button>
+                </div>
+            </div>
+            <button type="submit" class="btn {% if clerk_enabled %}btn-outline-primary{% else %}btn-primary btn-lg{% endif %} w-100 login-submit">
+                Ingresar <span class="material-symbols-rounded" aria-hidden="true">arrow_forward</span>
+            </button>
+        </form>
+        {% if clerk_enabled %}</details>{% endif %}
+        {% endif %}
+
+        <p class="login-note">
+            <span class="material-symbols-rounded" aria-hidden="true">lock</span>
+            La sesión dura 8 horas. Después de 5 intentos fallidos se bloquea el acceso por 10 minutos.
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if clerk_enabled %}
+<script id="clerk-config" type="application/json">{{ {"prefix": prefix, "next": next, "bye": bye} | tojson }}</script>
+<script defer crossorigin="anonymous" src="https://{{ clerk_frontend_api }}/npm/@clerk/ui@1/dist/ui.browser.js"></script>
+<script defer crossorigin="anonymous" data-clerk-publishable-key="{{ clerk_publishable_key }}"
+        src="https://{{ clerk_frontend_api }}/npm/@clerk/clerk-js@6/dist/clerk.browser.js"></script>
+{% endif %}
+<script src="{{ prefix }}/static/adminv2.js?v={{ asset_version }}"></script>
+{% endblock %}
