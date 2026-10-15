@@ -46,7 +46,7 @@ backend/
 │   │   ├── rate_limit.py             # Límite de uso de IA por IP y global
 │   │   └── security.py               # Verificación anti-CSRF (Origin) de los POST del panel
 │   ├── db/
-│   │   ├── database.py               # Conexión SQLite + creación del esquema
+│   │   ├── database.py               # Conexión a SQLite (local) o D1 (producción) + esquema
 │   │   ├── d1_client.py              # Cliente del Worker pasarela de Cloudflare D1
 │   │   ├── d1_connection.py          # Conexión D1 con la interfaz de sqlite3 (batch atómico por bloque)
 │   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
@@ -77,7 +77,7 @@ backend/
 │   ├── d1_ping.py                    # Conexión y latencia contra el Worker de D1
 │   └── migrate_sqlite_to_d1.py       # Copia los datos del SQLite de Railway a D1
 ├── tests/                            # Tests unitarios y de integración (pytest, modo mock) y fixtures
-├── app_data.db                       # DB local SQLite: API keys y contadores (IGNORADO en Git)
+├── app_data.db                       # DB local SQLite (desarrollo): API keys y contadores (IGNORADO en Git)
 ├── .env                              # Variables sensibles locales (IGNORADO en Git)
 ├── .env.example                      # Plantilla pública de variables requeridas
 ├── .gitignore                        # Reglas de exclusión de seguridad y entorno
@@ -248,7 +248,7 @@ python -m scripts.benchmark_analysis --rules-only
 
 El repo ya incluye la configuración necesaria:
 
-- `railway.json`: builder Railpack, comando de arranque (`uvicorn` en `0.0.0.0:$PORT`), healthcheck en `/api/v1/health` y **1 sola réplica** (SQLite + cooldowns en memoria no admiten más).
+- `railway.json`: builder Railpack, comando de arranque (`uvicorn` en `0.0.0.0:$PORT`), healthcheck en `/api/v1/health` y **1 sola réplica** (los cooldowns de las conexiones de IA y el rate limit viven en memoria).
 - `.python-version`: fija Python 3.12.
 
 Pasos en el dashboard de Railway:
@@ -257,7 +257,8 @@ Pasos en el dashboard de Railway:
    - **Root Directory**: `/backend`
    - **Config File Path**: `/backend/railway.json` (Railway no lo busca dentro del Root Directory)
    - **Watch Paths**: `/backend/**`, para no redeployar con cambios de frontend, diseño u otras carpetas
-2. **Volume**: agregar un Volume al servicio montado en `/data`.
+   - **Region**: **US East (Virginia)**, junto a la base D1 (ENAM). Desde US West cada consulta a D1 tardaba ~3,4 veces más.
+2. **Base de datos**: Cloudflare D1 a través del Worker pasarela (ver la sección **Cloudflare D1** más abajo). **No hace falta Volume**: el disco del contenedor se borra en cada deploy y con D1 no se usa.
 3. **Variables**:
    ```env
    ENVIRONMENT=production
@@ -272,7 +273,9 @@ Pasos en el dashboard de Railway:
    TEST_WEB_URL=https://<sitio-de-render>.onrender.com
    AI_API_KEY=<API key de Groq>
    DB_ENCRYPTION_KEY=<generada con el comando Fernet de arriba>
-   DATABASE_PATH=/data/app_data.db
+   DATABASE_BACKEND=d1
+   D1_GATEWAY_URL=https://contenidos-accesibles-d1-gateway.jamrdev2.workers.dev
+   D1_GATEWAY_TOKEN=<el mismo secreto cargado en el Worker con wrangler secret put>
    BACKEND_CORS_ORIGINS=https://<dominio-del-frontend>,http://localhost:5173
    ```
    `BACKEND_CORS_ORIGINS` acepta orígenes separados por comas o una lista JSON (`["https://a.app","http://localhost:5173"]`). Reemplaza la lista por defecto, así que hay que incluir los orígenes locales si se van a usar. Cada origen va sin `/` final ni ruta.
@@ -342,15 +345,16 @@ Para probar desde local contra el Worker de Cloudflare, poner en el `.env` `D1_G
 - Las llamadas a la base desde código asíncrono van en hilos aparte (`asyncio.to_thread`) o en endpoints síncronos, para no bloquear el servidor mientras D1 responde.
 - `TEST_DATABASE_BACKEND=d1 pytest` corre toda la suite contra el adaptador con un D1 de prueba sobre SQLite que aplica las migraciones (`tests/fake_d1.py`); el CI la corre en los dos modos.
 
-Llamadas a D1 por request (cada una ~320 ms desde Railway hoy): análisis 2, propuesta 3, decisión 3, versión final 3, exportar 3, informe 6, métricas del panel 7, y 4 por cada llamada a la IA real.
+Llamadas a D1 por request (cada una ~95 ms desde Railway en US East): análisis 2, propuesta 3, decisión 3, versión final 3, exportar 3, informe 6, métricas del panel 7, y 4 por cada llamada a la IA real.
 
-**Pasar producción a D1** (una vez, en este orden, para no perder datos):
+**Producción corre sobre D1 desde el 15/10/2026** (#59). Antes, `DATABASE_PATH` apuntaba al disco del contenedor (no había volumen), así que la base se reiniciaba en cada deploy y lo cargado desde el panel se perdía; desde el corte, los datos persisten. Cómo se hizo, por si hay que repetirlo en otro entorno:
 
 1. Aplicar el esquema en D1: `cd d1-gateway && npm run migrate:remote`.
-2. En la consola de Railway: `python scripts/migrate_sqlite_to_d1.py --dry-run` y, si está bien, `python scripts/migrate_sqlite_to_d1.py`. Copia todas las tablas con sus ids y las API keys cifradas, y no pisa tablas con datos (salvo `--force`).
-3. Enseguida, en Railway: `DATABASE_BACKEND=d1` y redeploy. El arranque verifica el esquema.
-4. Revisar el panel, un análisis y el log. **Volver atrás** es poner `DATABASE_BACKEND=sqlite` (el volumen sigue intacto), perdiendo lo escrito en D1 mientras tanto.
-5. Con unos días estables, quitar el volumen de Railway.
+2. En la consola de Railway: `python scripts/migrate_sqlite_to_d1.py --dry-run` y, si está bien, `python scripts/migrate_sqlite_to_d1.py`. Copia todas las tablas con sus ids y las API keys cifradas, y no pisa tablas con datos (salvo `--force`). Hacerlo **antes** de cambiar `DATABASE_BACKEND`: al arrancar sobre D1 el backend crea la conexión del `.env` y los usuarios semilla, y la copia se frenaría por tabla no vacía.
+3. Enseguida, en Railway: `DATABASE_BACKEND=d1`, quitar `DATABASE_PATH` y redeploy. El arranque verifica el esquema.
+4. Verificar el panel, un análisis y que aparezca en D1 (`npx wrangler d1 execute DB --remote --command "SELECT COUNT(*) FROM analyses"`).
+
+Volver a SQLite (`DATABASE_BACKEND=sqlite`) solo tiene sentido con un volumen en Railway; sin él, la base local se pierde en cada deploy.
 
 **Producción (solo con `wrangler`).** Desde `d1-gateway/`, con la sesión de `wrangler` en la cuenta de Cloudflare del proyecto (`npx wrangler whoami` para confirmarla):
 
@@ -368,13 +372,10 @@ npm run deploy
 | Desde | Lectura (`/query`) p50 / p95 | Escritura (`/batch` de 2) p50 / p95 | Fecha |
 | :--- | :--- | :--- | :--- |
 | Local (Argentina) | 164 / 171 ms | 191 / 199 ms | 15/10/2026 |
-| Railway (backend) | 318 / 340 ms | 340 / 449 ms | 15/10/2026 |
+| Railway en US West (antes) | 318 / 340 ms | 340 / 449 ms | 15/10/2026 |
+| **Railway en US East (actual)** | **94 / 159 ms** | **123 / 148 ms** | 15/10/2026 |
 
-Desde Railway la latencia es casi el doble que desde Argentina: el Worker corre en el borde de Cloudflare más cercano al backend, pero cada consulta viaja hasta la base, que vive en ENAM (este de Norteamérica). Con ~320 ms por consulta (contra microsegundos en SQLite local), antes de pasar el backend a D1 en #59 conviene:
-
-- Revisar la región del servicio en Railway y acercarla a ENAM (o recrear la base con una *location hint* cerca de Railway).
-- Activar *Smart Placement* en el Worker, para que corra cerca de la base cuando hace varias consultas.
-- Agrupar escrituras en `batch` y evitar consultas en serie dentro de una misma request; en especial los contadores de uso que se escriben en cada llamada a la IA.
+La base vive en ENAM (este de Norteamérica). Con el servicio de Railway en US West cada consulta tardaba ~320 ms; al pasarlo a **US East (Virginia)** bajó a ~95 ms. Si hace falta más velocidad: evaluar *Smart Placement* en el Worker y agrupar las escrituras de cada llamada a la IA (contadores de uso e historial) en un solo `batch`.
 
 Los tests unitarios del cliente corren sin red. El de integración usa el Worker local si se define `D1_GATEWAY_TEST_URL` (ver `tests/test_d1_client.py`).
 
