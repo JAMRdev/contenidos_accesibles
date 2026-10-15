@@ -6,10 +6,9 @@ y del informe de accesibilidad (#39). Todo se construye en io.BytesIO (cero
 escritura en disco) para garantizar privacidad y no saturar el almacenamiento
 del servidor.
 
-TODO (#62): cuando el Issue #62 (Cloudflare R2) esté implementado, reemplazar
-el retorno de bytes en los endpoints por:
-    url, expires = storage_service.upload_and_sign(buffer, filename, content_type)
-    return ExportUrlResponse(download_url=url, expires_in_seconds=expires, ...)
+Con `?delivery=link` (Issue #62) el endpoint guarda el archivo generado en el
+almacenamiento (R2 en producción) y devuelve una URL firmada de descarga en lugar
+de los bytes (app/api/v1/endpoints/export.py).
 """
 
 import io
@@ -298,9 +297,6 @@ def export_content(adapted: AdaptedDocumentResponse, export_format: str) -> tupl
     Returns:
         (bytes_del_archivo, content_type_header)
 
-    TODO (#62): Cuando esté implementado el Issue #62 de Cloudflare R2, este
-    método puede ser usado por storage_service.upload_and_sign() pasándole el
-    buffer resultante y el content_type.
     """
     fmt = export_format.lower()
     if fmt not in _CONTENT_TYPES:
@@ -603,9 +599,6 @@ def export_report(report: FinalReportResponse, export_format: str) -> tuple[byte
     Returns:
         (bytes_del_archivo, content_type_header)
 
-    TODO (#62): Cuando esté implementado el Issue #62 de Cloudflare R2, este
-    método puede ser usado por storage_service.upload_and_sign() pasándole el
-    buffer resultante y el content_type.
     """
     fmt = export_format.lower()
     if fmt not in _REPORT_CONTENT_TYPES:

@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://contenidos-accesibles.vercel.app",
+          "https://innovalab-web-pruebas.onrender.com"
+        ],
+        "methods": ["PUT", "GET"],
+        "headers": ["content-type"]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

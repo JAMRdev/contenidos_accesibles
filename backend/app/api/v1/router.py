@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import adaptations, analysis, documents, export, health, test_ai
+from app.api.v1.endpoints import adaptations, analysis, documents, export, files, health, test_ai
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["Health"])
@@ -8,3 +8,4 @@ api_router.include_router(documents.router, prefix="/documents", tags=["Document
 api_router.include_router(analysis.router, prefix="/analysis", tags=["Accessibility Analysis"])
 api_router.include_router(adaptations.router, prefix="/adaptations", tags=["AI Adaptations"])
 api_router.include_router(export.router, prefix="/export", tags=["Export"])
+api_router.include_router(files.router, prefix="/files", tags=["Files"])

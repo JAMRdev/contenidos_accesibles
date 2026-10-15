@@ -129,6 +129,27 @@ CREATE TABLE IF NOT EXISTS admin_members (
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+
+-- Archivos de los docentes en R2 (Issue #62). Solo metadatos: el archivo vive en el bucket
+-- (o en la carpeta local en desarrollo). 'pending' hasta que el navegador sube y se confirma.
+CREATE TABLE IF NOT EXISTS files (
+    id                      TEXT PRIMARY KEY,
+    user_id                 TEXT NOT NULL,
+    object_key              TEXT NOT NULL UNIQUE,
+    -- 'upload' (subido por el docente) o 'export' (generado por /export)
+    kind                    TEXT NOT NULL DEFAULT 'upload' CHECK (kind IN ('upload', 'export')),
+    filename                TEXT NOT NULL,
+    content_type            TEXT NOT NULL,
+    size_bytes              INTEGER NOT NULL CHECK (size_bytes > 0),
+    status                  TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded')),
+    created_at              TEXT NOT NULL,
+    uploaded_at             TEXT,
+    expires_at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_files_user_created
+    ON files(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_files_expires_at
+    ON files(expires_at);
 """
 
 
@@ -136,7 +157,7 @@ _d1_client = None
 _d1_lock = threading.Lock()
 
 # Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
-REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members"}
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files"}
 
 
 def _shared_d1_client():

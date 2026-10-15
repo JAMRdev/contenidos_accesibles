@@ -29,8 +29,13 @@ def isolated_database(tmp_path_factory):
     from app.db import database
     from app.db.database import init_db
 
-    original = (settings.DATABASE_PATH, settings.DATABASE_BACKEND, database._d1_client)
+    from app.services import storage_service
+
+    original = (settings.DATABASE_PATH, settings.DATABASE_BACKEND, database._d1_client, settings.LOCAL_STORAGE_PATH)
     settings.DATABASE_PATH = str(tmp_path_factory.mktemp("db") / "test.db")
+    # Archivos (Issue #62): carpeta temporal, nunca local_storage/ del repo
+    settings.LOCAL_STORAGE_PATH = str(tmp_path_factory.mktemp("storage"))
+    storage_service.reset_storage()
     if D1_MODE:
         from tests.fake_d1 import FakeD1Client
 
@@ -38,4 +43,5 @@ def isolated_database(tmp_path_factory):
         database._d1_client = FakeD1Client()
     init_db()
     yield
-    settings.DATABASE_PATH, settings.DATABASE_BACKEND, database._d1_client = original
+    settings.DATABASE_PATH, settings.DATABASE_BACKEND, database._d1_client, settings.LOCAL_STORAGE_PATH = original
+    storage_service.reset_storage()

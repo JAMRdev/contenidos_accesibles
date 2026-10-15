@@ -492,6 +492,8 @@ curl -o informe.pdf   "$API/export/report?analysis_id=$ID&format=pdf"
 | Texto con flechas, ≥, emojis o escrituras no latinas | En `md`, `txt` y `docx` se conservan; en `pdf` salen como `?` (limitación conocida, ver sección 10) |
 | `format` inválido (por ejemplo `exe`, o `docx` en el informe) | 400 |
 | Diagnóstico inexistente o vencido | 404 |
+| Con `&delivery=link` | 200 JSON con `file` (`kind: "export"`) y `download.url`; abrir esa URL descarga el mismo archivo que sin el parámetro |
+| Abrir `download.url` después de 5 minutos | 403 (la URL firmada venció; pedir otra) |
 
 ### 4.15 Acceso: panel `/admin`, documentación y web de pruebas
 
@@ -516,6 +518,33 @@ El panel (`/admin`) es HTML, no forma parte de la API. Se entra en `/admin/login
 | Cerrar sesión (menú del usuario) | Vuelve al login con "Cerraste la sesión"; `/admin` vuelve a pedir login |
 
 **Web de pruebas:** pide el mismo login antes de mostrarse. Desde su origen, toda llamada a `/api/v1` sin sesión responde 401 con `code: "test_web_login_required"` y la página vuelve al login. Con solo lectura, el modo mock queda fijo y una llamada de IA real responde 403. Desde curl, Postman o Bruno la API sigue respondiendo sin credenciales.
+
+### 4.16 Archivos: subida directa con URL firmada (`/files`)
+
+El archivo **no pasa por la API**: se pide una URL firmada, se sube a esa URL y se confirma. En producción la URL apunta al bucket de Cloudflare R2; en local, a `/api/v1/files/local/...`.
+
+```bash
+SIZE=$(stat -c %s material.pdf)
+curl -s -X POST "$API/files/upload-url" -H 'Content-Type: application/json' \
+  -d "{\"filename\":\"material.pdf\",\"content_type\":\"application/pdf\",\"size_bytes\":$SIZE}"
+# Copiar file.file_id y upload.url de la respuesta
+curl -X PUT "<upload.url>" -H 'Content-Type: application/pdf' --data-binary @material.pdf
+curl -s -X POST "$API/files/<file_id>/complete"
+curl -s "$API/files/<file_id>/download-url"
+```
+
+| Caso | Esperado |
+| :--- | :--- |
+| Flujo completo con un `.pdf`, `.docx` o `.pptx` | `upload-url` 201 (`status: "pending"`), `PUT` 200, `complete` 200 (`status: "uploaded"`) y la descarga es idéntica al original, con su nombre |
+| `upload-url` con `.exe`, sin extensión o `content_type` `text/html` | 400 |
+| `upload-url` con más de 10 MB | 413 |
+| `PUT` con un `Content-Type` distinto al de `upload.headers` | 403 (va firmado) |
+| `PUT` después de 5 minutos o con la URL modificada | 403 |
+| `complete` sin haber subido | 409 |
+| Subir un archivo de otro tamaño que el declarado | `complete` 422 y el archivo se borra (`GET /files/<id>` da 404) |
+| Subir un `.txt` renombrado a `.pdf` | `complete` 422 ("firma '%PDF-' ausente") |
+| `download-url` antes de confirmar | 404 |
+| `file_id` inventado | 404 |
 
 ---
 
