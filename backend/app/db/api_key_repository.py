@@ -178,6 +178,19 @@ def update(
             )
 
 
+def set_enabled(key_id: int, enabled: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE api_keys SET enabled = ?, updated_at = datetime('now') WHERE id = ?",
+            (int(enabled), key_id),
+        )
+        if not enabled:
+            conn.execute(
+                "UPDATE api_keys SET is_current = 0 WHERE id = ? AND is_current = 1",
+                (key_id,),
+            )
+
+
 def delete(key_id: int) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))

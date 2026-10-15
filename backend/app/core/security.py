@@ -7,9 +7,6 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from app.core.config import settings
 
 security = HTTPBasic()
-# Realm propio para que el navegador no mezcle estas credenciales con las de /admin.
-DOCS_REALM = "docs"
-docs_security = HTTPBasic(realm=DOCS_REALM)
 
 
 def get_current_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
@@ -26,23 +23,6 @@ def get_current_admin(credentials: HTTPBasicCredentials = Depends(security)) -> 
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales de administrador inválidas.",
             headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-
-def get_docs_user(credentials: HTTPBasicCredentials = Depends(docs_security)) -> str:
-    """
-    Valida las credenciales de la documentación (/docs, /redoc, openapi.json)
-    en staging/production. Solo se registra cuando settings.docs_protected.
-    """
-    expected = settings.DOCS_PASSWORD.get_secret_value() if settings.DOCS_PASSWORD else ""
-    is_user_ok = secrets.compare_digest(credentials.username, settings.DOCS_USERNAME)
-    is_pass_ok = secrets.compare_digest(credentials.password, expected)
-    if not (expected and is_user_ok and is_pass_ok):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales de documentación inválidas.",
-            headers={"WWW-Authenticate": f'Basic realm="{DOCS_REALM}"'},
         )
     return credentials.username
 

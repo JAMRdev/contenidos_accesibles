@@ -174,6 +174,8 @@ async function api(method, path, { query, body, busyText } = {}) {
 
     const url = buildUrl(path, query);
     const init = { method, headers: { Accept: "application/json" } };
+    const authToken = window.TestWebAuth && TestWebAuth.token();
+    if (authToken) init.headers.Authorization = `Bearer ${authToken}`;
     if (body && body.kind === "json") {
         init.headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body.value);
@@ -216,6 +218,8 @@ async function api(method, path, { query, body, busyText } = {}) {
         ms: Math.round(performance.now() - started),
         error: failure ? failure.message : null,
     });
+    // Sesión vencida o acceso revocado: vuelve a la pantalla de login
+    if (status === 401 && data && data.code === "test_web_login_required" && window.TestWebAuth) TestWebAuth.expired();
     if (failure) throw failure;
     return data;
 }
@@ -993,7 +997,8 @@ function init() {
     const savedMock = storageGet("innovalab.mock");
     if (savedMock !== null) $("mock").checked = savedMock === "true";
 
-    $("api-url").addEventListener("change", (e) => setApiBase(e.target.value));
+    $("api-url").addEventListener("change", (e) => { setApiBase(e.target.value); startAuth(); });
+    document.addEventListener("testweb:change-backend", (e) => { setApiBase(e.detail); startAuth(); });
     $("mock").addEventListener("change", (e) => storageSet("innovalab.mock", String(e.target.checked)));
     $("btn-health").addEventListener("click", checkHealth);
 
@@ -1018,6 +1023,26 @@ function init() {
         $("log-entries").replaceChildren(el("p", { class: "muted" }, "Todavía no se hizo ninguna llamada.")));
 
     updateTextCount();
+    startAuth();
+}
+
+// Login de la web de pruebas (auth.js). Con rol de solo lectura, la IA real no está disponible.
+function startAuth() {
+    if (!window.TestWebAuth) return;
+    TestWebAuth.start(state.apiBase, (user) => {
+        const readonly = Boolean(user && !user.can_edit);
+        const mock = $("mock");
+        if (readonly) mock.checked = true;
+        mock.disabled = readonly;
+        let hint = $("readonly-hint");
+        if (readonly && !hint) {
+            hint = el("p", { id: "readonly-hint", class: "readonly-hint" },
+                "Tu usuario es de solo lectura: podés recorrer todo el flujo en modo mock, sin consumir IA real.");
+            mock.closest("label").after(hint);
+        } else if (!readonly && hint) {
+            hint.remove();
+        }
+    });
 }
 
 init();

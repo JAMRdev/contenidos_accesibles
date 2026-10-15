@@ -75,6 +75,14 @@ async def limit_ai_usage(request: Request) -> None:
     if request.query_params.get("mock", "").lower() in _TRUTHY:
         return
 
+    # Web de pruebas con rol de solo lectura: solo modo mock (lo marca app/admin/test_web_auth.py)
+    principal = getattr(request.state, "test_web_principal", None)
+    if principal is not None and not principal.can_edit:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tu usuario es de solo lectura: en la web de pruebas solo podés usar el modo mock (?mock=true).",
+        )
+
     now = _now()
     ip = request.client.host if request.client else "desconocida"
 

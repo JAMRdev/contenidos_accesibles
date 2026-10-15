@@ -91,6 +91,43 @@ CREATE TABLE IF NOT EXISTS adaptation_decisions (
 );
 CREATE INDEX IF NOT EXISTS idx_adaptation_decisions_analysis
     ON adaptation_decisions(analysis_id);
+
+-- Historial de llamadas a la IA para las métricas del panel (/adminv2).
+-- Una fila por intento: nunca guarda el material ni la respuesta.
+CREATE TABLE IF NOT EXISTS ai_usage_events (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at              TEXT NOT NULL,
+    connection_id           INTEGER,
+    connection_label        TEXT NOT NULL,
+    provider                TEXT NOT NULL,
+    model                   TEXT NOT NULL,
+    -- 'text' o 'vision'
+    kind                    TEXT NOT NULL,
+    -- 'ok', 'rate_limited' (429), 'server_error' (5xx) o 'error' (key, modelo o parámetros)
+    outcome                 TEXT NOT NULL,
+    prompt_tokens           INTEGER NOT NULL DEFAULT 0,
+    output_tokens           INTEGER NOT NULL DEFAULT 0,
+    total_tokens            INTEGER NOT NULL DEFAULT 0,
+    latency_ms              INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created_at
+    ON ai_usage_events(created_at);
+
+-- Usuarios de GitHub con acceso al panel (/adminv2). 'admin' puede modificar todo y
+-- administrar usuarios; 'viewer' solo ve. La cuenta del .env es admin y no vive acá.
+CREATE TABLE IF NOT EXISTS admin_members (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    github_username         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    role                    TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+    enabled                 INTEGER NOT NULL DEFAULT 1,
+    display_name            TEXT,
+    avatar_url              TEXT,
+    clerk_user_id           TEXT,
+    last_login_at           TEXT,
+    added_by                TEXT,
+    created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
 """
 
 
