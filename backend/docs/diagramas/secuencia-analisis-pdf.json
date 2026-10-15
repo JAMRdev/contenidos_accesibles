@@ -553,7 +553,7 @@
       "id": "rotation",
       "type": "database",
       "label": "KeyRotation",
-      "sublabel": "SQLite + cooldowns",
+      "sublabel": "D1 + cooldowns",
       "sources": [
         {
           "path": "backend/app/services/key_rotation_service.py",

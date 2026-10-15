@@ -12,7 +12,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/e18-innovalab/contenidos_accesibles.git",
-      "revision": "a917521f03c0e705eb5eaa6d124b208e070972c6",
+      "revision": "73f3607ebcf7c404c5af753830fcad4f86dc72d3",
       "link_mode": "local-only"
     },
     "translations": {
@@ -523,7 +523,7 @@
       "id": "store",
       "type": "database",
       "label": "api_keys",
-      "sublabel": "SQLite · /data",
+      "sublabel": "Cloudflare D1",
       "stage": 1,
       "row": 1,
       "tag": "Fernet",
@@ -540,9 +540,10 @@
           "label": "create"
         },
         {
-          "path": "backend/app/core/crypto.py",
-          "line": 14,
-          "end_line": 18
+          "path": "backend/app/db/d1_connection.py",
+          "line": 85,
+          "end_line": 130,
+          "label": "D1Connection"
         }
       ]
     },
@@ -580,8 +581,8 @@
       "sources": [
         {
           "path": "backend/app/services/llm_service.py",
-          "line": 100,
-          "end_line": 160
+          "line": 111,
+          "end_line": 170
         }
       ]
     },
