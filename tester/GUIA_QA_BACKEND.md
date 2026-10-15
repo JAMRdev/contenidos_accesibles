@@ -505,6 +505,9 @@ El panel (`/admin`) es HTML, no forma parte de la API. Se entra en `/admin/login
 | 5 intentos fallidos del login de respaldo | 429 "Demasiados intentos fallidos" (se libera a los 10 min) |
 | Con solo lectura | Aviso "Modo solo lectura", sin botones de agregar, editar ni borrar y sin pestaña Usuarios |
 | `GET /admin/api/metrics` sin sesión | 401 |
+| Pestaña **Estado** (cualquier rol) | Una tarjeta por servicio con su estado, el aviso general arriba y la tabla de URLs; se actualiza sola cada 30 s |
+| `GET /admin/api/status` sin sesión | 401 |
+| `GET /admin/api/status` con sesión | Ninguna key, token ni contraseña en la respuesta |
 | Con solo lectura, `POST /admin/keys…` | 403 "Tu usuario tiene acceso de solo lectura" |
 | `POST` a `/admin/...` con header `Origin` de otro dominio | 403 "Origen no permitido" |
 | Abrir `/adminv2` (ruta vieja) | 308 a `/admin/` |

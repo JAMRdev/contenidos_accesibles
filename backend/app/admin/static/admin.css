@@ -197,6 +197,28 @@ body { background: var(--surface-page); color: var(--ink); }
 .status-disabled { background: #f3f3f3; color: #565656; border-color: #e2e2e2; }
 .admin-table .switch { margin: 0; }
 
+/* Estado de los servicios */
+.status-overall { margin-bottom: 1rem; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+.status-card { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--neutral); border-radius: var(--radius-card); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.status-card.is-ok { border-left-color: var(--status-good); }
+.status-card.is-degraded { border-left-color: var(--status-warning); }
+.status-card.is-down { border-left-color: var(--status-critical); }
+.status-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+.status-card-title { font-size: 1.0625rem; font-weight: 700; margin: 0; }
+.status-card-head .cell-sub { font-size: 0.8125rem; color: var(--ink-muted); }
+.status-card-detail { margin: 0; font-weight: 600; color: var(--ink-2); overflow-wrap: anywhere; }
+.status-card-desc { margin: 0; font-size: 0.875rem; }
+.status-facts { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.75rem; margin: 0; font-size: 0.875rem; }
+.status-facts dt { color: var(--ink-muted); font-weight: 600; }
+.status-facts dd { margin: 0; overflow-wrap: anywhere; }
+.status-card-foot { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; margin-top: auto; padding-top: 0.5rem; border-top: 1px solid var(--grid); font-size: 0.8125rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.status-card-foot span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.status-url { overflow-wrap: anywhere; }
+/* Tres columnas cortas: entra entera en el celular (la URL se parte en varias líneas) */
+.links-table { min-width: 0; }
+.links-table td:first-child { width: 30%; }
+
 /* ------------------------------------------------------------------------
    Diagramas
    ------------------------------------------------------------------------ */

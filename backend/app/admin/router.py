@@ -27,7 +27,7 @@ from app.core.security import verify_same_origin
 from app.db import admin_member_repository as members
 from app.db import ai_usage_repository
 from app.db import api_key_repository as repo
-from app.services import admin_metrics_service
+from app.services import admin_metrics_service, status_service
 from app.services.llm.providers import PRESETS, presets_as_dicts
 
 PREFIX = "/admin"
@@ -322,6 +322,15 @@ def metrics(
         raise HTTPException(status_code=400, detail="Rango inválido. Opciones: 24h, 7d, 30d.")
     ai_usage_repository.delete_expired()
     return admin_metrics_service.build_metrics(range_key, tz)
+
+
+@router.get("/api/status")
+async def services_status(request: Request, admin: session.Principal = Depends(session.require_admin)):
+    """Estado en vivo de los servicios conectados (con caché corta) y las URLs del proyecto."""
+    return {
+        **await status_service.get_status(),
+        "links": status_service.links(str(request.base_url), PREFIX),
+    }
 
 
 @router.post("/keys")

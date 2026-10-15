@@ -1150,6 +1150,97 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     if ($("member-role") && !$("member-role").value) ObSelect.set("member-role", "viewer");
 
     // -----------------------------------------------------------------------
+    // Estado de los servicios (se consulta solo con la pestaña a la vista)
+    // -----------------------------------------------------------------------
+
+    const SERVICE_STATE = {
+        ok: { icon: "check_circle", label: "Operativo", css: "active" },
+        degraded: { icon: "warning", label: "Con problemas", css: "near-limit" },
+        down: { icon: "error", label: "Caído", css: "exhausted" },
+        unconfigured: { icon: "do_not_disturb_on", label: "Sin configurar", css: "disabled" },
+    };
+    const OVERALL = {
+        ok: { kind: "success", text: "Todos los servicios configurados funcionan." },
+        degraded: { kind: "warning", text: "Hay servicios con problemas." },
+        down: { kind: "danger", text: "Hay servicios caídos." },
+        unconfigured: { kind: "info", text: "No hay servicios configurados para revisar." },
+    };
+    const statusState = { timer: null };
+
+    function serviceBadge(stateKey) {
+        const st = SERVICE_STATE[stateKey] || SERVICE_STATE.unconfigured;
+        return h("span", { class: `status status-${st.css}` }, icon(st.icon), st.label);
+    }
+
+    function serviceCard(svc) {
+        return h("article", { class: `status-card is-${svc.state}` },
+            h("div", { class: "status-card-head" },
+                h("div", {}, h("h3", { class: "status-card-title", text: svc.name }), h("span", { class: "cell-sub", text: svc.platform })),
+                serviceBadge(svc.state)),
+            h("p", { class: "status-card-detail", text: svc.detail }),
+            svc.facts.length ? h("dl", { class: "status-facts" }, svc.facts.map((f) => [h("dt", { text: f.label }), h("dd", { text: f.value })])) : null,
+            h("p", { class: "status-card-desc admin-muted", text: svc.description }),
+            svc.state === "unconfigured" ? null : h("div", { class: "status-card-foot" },
+                svc.latency_ms === null ? null : h("span", {}, icon("timer"), h("span", { class: "visually-hidden", text: "Latencia:" }), ms(svc.latency_ms)),
+                h("span", {}, icon("history"), `En este estado desde ${fullFmt.format(new Date(svc.since))}`)),
+        );
+    }
+
+    async function copyText(text, label) {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast(`Se copió la URL de ${label}.`);
+        } catch {
+            toast("No se pudo copiar: seleccioná la URL a mano.");
+        }
+    }
+
+    function linkRow(link) {
+        return h("tr", {},
+            h("td", {}, h("span", { class: "cell-title", text: link.label }), h("span", { class: "cell-sub", text: link.group })),
+            h("td", {}, h("a", { class: "status-url", href: link.url, target: "_blank", rel: "noopener", text: link.url })),
+            h("td", {}, h("div", { class: "row-actions" },
+                h("button", {
+                    type: "button", class: "btn btn-sm btn-outline-secondary btn-icon-only", title: "Copiar URL",
+                    "aria-label": `Copiar la URL de ${link.label}`, onclick: () => copyText(link.url, link.label),
+                }, icon("content_copy")))),
+        );
+    }
+
+    function renderStatus(data) {
+        const overall = OVERALL[data.overall] || OVERALL.unconfigured;
+        const c = data.counts;
+        const parts = [`${c.ok} operativos`, c.degraded ? `${c.degraded} con problemas` : null, c.down ? `${c.down} caídos` : null,
+            c.unconfigured ? `${c.unconfigured} sin configurar` : null].filter(Boolean).join(" · ");
+        $("status-overall").replaceChildren(h("div", { class: `alert alert-${overall.kind} status-overall`, role: "status" },
+            h("p", { class: "mb-0" }, h("strong", { text: overall.text }), ` ${parts}. Comprobado a las ${hourFmt.format(new Date(data.checked_at))}.`)));
+        $("status-services").replaceChildren(...data.services.map(serviceCard));
+        $("status-links").replaceChildren(...data.links.map(linkRow));
+    }
+
+    async function loadStatus() {
+        try {
+            const r = await fetch(api("/api/status"), { headers: { Accept: "application/json" } });
+            if (r.status === 401) return goToLogin();
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            renderStatus(await r.json());
+        } catch (err) {
+            $("status-overall").replaceChildren(h("div", { class: "alert alert-danger", role: "alert" },
+                h("p", { class: "mb-0", text: `No se pudo consultar el estado (${err.message}).` })));
+        }
+    }
+
+    const statusVisible = () => !document.hidden && $("panel-estado").classList.contains("active");
+
+    function syncStatusPolling() {
+        clearInterval(statusState.timer);
+        statusState.timer = null;
+        if (!statusVisible()) return;
+        loadStatus();
+        statusState.timer = setInterval(() => { if (statusVisible()) loadStatus(); }, REFRESH_MS);
+    }
+
+    // -----------------------------------------------------------------------
     // Carga y refresco
     // -----------------------------------------------------------------------
 
@@ -1200,7 +1291,7 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         });
         loadMetrics();
     }));
-    $("btn-refresh").addEventListener("click", loadMetrics);
+    $("btn-refresh").addEventListener("click", () => { loadMetrics(); if (statusVisible()) loadStatus(); });
     $("btn-new-connection")?.addEventListener("click", () => openConnectionModal(null));
     // Al crear, elegir proveedor completa los valores sugeridos; al editar solo cambia el proveedor
     $("f-provider").addEventListener("change", (ev) => {
@@ -1214,13 +1305,13 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     });
     $("conn-search").addEventListener("input", () => state.data && renderConnections(state.data));
     $("conn-status").addEventListener("change", () => state.data && renderConnections(state.data));
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) loadMetrics(); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) loadMetrics(); syncStatusPolling(); });
     window.addEventListener("scroll", hideTooltip, { passive: true });
     let resizeTimer = null;
     window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
 
-    // Abre la pestaña indicada en el hash (#conexiones, #producto, #diagramas) y lo mantiene al navegar
-    const hashTab = { "#conexiones": "tab-conexiones", "#nueva-conexion": "tab-conexiones", "#producto": "tab-producto", "#usuarios": "tab-usuarios", "#diagramas": "tab-diagramas" }[location.hash];
+    // Abre la pestaña indicada en el hash (#conexiones, #producto, #estado, #diagramas) y lo mantiene al navegar
+    const hashTab = { "#conexiones": "tab-conexiones", "#nueva-conexion": "tab-conexiones", "#producto": "tab-producto", "#usuarios": "tab-usuarios", "#estado": "tab-estado", "#diagramas": "tab-diagramas" }[location.hash];
     if (hashTab && $(hashTab)) bootstrap.Tab.getOrCreateInstance($(hashTab)).show();
     // Enlace directo para abrir el alta de una conexión
     if (location.hash === "#nueva-conexion" && CAN_EDIT) openConnectionModal(null);
@@ -1228,14 +1319,16 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         history.replaceState(null, "", t.id === "tab-resumen" ? location.pathname : `#${t.id.replace("tab-", "")}`);
         hideTooltip();
         render();
+        syncStatusPolling();
     }));
 
     window.addEventListener("hashchange", () => {
-        const tab = { "#conexiones": "tab-conexiones", "#producto": "tab-producto", "#usuarios": "tab-usuarios", "#diagramas": "tab-diagramas", "": "tab-resumen" }[location.hash];
+        const tab = { "#conexiones": "tab-conexiones", "#producto": "tab-producto", "#usuarios": "tab-usuarios", "#estado": "tab-estado", "#diagramas": "tab-diagramas", "": "tab-resumen" }[location.hash];
         if (tab && $(tab)) bootstrap.Tab.getOrCreateInstance($(tab)).show();
     });
 
     loadMetrics();
     schedule();
+    syncStatusPolling();
     if (CAN_EDIT && $("members-body")) loadMembers();
 })();
