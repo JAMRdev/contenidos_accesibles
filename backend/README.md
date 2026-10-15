@@ -47,6 +47,7 @@ backend/
 │   │   └── security.py               # Verificación anti-CSRF (Origin) de los POST del panel
 │   ├── db/
 │   │   ├── database.py               # Conexión SQLite + creación del esquema
+│   │   ├── d1_client.py              # Cliente del Worker pasarela de Cloudflare D1
 │   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
 │   │   ├── ai_usage_repository.py    # Historial de llamadas a la IA (métricas del panel)
 │   │   └── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
@@ -69,8 +70,10 @@ backend/
 │   ├── motor_reglas.md                       # Reglas automáticas, umbrales y fórmula del puntaje
 │   ├── diagramas/                            # Fuentes (JSON de Archify) de los diagramas del panel
 │   └── benchmarks/                           # Reportes de latencia, tokens y variabilidad
+├── d1-gateway/                       # Worker pasarela de Cloudflare D1 (wrangler, migraciones)
 ├── scripts/
-│   └── benchmark_analysis.py         # Benchmark de IA y calibración de reglas (--rules-only)
+│   ├── benchmark_analysis.py         # Benchmark de IA y calibración de reglas (--rules-only)
+│   └── d1_ping.py                    # Conexión y latencia contra el Worker de D1
 ├── tests/                            # Tests unitarios y de integración (pytest, modo mock) y fixtures
 ├── app_data.db                       # DB local SQLite: API keys y contadores (IGNORADO en Git)
 ├── .env                              # Variables sensibles locales (IGNORADO en Git)
@@ -297,6 +300,56 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 | `AI_RATE_LIMIT_GLOBAL_DAY` | `500` | Todas las IP, últimas 24 h |
 
 `0` desactiva ese límite. El global protege la cuota aunque se falsee la IP (detrás del proxy, la IP sale de `X-Forwarded-For`). Los contadores se reinician con cada deploy.
+
+---
+
+## 🗄️ Cloudflare D1 (Worker pasarela)
+
+La base de datos se va a migrar de SQLite (volumen de Railway) a **Cloudflare D1**. El backend sigue en Railway, fuera de Cloudflare: no puede usar el *binding* de D1 y la API REST de D1 comparte el límite general de la API de Cloudflare (1200 requests cada 5 min), insuficiente porque el backend escribe en cada llamada a la IA. Por eso habla con un **Worker propio** (`d1-gateway/`) que sí tiene el binding (#58). El cambio del backend a D1 llega con #59; hasta entonces el backend sigue usando SQLite.
+
+| Endpoint del Worker | Uso |
+| :--- | :--- |
+| `GET /health` | Estado, sin token |
+| `POST /query` | `{ "sql": "...", "params": [...] }`: una sentencia parametrizada |
+| `POST /batch` | `{ "statements": [{ "sql", "params" }, ...] }`: varias sentencias atómicas (si una falla, no se aplica ninguna) |
+
+`/query` y `/batch` exigen `Authorization: Bearer <D1_GATEWAY_TOKEN>` (comparación en tiempo constante; sin token correcto, 401). Solo aceptan sentencias con `?` y parámetros (texto, número, booleano o `null`), una por elemento. El token da acceso completo a la base: es un secreto del backend. Del lado del backend, `app/db/d1_client.py` (`D1Client`) agrega timeout y reintentos ante errores transitorios (red, 502/503/504).
+
+**Local (sin cuenta de Cloudflare).** El backend sigue con SQLite (`DATABASE_BACKEND=sqlite`). Para probar el Worker con una D1 simulada:
+
+```bash
+cd d1-gateway
+npm install
+cp .dev.vars.example .dev.vars          # token local del Worker
+npm run migrate:local                   # migraciones en la D1 simulada
+npm run dev                             # Worker en http://127.0.0.1:8787
+# en otra terminal, desde backend/:
+D1_GATEWAY_URL=http://127.0.0.1:8787 D1_GATEWAY_TOKEN=token-local-de-prueba python scripts/d1_ping.py
+```
+
+Para probar desde local contra el Worker de Cloudflare, poner en el `.env` `D1_GATEWAY_URL` y `D1_GATEWAY_TOKEN` del Worker desplegado y correr `python scripts/d1_ping.py` (lecturas y escrituras con latencia p50/p95). `DATABASE_BACKEND=d1` hace que la app exija esas dos variables al arrancar.
+
+**Producción (solo con `wrangler`).** Desde `d1-gateway/`, con la sesión de `wrangler` en la cuenta de Cloudflare del proyecto (`npx wrangler whoami` para confirmarla):
+
+```bash
+npx wrangler d1 create contenidos-accesibles     # copiar el database_id a wrangler.toml
+npm run migrate:remote
+npx wrangler secret put D1_GATEWAY_TOKEN         # el mismo valor que D1_GATEWAY_TOKEN en Railway
+npm run deploy
+```
+
+**Despliegue actual:** Worker `contenidos-accesibles-d1-gateway` en `https://contenidos-accesibles-d1-gateway.jamrdev2.workers.dev`, base `contenidos-accesibles` (región ENAM). `account_id` y `database_id` están fijados en `wrangler.toml`, así que `wrangler` despliega siempre a esa cuenta.
+
+**Latencia medida** con `scripts/d1_ping.py` (incluye ida y vuelta HTTPS hasta el Worker y la consulta en D1):
+
+| Desde | Lectura (`/query`) p50 / p95 | Escritura (`/batch` de 2) p50 / p95 | Fecha |
+| :--- | :--- | :--- | :--- |
+| Local (Argentina) | 164 / 171 ms | 191 / 199 ms | 15/10/2026 |
+| Railway (backend) | pendiente: correr `python scripts/d1_ping.py` en la consola del servicio | | |
+
+Con ~160 ms por consulta (contra microsegundos en SQLite local), en #59 conviene agrupar escrituras en `batch` y evitar consultas en serie dentro de una misma request.
+
+Los tests unitarios del cliente corren sin red. El de integración usa el Worker local si se define `D1_GATEWAY_TEST_URL` (ver `tests/test_d1_client.py`).
 
 ---
 

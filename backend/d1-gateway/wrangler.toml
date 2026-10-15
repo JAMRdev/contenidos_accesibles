@@ -1,0 +1,22 @@
+# Worker pasarela entre el backend (Railway) y Cloudflare D1 (Issue #58).
+# Solo se despliega a producción con wrangler. En local, `npm run dev` lo levanta
+# con una D1 simulada (sin cuenta de Cloudflare).
+name = "contenidos-accesibles-d1-gateway"
+main = "src/index.js"
+# Cuenta de Cloudflare del proyecto: fija el destino aunque wrangler tenga otra sesión abierta
+account_id = "6e7b0cfffb1955599281e4ae7cdadf0e"
+compatibility_date = "2026-09-01"
+
+# Sin rutas públicas extra: el Worker responde en <name>.<subdominio>.workers.dev
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "contenidos-accesibles"
+# Creada con `wrangler d1 create contenidos-accesibles` (región ENAM). En local,
+# `npm run dev` usa una copia simulada en .wrangler/ y no toca esta base.
+database_id = "65c9f457-d442-478c-8735-f582f0345076"
+migrations_dir = "migrations"
+
+# Secreto compartido con el backend (D1_GATEWAY_TOKEN). En producción se carga con
+# `wrangler secret put D1_GATEWAY_TOKEN`; en local se lee de .dev.vars (no se versiona).
