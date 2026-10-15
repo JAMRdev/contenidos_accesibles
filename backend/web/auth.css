@@ -1,4 +1,4 @@
-/* Login de la web de pruebas: mismo aspecto que el login del panel /adminv2 (Obelisco V2). */
+/* Login de la web de pruebas: mismo aspecto que el login del panel /admin (Obelisco V2). */
 .material-symbols-rounded { font-family: "Material Symbols Rounded"; font-size: 1.25em; line-height: 1; vertical-align: -0.22em; font-weight: normal; font-style: normal; letter-spacing: normal; text-transform: none; white-space: nowrap; direction: ltr; -webkit-font-smoothing: antialiased; }
 
 body.auth-locked main { display: none; }

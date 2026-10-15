@@ -2,7 +2,7 @@
 
 Guía para probar la API del backend: qué hace cada endpoint, cómo probarlo, qué respuesta esperar y cómo hacer pruebas de estrés sin tirar el servicio ni gastar la cuota de IA del equipo.
 
-> Estado: backend en `main` al 13/10/2026. Si algo de esta guía no coincide con lo que ves, la referencia es la documentación de la API: [Swagger](https://innovalab-educacion-e18-test.up.railway.app/docs) y [ReDoc](https://innovalab-educacion-e18-test.up.railway.app/redoc). Avisá al equipo de Backend de la diferencia.
+> Estado: backend en `main` al 15/10/2026 (panel `/admin` con login de GitHub vía Clerk, #81 y #83). Si algo de esta guía no coincide con lo que ves, la referencia es la documentación de la API: [Swagger](https://innovalab-educacion-e18-test.up.railway.app/docs) y [ReDoc](https://innovalab-educacion-e18-test.up.railway.app/redoc). Avisá al equipo de Backend de la diferencia.
 
 ---
 
@@ -30,7 +30,7 @@ El backend corre en **una sola instancia** en Railway, con una cuota de IA **gra
 2. **Nunca hagas pruebas de estrés contra producción.** Usá el backend local (sección 1.3) o una instancia de staging que te levante Backend. Una prueba de carga en producción deja sin servicio a todo el equipo.
 3. **No uses datos reales de estudiantes.** Inventá nombres, DNI y notas. El backend detecta datos personales y los bloquea, y lo vamos a probar con datos ficticios.
 4. **No subas archivos grandes en paralelo contra producción.** Cada archivo pesado (cerca de 10 MB) puede ocupar unos 60 MB de memoria mientras se procesa; muchos a la vez pueden reiniciar el servidor (ver 7.4).
-5. **No toques `/admin` en producción** salvo para probar el login. Ahí están las API keys de IA: borrar o deshabilitar una conexión deja sin IA a todos.
+5. **En `/admin` de producción, mirá pero no modifiques.** Con rol de solo lectura el panel no te deja cambiar nada; si tenés rol admin, no edites ni borres conexiones salvo que lo coordines con Backend: borrar o deshabilitar una conexión deja sin IA a todos.
 6. **`POST /ai/test-connection` siempre usa IA real** (no tiene modo mock). Usalo solo para verificar que la IA responde, no en loops.
 7. **Si ves 429 o 503 de la IA, frená y avisá.** Insistir agota la cuota diaria.
 8. **Antes de una prueba de estrés o de IA real, avisá en el canal de Backend** con día y hora.
@@ -44,12 +44,21 @@ El backend corre en **una sola instancia** en Railway, con una cuota de IA **gra
 | Qué | Dónde | Notas |
 | :--- | :--- | :--- |
 | API (producción) | <https://innovalab-educacion-e18-test.up.railway.app/api/v1> | En los ejemplos se usa la variable `$API`. |
-| Swagger (pruebas interactivas) | <https://innovalab-educacion-e18-test.up.railway.app/docs> | Pide usuario y contraseña. |
-| ReDoc (documentación de lectura) | <https://innovalab-educacion-e18-test.up.railway.app/redoc> | Mismas credenciales que Swagger. |
-| Web de pruebas | <https://innovalab-web-pruebas.onrender.com/> | Recorre el flujo completo con botones y muestra cada request con su `curl`. Modo mock activado por defecto. |
-| Panel de administración | <https://innovalab-educacion-e18-test.up.railway.app/admin> | Solo Backend. Credenciales separadas. |
+| Swagger (pruebas interactivas) | <https://innovalab-educacion-e18-test.up.railway.app/docs> | Pide iniciar sesión en el panel; después de entrar vuelve sola a Swagger. |
+| ReDoc (documentación de lectura) | <https://innovalab-educacion-e18-test.up.railway.app/redoc> | Igual que Swagger. |
+| Web de pruebas | <https://innovalab-web-pruebas.onrender.com/> | Pide el mismo login. Recorre el flujo completo con botones y muestra cada request con su `curl`. Modo mock activado por defecto. |
+| Panel de administración | <https://innovalab-educacion-e18-test.up.railway.app/admin> | Métricas de uso de la IA, conexiones, uso del producto y diagramas. |
 
-> **Credenciales:** Swagger, ReDoc y `/admin` piden usuario y contraseña. Quien las necesite tiene que pedírselas al **equipo de Backend** (no se publican en el repo ni en esta guía).
+> **Acceso:** el panel, Swagger, ReDoc y la web de pruebas se abren con **tu cuenta de GitHub** (botón *Continue with GitHub* de Clerk). Entran las cuentas que Backend habilitó en la pestaña **Usuarios** del panel:
+>
+> | Rol | Qué permite |
+> | :--- | :--- |
+> | Admin (Backend) | Todo: conexiones de IA, usuarios y la web de pruebas con IA real |
+> | Solo lectura (resto del equipo) | Ver el panel completo (menos Usuarios), Swagger, ReDoc y usar la web de pruebas **solo en modo mock** |
+>
+> Si tu cuenta no tiene acceso, vas a ver "La cuenta de GitHub @usuario no tiene acceso": pedíselo al **equipo de Backend**. La sesión dura 8 horas.
+>
+> **La API (`/api/v1/...`) no pide credenciales** desde curl, Postman o Bruno: el login solo aplica a las páginas de arriba (y a la web de pruebas, que el backend reconoce por su origen).
 
 Para los ejemplos con `curl`:
 
@@ -63,7 +72,7 @@ export API="https://innovalab-educacion-e18-test.up.railway.app/api/v1"     # pr
 - **Web de pruebas**: lo más rápido para pruebas funcionales y exploratorias. Cada llamada queda en el "Registro de requests" con la respuesta y el `curl` equivalente, listo para pegar en un bug.
 - **Swagger** (`/docs`): para probar un endpoint puntual con parámetros a mano (botón *Try it out*).
 - **ReDoc** (`/redoc`): la misma documentación en formato de lectura, más cómoda para consultar qué recibe y qué devuelve cada endpoint, con todos los campos y sus descripciones. Es la referencia cuando esta guía no alcanza.
-- **curl / Postman / Bruno**: para casos de error y para armar colecciones.
+- **curl / Postman / Bruno**: para casos de error y para armar colecciones. No necesitan credenciales. Para importar la colección desde OpenAPI: con el backend local, `http://127.0.0.1:8000/api/v1/openapi.json` (abierto en desarrollo); en producción, iniciá sesión en `/admin`, abrí `/api/v1/openapi.json` en el navegador y guardá el archivo.
 - **Locust** o **k6**: pruebas de estrés (sección 7).
 
 ### 1.3 Backend local (para estrés y pruebas destructivas)
@@ -78,13 +87,14 @@ source venv/bin/activate            # Windows: venv\Scripts\activate
 pip install -r requirements-dev.txt
 
 # Variables mínimas (sin AI_API_KEY no hay IA real: todo en mock)
-export ADMIN_PASSWORD=admin-local
+export ADMIN_PASSWORD=admin-local     # panel local: usuario "admin" y esta contraseña
+export ADMIN_AUTH=local               # en local se entra solo con usuario y contraseña, sin Clerk
 export DB_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 
 uvicorn app.main:app --port 8000
 ```
 
-Swagger local: <http://127.0.0.1:8000/docs> (en desarrollo no pide contraseña).
+Swagger local: <http://127.0.0.1:8000/docs> (en desarrollo no pide login). Panel local: <http://127.0.0.1:8000/admin> con `admin` / `admin-local`.
 
 Los tests automáticos del backend también se pueden correr con `pytest` desde `backend/`; son los mismos que corre el CI en cada PR.
 
@@ -457,13 +467,26 @@ Informe final: `score_before`, `score_after`, `score_delta`, `executive_summary[
 | Barrera sin propuesta | `resolution_status = "pendiente"` |
 | Diagnóstico inexistente | 404 |
 
-### 4.14 `/admin` (solo Backend)
+### 4.14 Acceso: panel `/admin`, documentación y web de pruebas
 
-Panel HTML con Basic Auth para gestionar conexiones de IA y ver consumo. En QA probar **solo** seguridad:
+El panel (`/admin`) es HTML, no forma parte de la API. Se entra en `/admin/login` con GitHub (Clerk) o, como respaldo, con el usuario de administración del backend. En QA probar el acceso y la seguridad; **no modificar conexiones en producción**.
 
-- Sin credenciales o con credenciales incorrectas: 401.
-- Un `POST` a `/admin/keys…` con header `Origin` de otro dominio: 403 "Origen no permitido".
-- `/docs` y `/redoc` sin credenciales fuera de desarrollo: 401.
+| Prueba | Esperado |
+| :--- | :--- |
+| Abrir `/admin` sin sesión | 303 a `/admin/login?next=/admin/` |
+| Entrar con una cuenta de GitHub habilitada | Vuelve al panel; arriba a la derecha se ve tu usuario y tu rol |
+| Entrar con una cuenta de GitHub **no** habilitada | Mensaje "La cuenta de GitHub @usuario no tiene acceso" y no entra |
+| 5 intentos fallidos del login de respaldo | 429 "Demasiados intentos fallidos" (se libera a los 10 min) |
+| Con solo lectura | Aviso "Modo solo lectura", sin botones de agregar, editar ni borrar y sin pestaña Usuarios |
+| `GET /admin/api/metrics` sin sesión | 401 |
+| Con solo lectura, `POST /admin/keys…` | 403 "Tu usuario tiene acceso de solo lectura" |
+| `POST` a `/admin/...` con header `Origin` de otro dominio | 403 "Origen no permitido" |
+| Abrir `/adminv2` (ruta vieja) | 308 a `/admin/` |
+| `/docs` o `/redoc` sin sesión (fuera de desarrollo) | 303 al login; después de entrar vuelve a la documentación |
+| `GET /api/v1/openapi.json` sin sesión (fuera de desarrollo) | 401 |
+| Cerrar sesión (menú del usuario) | Vuelve al login con "Cerraste la sesión"; `/admin` vuelve a pedir login |
+
+**Web de pruebas:** pide el mismo login antes de mostrarse. Desde su origen, toda llamada a `/api/v1` sin sesión responde 401 con `code: "test_web_login_required"` y la página vuelve al login. Con solo lectura, el modo mock queda fijo y una llamada de IA real responde 403. Desde curl, Postman o Bruno la API sigue respondiendo sin credenciales.
 
 ---
 
@@ -493,13 +516,14 @@ Se pueden hacer desde la web de pruebas (pasos 1 a 7) o con `curl`. Siempre con 
 | :--- | :--- | :--- |
 | 200 / 201 | OK / propuesta creada | |
 | 400 | Archivo inválido, extensión o Content-Type incorrecto, protegido, con macros, vacío, sin conexiones de IA | `detail` con mensaje para el docente |
-| 401 | Falta autenticación (`/docs`, `/admin`) | |
-| 403 | `POST /admin` desde otro origen | |
+| 303 | Página del panel o `/docs` sin sesión: redirige a `/admin/login` | Que después del login vuelva a la página pedida |
+| 401 | Falta sesión (`/admin/api/...`, `openapi.json` fuera de desarrollo, web de pruebas sin login) o login incorrecto | |
+| 403 | `POST` al panel desde otro origen, acción de edición con rol de solo lectura o IA real desde la web de pruebas con solo lectura | `detail` explica el motivo |
 | 404 | Diagnóstico, barrera o propuesta inexistente o vencida | |
 | 409 | Decisión sobre una propuesta ya decidida, o deshacer una pendiente | |
 | 413 | Archivo de más de 10 MB | |
 | 422 | Datos inválidos (`detail` es una **lista**), material sin texto (`detail` es un **texto**) o datos personales (`detail` es un **objeto** con `code`) | Distinguir los tres formatos |
-| 429 | Rate limit de la app o cuota del proveedor agotada | Header `Retry-After` |
+| 429 | Rate limit de la app, cuota del proveedor agotada o demasiados intentos de login fallidos | Header `Retry-After` en los de IA |
 | 502 | La IA devolvió una respuesta inválida | |
 | 503 | Ningún proveedor de IA respondió | |
 | 500 | Error inesperado | **Siempre es bug**: reportarlo |
@@ -683,7 +707,7 @@ done
 
 ### 8.2 Cuota del proveedor y rotación (coordinar con Backend)
 
-Requiere acceso a `/admin` en staging, así que conviene hacerlo **junto con alguien de Backend**.
+Requiere rol **admin** en `/admin` de staging (con solo lectura no se pueden cambiar umbrales), así que conviene hacerlo **junto con alguien de Backend**.
 
 | Prueba | Cómo | Esperado |
 | :--- | :--- | :--- |
