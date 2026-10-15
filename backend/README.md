@@ -23,11 +23,13 @@ El backend fue diseñado bajo una **arquitectura en capas desacopladas (Clean Ar
 backend/
 ├── app/
 │   ├── admin/
-│   │   ├── router.py                 # Panel de administración HTML (/admin), HTTP Basic Auth
-│   │   ├── diagrams/                 # HTML de los diagramas servidos en /admin/diagramas
-│   │   └── templates/
-│   │       ├── dashboard.html        # Consumo de IA + gestión de API keys (Jinja2)
-│   │       └── diagrams.html         # Índice de diagramas de arquitectura
+│   │   ├── router.py                 # Panel de administración HTML (/admin): páginas, métricas, conexiones y usuarios
+│   │   ├── session.py                # Sesión del panel (cookie firmada), roles y límite de intentos de login
+│   │   ├── clerk_auth.py             # Login con Clerk: validación del token y cuenta del .env en Clerk
+│   │   ├── test_web_auth.py          # Login de la web de pruebas (token Bearer) y su middleware
+│   │   ├── diagrams/                 # HTML de los diagramas servidos en /admin/diagramas/{slug}
+│   │   ├── static/                   # admin.css y admin.js (gráficos SVG, tablas y modales)
+│   │   └── templates/                # base, login, dashboard y diagram (Jinja2 + Obelisco V2)
 │   ├── api/
 │   │   └── v1/
 │   │       ├── endpoints/            # Capa de Controladores HTTP
@@ -40,10 +42,14 @@ backend/
 │   ├── core/
 │   │   ├── config.py                 # Configuración centralizada y tipada (Pydantic Settings)
 │   │   ├── crypto.py                 # Cifrado (Fernet) de las API keys guardadas en la DB
-│   │   └── security.py               # HTTP Basic Auth + verificación anti-CSRF del panel admin
+│   │   ├── docs.py                   # /docs, /redoc y openapi.json detrás de la sesión del panel (fuera de development)
+│   │   ├── rate_limit.py             # Límite de uso de IA por IP y global
+│   │   └── security.py               # Verificación anti-CSRF (Origin) de los POST del panel
 │   ├── db/
 │   │   ├── database.py               # Conexión SQLite + creación del esquema
-│   │   └── api_key_repository.py     # Único punto con SQL: CRUD de keys y contadores de uso
+│   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
+│   │   ├── ai_usage_repository.py    # Historial de llamadas a la IA (métricas del panel)
+│   │   └── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
 │   ├── schemas/
 │   │   ├── document.py               # Contratos de extracción (ExtractedDocument, TextInputRequest)
 │   │   └── analysis.py               # Contratos de diagnóstico (AccessibilityAnalysisResponse)
@@ -54,13 +60,14 @@ backend/
 │   │   ├── rules_service.py          # Motor de reglas automáticas (oraciones/párrafos extensos, visual) y puntaje
 │   │   ├── key_rotation_service.py   # Rotación automática y tracking de consumo por key
 │   │   ├── llm_service.py            # Orquestación multi-proveedor de modelos de lenguaje
+│   │   ├── admin_metrics_service.py  # Métricas agregadas del panel (uso de IA, conexiones y producto)
 │   │   └── llm/                      # Adaptadores de proveedores (Gemini, OpenAI-compatible)
 │   └── main.py                       # Instanciación de FastAPI, Middlewares y OpenAPI
 ├── docs/
 │   ├── riesgos_y_limitaciones_semana1.md     # Riesgos técnicos de documentos y arquitectura
 │   ├── riesgos_limitaciones_semana1_ia.md    # Riesgos técnicos de IA y cuotas
 │   ├── motor_reglas.md                       # Reglas automáticas, umbrales y fórmula del puntaje
-│   ├── diagramas/                            # Fuentes (JSON de Archify) de /admin/diagramas
+│   ├── diagramas/                            # Fuentes (JSON de Archify) de los diagramas del panel
 │   └── benchmarks/                           # Reportes de latencia, tokens y variabilidad
 ├── scripts/
 │   └── benchmark_analysis.py         # Benchmark de IA y calibración de reglas (--rules-only)
@@ -101,11 +108,22 @@ backend/
 
 ## 🔐 Panel de Administración y Rotación de API Keys
 
-Para evitar caídas de servicio cuando se agota la capa gratuita de los proveedores de IA, el backend expone un panel interno en **`/admin`** (HTML, protegido con HTTP Basic Auth vía `ADMIN_USERNAME` / `ADMIN_PASSWORD`) que permite:
+Para evitar caídas de servicio cuando se agota la capa gratuita de los proveedores de IA, el backend expone un panel interno en **`/admin`** (HTML con Obelisco V2) que permite:
 
-- **Visualizar el consumo en tiempo real** por cada API key: requests y tokens usados vs. los límites de la capa gratuita — **RPM** (requests/minuto), **TPM** (tokens/minuto) y **RPD** (requests/día).
+- **Ver métricas de uso** de la IA por período (24 h, 7 y 30 días): llamadas, tokens, latencia p95 y errores, tokens por proveedor y llamadas por resultado. También uso del producto: diagnósticos, puntajes, barreras y decisiones del docente. Los gráficos tienen leyenda, tooltip, navegación con teclado y vista de tabla, con colores validados para daltonismo.
+- **Visualizar el consumo en tiempo real** por conexión: requests y tokens usados vs. sus umbrales — **RPM** (requests/minuto), **TPM** (tokens/minuto), **RPD** (requests/día) y **TPD** (tokens/día).
 - **Cargar y priorizar múltiples conexiones de IA**, cada una con sus propios umbrales configurables.
 - **Rotación automática**: cuando la key activa se acerca a cualquiera de sus umbrales o recibe un error de cuota (`429`/`503`), el backend cambia automáticamente a la siguiente conexión disponible.
+- **Administrar el acceso**: qué usuarios de GitHub entran y con qué rol.
+
+**Acceso y roles.** Se entra en `/admin/login` con **Clerk** (cuenta de GitHub del equipo o el usuario `ADMIN_USERNAME`) o con el formulario de respaldo (`ADMIN_USERNAME` / `ADMIN_PASSWORD`), según `ADMIN_AUTH` (`local`, `clerk` o `ambos`). La sesión dura 8 h (cookie firmada `HttpOnly`, `SameSite=Strict`, `Secure` fuera de development) y se bloquea tras 5 intentos fallidos por IP o 30 en total en 10 minutos.
+
+| Rol | Quién | Puede |
+| :--- | :--- | :--- |
+| Admin | Cuenta del `.env` y los usuarios de `ADMIN_GITHUB_ADMINS` | Todo: conexiones, usuarios y web de pruebas con IA real |
+| Solo lectura | Usuarios de `ADMIN_GITHUB_VIEWERS` | Ver el panel completo (menos la pestaña Usuarios), Swagger y la web de pruebas en modo mock |
+
+Las listas de GitHub solo cargan usuarios al arrancar; después se administran desde la pestaña **Usuarios** y los cambios aplican al instante. Las rutas viejas `/adminv2/...` redirigen a `/admin/...`.
 
 ---
 
@@ -116,6 +134,8 @@ FastAPI autogenera dos interfaces de documentación interactiva:
 * **Swagger UI (Pruebas interactivas):** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)  
   *Permite probar cada endpoint en vivo haciendo clic en **"Try it out"** y luego en **"Execute"**.*
 * **ReDoc (Documentación técnica limpia):** [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+
+En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production piden **iniciar sesión en el panel** (`/admin/login`) y vuelven solas a la documentación después de entrar.
 
 ---
 
@@ -140,10 +160,14 @@ FastAPI autogenera dos interfaces de documentación interactiva:
 | `GET` | `/api/v1/adaptations/decisions?analysis_id=` | Registro cronológico de decisiones y deshaceres del diagnóstico (para el informe) | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/final-version?analysis_id=` | Versión final del material: aplica solo las propuestas aceptadas o editadas (solapamientos resueltos a favor de la edición del docente y la decisión más reciente) | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
-| `GET` | `/admin` | Panel de consumo de IA y gestión de API keys (HTML, HTTP Basic Auth) | ✅ Operativo |
-| `GET` | `/admin/diagramas` | Diagramas de arquitectura del backend (HTML, mismas credenciales que `/admin`). Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
+| `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
+| `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
+| `GET` | `/admin/diagramas/{slug}` | Diagrama de arquitectura dentro del panel. Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
+| `GET` | `/admin/api/metrics?range=24h\|7d\|30d` | Métricas agregadas del panel (JSON, requiere sesión) | ✅ Operativo |
+| `GET`/`POST`/`PATCH`/`DELETE` | `/admin/api/members` | Usuarios de GitHub con acceso al panel y su rol (JSON, solo admins) | ✅ Operativo |
+| `GET`/`POST` | `/api/v1/test-web/auth/...` | Login de la web de pruebas: configuración, usuario/contraseña, Clerk y sesión actual (token Bearer) | ✅ Operativo |
 
-> `/admin` es HTML interno, no forma parte del contrato JSON versionado — por eso no aparece en el esquema OpenAPI de `/docs`/`/redoc` (`include_in_schema=False`).
+> `/admin` y `/api/v1/test-web/auth` son internos, no forman parte del contrato de la API — por eso no aparecen en el esquema OpenAPI de `/docs`/`/redoc` (`include_in_schema=False`).
 
 ---
 
@@ -177,9 +201,10 @@ Copy-Item .env.example .env
 ```
 Editar `.env` y completar, como mínimo:
 ```env
-# Credenciales del panel /admin (elegí tu propia contraseña)
+# Credenciales del panel /admin (elegí tu propia contraseña). En local se entra solo con ellas, sin Clerk.
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=una_contraseña_segura
+ADMIN_AUTH=local
 
 # Clave de cifrado para las API keys guardadas en la DB local (generarla una sola vez)
 DB_ENCRYPTION_KEY=
@@ -194,7 +219,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 uvicorn app.main:app --reload
 ```
 Acceder a la documentación interactiva en: **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**.  
-Acceder al panel de administración en: **[http://127.0.0.1:8000/admin](http://127.0.0.1:8000/admin)**.
+Acceder al panel de administración en: **[http://127.0.0.1:8000/admin](http://127.0.0.1:8000/admin)** (login con `ADMIN_USERNAME` / `ADMIN_PASSWORD`).
 
 ### 5. Ejecutar los tests
 ```powershell
@@ -251,13 +276,13 @@ Pasos en el dashboard de Railway:
 
 La conexión de IA principal sale de `AI_API_KEY`: en cada arranque se crea o actualiza la conexión **"IL-1 gpt-oss-120b - PROD"** (Groq, `openai/gpt-oss-120b`) con prioridad 0, por delante de las de `/admin`. Editarla o borrarla desde el panel no persiste. Proveedor, modelo y nombre se pueden cambiar con `AI_PROVIDER`, `AI_MODEL` y `AI_CONNECTION_LABEL`.
 
-Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi.json` piden la **sesión del panel**: sin sesión llevan a `/adminv2/login` y vuelven solas después de entrar (con GitHub vía Clerk o con `ADMIN_USERNAME` / `ADMIN_PASSWORD`). Las cuentas de solo lectura también pueden verlas. Los endpoints de la API siguen públicos y en `development` (localhost) la documentación queda abierta. `DOCS_USERNAME` / `DOCS_PASSWORD` ya no se usan (si quedaron cargadas, se ignoran).
+Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi.json` piden la **sesión del panel**: sin sesión llevan a `/admin/login` y vuelven solas después de entrar (con GitHub vía Clerk o con `ADMIN_USERNAME` / `ADMIN_PASSWORD`). Las cuentas de solo lectura también pueden verlas. Los endpoints de la API siguen públicos y en `development` (localhost) la documentación queda abierta. `DOCS_USERNAME` / `DOCS_PASSWORD` ya no se usan (si quedaron cargadas, se ignoran).
 
 #### Login del panel y de la web de pruebas
 
 - `ADMIN_AUTH=ambos` ofrece Clerk (GitHub o usuario/contraseña) y, como respaldo, el formulario con `ADMIN_USERNAME` / `ADMIN_PASSWORD`. En local se usa `ADMIN_AUTH=local` (solo el usuario del `.env`, sin Clerk).
 - Al arrancar con Clerk, el backend crea o actualiza en Clerk la cuenta `ADMIN_USERNAME` con `ADMIN_PASSWORD` (aparece en el log).
-- Los usuarios de GitHub y su rol (admin o solo lectura) se cargan desde `ADMIN_GITHUB_ADMINS` / `ADMIN_GITHUB_VIEWERS` y después se administran en la pestaña **Usuarios** de `/adminv2`.
+- Los usuarios de GitHub y su rol (admin o solo lectura) se cargan desde `ADMIN_GITHUB_ADMINS` / `ADMIN_GITHUB_VIEWERS` y después se administran en la pestaña **Usuarios** de `/admin`.
 - La web de pruebas (`TEST_WEB_URL`) pide el mismo login: toda llamada a la API desde ese origen necesita sesión. Con solo lectura, la web funciona únicamente en modo mock.
 
 ### Rate limit de IA
@@ -291,6 +316,8 @@ Si el material tiene posibles datos personales (`422 sensitive_data_detected`), 
 
 Cada llamada queda en un registro con el request, la respuesta JSON y el `curl` equivalente. El modo mock (`?mock=true`) viene activado para no gastar cuota; se desmarca para usar la IA real.
 
+**Login.** La página pide el mismo acceso que el panel (Clerk o el usuario del `.env`) y recibe un token de 8 h que manda en cada llamada (`Authorization: Bearer`). El backend lo exige a toda llamada cuyo `Origin` sea `TEST_WEB_URL`. Las cuentas de solo lectura solo pueden usar el modo mock. Si el backend no tiene `TEST_WEB_URL` (por ejemplo, en local sin configurarla), la página no pide login.
+
 **Deploy (Static Site gratuito, no se duerme):**
 
 1. En Render: **New → Blueprint** → elegir `e18-innovalab/contenidos_accesibles` con *Blueprint Path* `backend/render.yaml`. Crea el sitio `innovalab-web-pruebas` desde `backend/web/`. (Alternativa manual: **New → Static Site**, *Root Directory* `backend/web`, *Publish Directory* `.`, sin build command.)
@@ -302,7 +329,7 @@ Cada llamada queda en un registro con el request, la respuesta JSON y el `curl` 
 
 La URL del backend también se puede cambiar desde la propia página (queda guardada en el navegador); el valor por defecto está en `web/config.js`.
 
-**Local:** `python -m http.server 8765 --directory web` y en el `.env` del backend `TEST_WEB_URL=http://127.0.0.1:8765`.
+**Local:** `python -m http.server 8765 --directory web` y en el `.env` del backend `TEST_WEB_URL=http://127.0.0.1:8765` (con eso la página también pide login, igual que en Render).
 
 ---
 

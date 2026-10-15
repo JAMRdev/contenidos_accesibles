@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.admin.router import LEGACY_PREFIX as ADMIN_LEGACY_PREFIX
+from app.admin.router import PREFIX as ADMIN_PREFIX
+from app.admin.router import legacy_router as admin_legacy_router
 from app.admin.router import router as admin_router
-from app.admin.router_v2 import PREFIX as ADMIN_V2_PREFIX
-from app.admin.router_v2 import router as admin_v2_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.docs import setup_protected_docs
@@ -64,21 +65,24 @@ barreras de accesibilidad y potenciando la labor pedagógica docente.
 
 ### 🛠️ Panel de Administración (`/admin`)
 
-Fuera de esta API versionada (es HTML, no JSON) vive un panel interno protegido con
-**HTTP Basic Auth** (usuario/clave definidos en `ADMIN_USERNAME` / `ADMIN_PASSWORD` del `.env`),
-por eso no aparece como path en este esquema OpenAPI. Permite:
+Fuera de esta API versionada (es HTML, no JSON) vive un panel interno, por eso no aparece como
+path en este esquema OpenAPI. Se entra con **Clerk** (cuenta de GitHub del equipo o el usuario
+`ADMIN_USERNAME`) o, como respaldo, con `ADMIN_USERNAME` / `ADMIN_PASSWORD` del `.env`
+(`ADMIN_AUTH`: `local`, `clerk` o `ambos`). Hay dos roles: **admin** (todo) y **solo lectura**.
+Permite:
 
+* Ver métricas de uso de la IA (llamadas, tokens, latencia y errores por período) y del
+  producto (diagnósticos, barreras y decisiones del docente), con gráficos accesibles.
 * Cargar **conexiones de IA** sin límite de cantidad: proveedor, modelo, base URL,
   API key (cifrada en reposo con Fernet), prioridad, parámetros extra y umbrales
   propios de RPM/TPM/RPD/TPD. Incluye plantillas para los proveedores más usados.
-* Visualizar el consumo en tiempo real: requests y tokens usados vs. los umbrales de
-  cada conexión.
 * **Rotación automática entre proveedores**: se usa la conexión disponible de mayor
   prioridad; si alcanza su umbral, el proveedor la limita (429) o falla, el backend pasa
   a la siguiente —aunque sea de otro proveedor— sin caídas ni intervención manual.
+* Administrar qué usuarios de GitHub entran y con qué rol.
 
-Acceso: `http://<host>:<puerto>/admin` (solo en el entorno donde se despliegue; no depende
-de `ENVIRONMENT`, siempre requiere las credenciales de admin).
+Acceso: `http://<host>:<puerto>/admin`. Fuera de `development`, esta documentación también
+pide iniciar sesión en el panel.
 """,
     version=settings.VERSION,
     openapi_url=_openapi_url if _public_docs else None,
@@ -106,10 +110,10 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 # Login de la web de pruebas (fuera del esquema OpenAPI: no es parte del contrato de la API)
 app.include_router(test_web_auth.router, prefix=settings.API_V1_STR)
 
-# Panel de administración (HTML interno, protegido con HTTP Basic Auth)
-app.include_router(admin_router, prefix="/admin")
-# Rediseño del panel con Obelisco V2, en paralelo hasta reemplazar a /admin
-app.include_router(admin_v2_router, prefix=ADMIN_V2_PREFIX)
+# Panel de administración (HTML interno: login con Clerk o con el usuario del .env)
+app.include_router(admin_router, prefix=ADMIN_PREFIX)
+# /adminv2 era la ruta del panel mientras se validaba el rediseño: redirige a /admin
+app.include_router(admin_legacy_router, prefix=ADMIN_LEGACY_PREFIX)
 
 if settings.docs_protected:
     setup_protected_docs(app, _openapi_url)
@@ -125,6 +129,6 @@ def root():
         "message": "Bienvenido a la API de Accesibilidad Educativa (Innova Lab).",
         "environment": settings.ENVIRONMENT,
         "version": settings.VERSION,
-        "docs": "/docs (requiere iniciar sesión en /adminv2)" if settings.docs_protected else "/docs",
+        "docs": "/docs (requiere iniciar sesión en /admin)" if settings.docs_protected else "/docs",
         "health": f"{settings.API_V1_STR}/health",
     }

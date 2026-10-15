@@ -1,5 +1,5 @@
 """
-Panel /adminv2: historial de uso de la IA, métricas agregadas y rutas protegidas.
+Panel /admin: historial de uso de la IA, métricas agregadas y rutas protegidas.
 """
 import asyncio
 import json
@@ -11,8 +11,9 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.admin import session
-from app.admin.router_v2 import PREFIX
-from app.admin.router_v2 import router as admin_v2_router
+from app.admin.router import LEGACY_PREFIX, PREFIX
+from app.admin.router import legacy_router
+from app.admin.router import router as admin_router
 from app.core.config import settings
 from app.db import ai_usage_repository
 from app.db import api_key_repository as repo
@@ -37,7 +38,8 @@ def client(db, monkeypatch):
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", SecretStr(PASSWORD))
     session.reset()
     app = FastAPI()
-    app.include_router(admin_v2_router, prefix=PREFIX)
+    app.include_router(admin_router, prefix=PREFIX)
+    app.include_router(legacy_router, prefix=LEGACY_PREFIX)
     return TestClient(app)
 
 
@@ -243,13 +245,13 @@ def test_si_falla_el_registro_la_llamada_sigue(db, monkeypatch):
 
 def test_sin_sesion_la_pagina_redirige_al_login_y_la_api_responde_401(client):
     r = client.get(PREFIX + "/", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == f"{PREFIX}/login?next=/adminv2/"
+    assert r.status_code == 303 and r.headers["location"] == f"{PREFIX}/login?next=/admin/"
     assert client.get(PREFIX + "/api/metrics").status_code == 401
     assert client.post(PREFIX + "/keys/1/delete").status_code == 401
     assert client.get(PREFIX + "/diagramas/arquitectura/contenido").status_code == 401
 
 
-def test_basic_auth_no_sirve_en_adminv2(client):
+def test_basic_auth_ya_no_sirve(client):
     assert client.get(PREFIX + "/api/metrics", auth=(USER, PASSWORD)).status_code == 401
 
 
@@ -262,7 +264,7 @@ def test_login_correcto_crea_cookie_segura_y_redirige_a_next(client):
     assert client.get(PREFIX + "/api/metrics").status_code == 200
 
 
-@pytest.mark.parametrize("target", ["https://malicioso.example", "//malicioso.example", "/admin", "/adminv2\\..\\x"])
+@pytest.mark.parametrize("target", ["https://malicioso.example", "//malicioso.example", "/api/v1/health", "/admin/../api", "/admin\\..\\x"])
 def test_next_fuera_del_panel_vuelve_al_inicio(client, target):
     r = client.post(PREFIX + "/login", data={"username": USER, "password": PASSWORD, "next": target}, follow_redirects=False)
     assert r.headers["location"] == PREFIX
@@ -325,7 +327,7 @@ def test_endpoint_de_metricas(logged):
 
 
 def test_estaticos_publicos_solo_de_la_lista(client):
-    assert client.get(PREFIX + "/static/adminv2.css").status_code == 200
+    assert client.get(PREFIX + "/static/admin.css").status_code == 200
     assert client.get(PREFIX + "/static/..%2Frouter.py").status_code == 404
     assert client.get(PREFIX + "/static/otro.js").status_code == 404
 
@@ -352,3 +354,14 @@ def test_crear_editar_habilitar_y_borrar_conexion(logged):
 def test_post_desde_otro_origen_se_rechaza(logged):
     r = logged.post(PREFIX + "/keys/1/enabled", data={"enabled": "true"}, headers={"Origin": "https://malicioso.example"})
     assert r.status_code == 403
+
+
+@pytest.mark.parametrize("old, new", [
+    ("/adminv2", "/admin/"),
+    ("/adminv2/", "/admin/"),
+    ("/adminv2/login?next=/adminv2/", "/admin/login?next=/adminv2/"),
+    ("/adminv2/diagramas/arquitectura", "/admin/diagramas/arquitectura"),
+])
+def test_adminv2_redirige_a_admin(client, old, new):
+    r = client.get(old, follow_redirects=False)
+    assert r.status_code == 308 and r.headers["location"] == new

@@ -1,4 +1,4 @@
-// Panel /adminv2: métricas, conexiones y gráficos SVG sin dependencias.
+// Panel /admin: métricas, conexiones y gráficos SVG sin dependencias.
 // Todo el contenido dinámico se arma con nodos y textContent (nunca innerHTML).
 "use strict";
 
@@ -155,7 +155,7 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     const CONFIG = JSON.parse(configNode.textContent);
     const PREFIX = CONFIG.prefix;
     // URL absoluta sin usuario ni contraseña: fetch rechaza las rutas relativas si la página
-    // se abrió como http://usuario:clave@host/... (el navegador reutiliza la sesión de Basic Auth igual)
+    // se abrió como http://usuario:clave@host/... (el navegador reutiliza la cookie de sesión igual)
     const api = (path) => `${location.origin}${PREFIX}${path}`;
     const SVG_NS = "http://www.w3.org/2000/svg";
     const REFRESH_MS = 30000;

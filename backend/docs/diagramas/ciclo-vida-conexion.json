@@ -3,12 +3,12 @@
   "diagram_type": "lifecycle",
   "meta": {
     "title": "Conexión de IA · Ciclo de vida",
-    "output": "app/admin/diagrams/ciclo-vida-conexion.html",
+    "output": "backend/app/admin/diagrams/ciclo-vida-conexion.html",
     "locale": "es",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/e18-innovalab/contenidos_accesibles.git",
-      "revision": "004e4b5106d204d858e1d40ea40bdf48fc4e2814",
+      "revision": "a917521f03c0e705eb5eaa6d124b208e070972c6",
       "link_mode": "local-only"
     },
     "translations": {
@@ -477,14 +477,14 @@
       "step": "01",
       "sources": [
         {
-          "path": "app/db/api_key_repository.py",
+          "path": "backend/app/db/api_key_repository.py",
           "line": 23,
           "end_line": 69
         },
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 170,
-          "end_line": 207,
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 189,
+          "end_line": 226,
           "label": "sync_env_connection"
         }
       ]
@@ -499,9 +499,9 @@
       "step": "02",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 64,
-          "end_line": 72,
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 69,
+          "end_line": 77,
           "label": "get_status_label"
         }
       ]
@@ -516,14 +516,14 @@
       "step": "03",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 87,
-          "end_line": 108
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 94,
+          "end_line": 126
         },
         {
-          "path": "app/db/api_key_repository.py",
+          "path": "backend/app/db/api_key_repository.py",
           "line": 121,
-          "end_line": 128,
+          "end_line": 127,
           "label": "set_current"
         }
       ]
@@ -538,15 +538,15 @@
       "step": "04",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
+          "path": "backend/app/services/key_rotation_service.py",
           "line": 8,
           "end_line": 8,
           "label": "NEAR_LIMIT_RATIO"
         },
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 59,
-          "end_line": 72
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 64,
+          "end_line": 77
         }
       ]
     },
@@ -560,14 +560,14 @@
       "tag": "60 s / 300 s / 429",
       "sources": [
         {
-          "path": "app/services/llm_service.py",
-          "line": 112,
-          "end_line": 137
+          "path": "backend/app/services/llm_service.py",
+          "line": 137,
+          "end_line": 160
         },
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 42,
-          "end_line": 49
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 47,
+          "end_line": 54
         }
       ]
     },
@@ -581,9 +581,9 @@
       "tag": "RPM/TPM/RPD/TPD",
       "sources": [
         {
-          "path": "app/services/key_rotation_service.py",
-          "line": 31,
-          "end_line": 56
+          "path": "backend/app/services/key_rotation_service.py",
+          "line": 36,
+          "end_line": 61
         }
       ]
     },
@@ -596,14 +596,14 @@
       "col": 1,
       "sources": [
         {
-          "path": "app/admin/router.py",
-          "line": 83,
-          "end_line": 117
+          "path": "backend/app/admin/router.py",
+          "line": 359,
+          "end_line": 413
         },
         {
-          "path": "app/db/api_key_repository.py",
+          "path": "backend/app/db/api_key_repository.py",
           "line": 130,
-          "end_line": 180
+          "end_line": 196
         }
       ]
     }

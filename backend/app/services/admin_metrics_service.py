@@ -1,5 +1,5 @@
 """
-Métricas del panel de administración (/adminv2).
+Métricas del panel de administración (/admin).
 
 Junta en un solo JSON lo que muestran los gráficos y tablas del panel:
 - Uso de la IA a lo largo del tiempo (tabla ai_usage_events).

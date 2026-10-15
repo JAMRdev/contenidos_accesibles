@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.admin import session
-from app.admin.router_v2 import router as admin_v2_router
+from app.admin.router import router as admin_router
 from app.core.config import Settings, settings
 from app.core.docs import setup_protected_docs
 from app.db import admin_member_repository as members
@@ -34,13 +34,13 @@ def protected_client(tmp_path, monkeypatch):
     def health():
         return {"status": "ok"}
 
-    app.include_router(admin_v2_router, prefix="/adminv2")
+    app.include_router(admin_router, prefix="/admin")
     setup_protected_docs(app, OPENAPI_URL)
     return TestClient(app)
 
 
 def _login(client):
-    r = client.post("/adminv2/login", data={"username": USER, "password": PASSWORD}, follow_redirects=False)
+    r = client.post("/admin/login", data={"username": USER, "password": PASSWORD}, follow_redirects=False)
     assert r.status_code == 303
 
 
@@ -48,7 +48,7 @@ def _login(client):
 def test_docs_sin_sesion_redirige_al_login_y_vuelve(protected_client, path):
     r = protected_client.get(path, follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == f"/adminv2/login?next={path}"
+    assert r.headers["location"] == f"/admin/login?next={path}"
     assert "www-authenticate" not in r.headers  # sin la ventana nativa de Basic Auth
 
 
@@ -61,7 +61,7 @@ def test_basic_auth_ya_no_sirve(protected_client):
 
 
 def test_login_del_panel_devuelve_a_swagger(protected_client):
-    r = protected_client.post("/adminv2/login", data={"username": USER, "password": PASSWORD, "next": "/docs"},
+    r = protected_client.post("/admin/login", data={"username": USER, "password": PASSWORD, "next": "/docs"},
                               follow_redirects=False)
     assert r.headers["location"] == "/docs"
     assert "path=/" in r.headers["set-cookie"].lower()
@@ -89,7 +89,7 @@ def test_openapi_no_expone_rutas_de_docs_ni_de_login(protected_client):
     schema = protected_client.get(OPENAPI_URL).json()
     assert "/api/v1/health" in schema["paths"]
     assert not {"/docs", "/redoc", OPENAPI_URL} & set(schema["paths"])
-    assert not [p for p in schema["paths"] if p.startswith("/adminv2")]
+    assert not [p for p in schema["paths"] if p.startswith("/admin")]
 
 
 def test_api_sigue_publica(protected_client):

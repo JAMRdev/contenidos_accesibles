@@ -1,7 +1,7 @@
 # Blueprint de Render para la web de pruebas (web/): Static Site gratuito, sin build.
 # El backend sigue en Railway (railway.json); esta web solo consume su API.
 # Después del primer deploy, definir en el backend TEST_WEB_URL=<url de este sitio>
-# para habilitar CORS y el enlace desde /admin.
+# para habilitar CORS, el enlace desde /admin y el login de la web.
 # El archivo vive en backend/ (monorepo): al crear el Blueprint, indicar
 # "Blueprint Path" = backend/render.yaml. Las rutas son relativas a la raíz del repo.
 services:

@@ -1,4 +1,4 @@
-// Login de la web de pruebas: el mismo acceso que el panel /adminv2 (Clerk o el usuario del .env).
+// Login de la web de pruebas: el mismo acceso que el panel /admin (Clerk o el usuario del .env).
 // El backend entrega un token de 8 h que se guarda en sessionStorage y viaja en cada llamada.
 // Todo el contenido dinámico va por textContent: nada de innerHTML.
 "use strict";
