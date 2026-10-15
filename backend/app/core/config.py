@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated, Literal, Union
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     # --- Persistencia local (SQLite) de conexiones de IA y contadores de uso ---
     DATABASE_PATH: str = "app_data.db"
 
+    # --- Cloudflare D1 vía Worker pasarela (backend/d1-gateway, Issue #58) ---
+    # "sqlite" (por defecto): base local, como siempre. "d1": usar D1 a través del Worker
+    # (producción, o desde local solo para probar la conexión con Cloudflare).
+    # El backend empieza a leer y escribir en D1 con #59; hasta entonces "d1" solo habilita
+    # el cliente (scripts/d1_ping.py).
+    DATABASE_BACKEND: Literal["sqlite", "d1"] = "sqlite"
+    D1_GATEWAY_URL: str | None = None
+    D1_GATEWAY_TOKEN: SecretStr | None = None
+    D1_GATEWAY_TIMEOUT_S: float = 10.0
+
     # Tiempo de retención de diagnósticos antes de expirar (TTL en horas, Semana 4)
     ANALYSIS_TTL_HOURS: int = 24
 
@@ -87,6 +97,18 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
     ]
+
+    @model_validator(mode="after")
+    def require_d1_gateway(self) -> "Settings":
+        """Fail-Fast: con DATABASE_BACKEND=d1 la app no arranca sin la URL y el token del Worker."""
+        if self.DATABASE_BACKEND == "d1":
+            missing = [
+                name for name, value in (("D1_GATEWAY_URL", self.D1_GATEWAY_URL), ("D1_GATEWAY_TOKEN", self.D1_GATEWAY_TOKEN))
+                if not value or (isinstance(value, SecretStr) and not value.get_secret_value())
+            ]
+            if missing:
+                raise ValueError(f"DATABASE_BACKEND=d1 requiere {' y '.join(missing)}.")
+        return self
 
     @field_validator("ADMIN_CLERK_JWT_KEY", mode="before")
     @classmethod
