@@ -151,6 +151,11 @@ class Settings(BaseSettings):
     # y su origen se suma a CORS sin tener que repetirlo en BACKEND_CORS_ORIGINS.
     TEST_WEB_URL: str | None = None
 
+    # --- Frontend para docentes (Vercel) ---
+    # Solo para la pestaña Estado de /admin (chequeo y URL). No se suma a CORS: el origen
+    # habilitado sigue saliendo de BACKEND_CORS_ORIGINS.
+    FRONTEND_URL: str | None = "https://contenidos-accesibles.vercel.app/"
+
     @property
     def test_web_origin(self) -> str | None:
         """Origen (esquema + host) de la web de pruebas, o None si TEST_WEB_URL no está definida."""

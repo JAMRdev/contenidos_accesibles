@@ -72,6 +72,9 @@
         </li>
         {% endif %}
         <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-estado" data-bs-toggle="tab" data-bs-target="#panel-estado" type="button" role="tab" aria-controls="panel-estado" aria-selected="false">Estado</button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button class="nav-link" id="tab-diagramas" data-bs-toggle="tab" data-bs-target="#panel-diagramas" type="button" role="tab" aria-controls="panel-diagramas" aria-selected="false">Diagramas</button>
         </li>
     </ul>
@@ -241,6 +244,43 @@
         <p class="admin-note" id="local-account-note"></p>
     </section>
     {% endif %}
+
+    <!-- Estado de los servicios -->
+    <section class="tab-pane" id="panel-estado" role="tabpanel" aria-labelledby="tab-estado" tabindex="0">
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Estado de los servicios</h2>
+                <p class="admin-muted admin-section-lead">
+                    Se consulta en vivo mientras esta pestaña está abierta (cada 30 s) y no se guarda historial.
+                    A los proveedores de IA no se les envía nada: su estado sale de la rotación de conexiones.
+                </p>
+            </div>
+        </div>
+        <div id="status-overall" aria-live="polite"></div>
+        <div class="status-grid" id="status-services">
+            <p class="admin-muted">Consultando los servicios…</p>
+        </div>
+
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">URLs del proyecto</h2>
+                <p class="admin-muted admin-section-lead">Direcciones públicas de la API y de los servicios conectados.</p>
+            </div>
+        </div>
+        <div class="table-card">
+            <table class="table table-borderless admin-table links-table">
+                <caption class="visually-hidden">URLs del proyecto</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Servicio</th>
+                        <th scope="col">URL</th>
+                        <th scope="col" class="col-actions"><span class="visually-hidden">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody id="status-links"></tbody>
+            </table>
+        </div>
+    </section>
 
     <!-- Diagramas -->
     <section class="tab-pane" id="panel-diagramas" role="tabpanel" aria-labelledby="tab-diagramas" tabindex="0">

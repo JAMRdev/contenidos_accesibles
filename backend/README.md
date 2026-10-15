@@ -120,6 +120,15 @@ Para evitar caídas de servicio cuando se agota la capa gratuita de los proveedo
 - **Cargar y priorizar múltiples conexiones de IA**, cada una con sus propios umbrales configurables.
 - **Rotación automática**: cuando la key activa se acerca a cualquiera de sus umbrales o recibe un error de cuota (`429`/`503`), el backend cambia automáticamente a la siguiente conexión disponible.
 - **Administrar el acceso**: qué usuarios de GitHub entran y con qué rol.
+- **Ver el estado de los servicios** (pestaña **Estado**): API, base de datos, Worker de D1, conexiones de IA, Clerk, web de pruebas y frontend, más las URLs del proyecto.
+
+**Pestaña Estado.** Es una página de estado liviana (`app/services/status_service.py`, `GET /admin/api/status`):
+
+- Los servicios se consultan solo mientras alguien tiene la pestaña abierta (cada 30 s, y nada si la pestaña del navegador está oculta). No hay tareas en segundo plano ni historial.
+- La ronda de chequeos se reutiliza durante 20 s, así que varios paneles abiertos no multiplican las consultas. Lo único que se recuerda, en memoria, es desde cuándo cada servicio está en su estado actual.
+- Cada chequeo es un GET a una URL pública (5 s máximo) o un `SELECT 1` en la base. A los proveedores de IA no se les manda nada: su estado sale de la rotación de conexiones, sin gastar cuota.
+- Estados: **Operativo**, **Con problemas** (respuesta 4xx o más de 1,5 s), **Caído** (sin respuesta o 5xx) y **Sin configurar** (falta la variable; no cuenta para el estado general).
+- **Al sumar un servicio externo** al proyecto, agregar su chequeo en `_registry()` y, si tiene URL pública, en `links()` del mismo archivo.
 
 **Acceso y roles.** Se entra en `/admin/login` con **Clerk** (cuenta de GitHub del equipo o el usuario `ADMIN_USERNAME`) o con el formulario de respaldo (`ADMIN_USERNAME` / `ADMIN_PASSWORD`), según `ADMIN_AUTH` (`local`, `clerk` o `ambos`). La sesión dura 8 h (cookie firmada `HttpOnly`, `SameSite=Strict`, `Secure` fuera de development) y se bloquea tras 5 intentos fallidos por IP o 30 en total en 10 minutos.
 
