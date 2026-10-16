@@ -137,6 +137,11 @@
         </div>
 
         <div id="tab-file" class="tab-panel" hidden>
+            <p class="muted">
+                El archivo se sube directo al almacenamiento (R2 en producción) con una URL firmada
+                (<code>POST /files/upload-url</code> → <code>PUT</code> → <code>/complete</code>) y después se extrae o
+                diagnostica por su <code>file_id</code>. No pasa por la API, y se sube una sola vez.
+            </p>
             <label>Archivo PDF, Word (.docx) o PowerPoint (.pptx), máximo 10 MB
                 <input id="file-input" type="file" accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation">
             </label>

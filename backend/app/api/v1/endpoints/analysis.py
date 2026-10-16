@@ -16,7 +16,8 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
-from app.api.v1.uploads import read_supported_upload
+from app.api.v1.uploads import read_stored_file, read_supported_upload
+from app.core.owner import current_owner
 from app.core.rate_limit import limit_ai_usage
 from app.db import analysis_repository
 from app.schemas.analysis import AccessibilityAnalysisResponse, AnalysisSampleRequest
@@ -160,6 +161,7 @@ _PDF_MAGIC_HEADER = b"%PDF-"
     "/pdf",
     response_model=AccessibilityAnalysisResponse,
     summary="Diagnóstico integral de un archivo PDF (Extracción + Reglas Visuales + IA)",
+    deprecated=True,  # Issue #63: usar la subida directa (/files) y el endpoint por file_id
     response_description="Diagnóstico estructurado completo a partir de un archivo PDF",
     dependencies=[Depends(limit_ai_usage)],
 )
@@ -278,6 +280,7 @@ async def analyze_pdf_document(
     "/file",
     response_model=AccessibilityAnalysisResponse,
     summary="Diagnóstico integral de un PDF, Word o PowerPoint (Extracción + Reglas + IA)",
+    deprecated=True,  # Issue #63: usar la subida directa (/files) y el endpoint por file_id
     response_description="Diagnóstico estructurado completo a partir de un archivo .pdf, .docx o .pptx",
     dependencies=[Depends(limit_ai_usage)],
 )
@@ -317,9 +320,27 @@ async def analyze_file_document(
     - **PowerPoint**: `metadata.page_count` es la cantidad de diapositivas visibles y las propuestas de
       texto alternativo indican la diapositiva. Las ocultas y las notas del orador no se analizan.
     - **Datos personales (Issue #66)** y **modo Mock (`?mock=true`)**: igual que en `/analysis/pdf`.
+
+    > **Deprecado (Issue #63):** el archivo viaja en el pedido. Usar la subida directa
+    > (`POST /files/upload-url`) y `POST /analysis/files/{file_id}`.
     """
     try:
         content, filename = await read_supported_upload(file)
+        return await _diagnose(content, filename, background_tasks, mock, dismissed, confirm_images_without_personal_data)
+    finally:
+        await file.close()
+
+
+async def _diagnose(
+    content: bytes,
+    filename: str,
+    background_tasks: BackgroundTasks,
+    mock: bool,
+    dismissed: list[str],
+    confirm_images_without_personal_data: bool,
+) -> AccessibilityAnalysisResponse:
+    """Extracción + reglas + IA de un archivo ya validado (subido por multipart o leído de R2)."""
+    try:
         doc = await asyncio.to_thread(document_service.process_file, content, filename)
         response = await analyze_document(
             doc,
@@ -348,8 +369,50 @@ async def analyze_file_document(
             status_code=500,
             detail=f"Error inesperado al analizar el archivo: {str(e)}",
         )
-    finally:
-        await file.close()
+
+
+@router.post(
+    "/files/{file_id}",
+    response_model=AccessibilityAnalysisResponse,
+    summary="Diagnóstico de un archivo subido al almacenamiento, por su file_id",
+    response_description="Diagnóstico estructurado completo, igual que /analysis/file",
+    dependencies=[Depends(limit_ai_usage)],
+    responses={
+        404: {"description": "El archivo no existe, venció o es de otro usuario."},
+        409: {"description": "El archivo todavía no terminó de subirse (falta /files/{file_id}/complete)."},
+        413: {"description": "Más de 10 MB."},
+    },
+)
+async def analyze_stored_file(
+    file_id: str,
+    background_tasks: BackgroundTasks,
+    mock: bool = Query(
+        default=False,
+        description="Si es True, extrae el archivo y ejecuta las reglas reales, pero simula la respuesta de IA (0 tokens).",
+    ),
+    dismissed: list[str] = Query(default=[], description=_DISMISSED_DESCRIPTION),
+    confirm_images_without_personal_data: bool = Query(
+        default=False,
+        description=(
+            "Si el archivo no tiene texto digital, sus imágenes solo se envían a la IA para "
+            "generar textos alternativos cuando el docente confirma que no contienen datos personales."
+        ),
+    ),
+    owner: str = Depends(current_owner),
+):
+    """
+    ## Diagnóstico por `file_id` (Issue #63)
+
+    Mismo flujo y misma respuesta que `/analysis/file`, pero el archivo **no viaja en el pedido**:
+    se sube antes directo al almacenamiento (`POST /files/upload-url` → `PUT` → `POST /files/{file_id}/complete`)
+    y el backend lo lee del lado del servidor, en memoria, con las mismas validaciones
+    (10 MB y firma binaria). El archivo nunca vuelve al cliente.
+
+    El archivo tiene que ser del usuario y estar `uploaded`. Se puede diagnosticar más de una vez
+    mientras no venza.
+    """
+    content, filename = await read_stored_file(file_id, owner)
+    return await _diagnose(content, filename, background_tasks, mock, dismissed, confirm_images_without_personal_data)
 
 
 @router.get(

@@ -6,7 +6,7 @@
 
 const API_PREFIX = "/api/v1";
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-// Formatos que aceptan /documents/upload y /analysis/file (Issue #47), con su Content-Type.
+// Formatos que acepta la subida de archivos (Issues #47 y #62), con su Content-Type.
 const FILE_TYPES = {
     pdf: { label: "PDF", mime: "application/pdf" },
     docx: { label: "Word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
@@ -38,6 +38,7 @@ const state = {
     proposals: [],
     finalVersion: null, // último AdaptedDocumentResponse del diagnóstico actual
     report: null, // último FinalReportResponse del diagnóstico actual
+    upload: null, // último archivo subido al almacenamiento: { key, fileId, expiresAt }
 };
 
 const $ = (id) => document.getElementById(id);
@@ -161,6 +162,8 @@ function toCurl(method, url, body) {
     } else if (body && body.kind === "file") {
         const type = (FILE_TYPES[fileExtension(body.value.name)] || FILE_TYPES.pdf).mime;
         parts.push(`-F ${shellQuote(`file=@${body.value.name};type=${type}`)}`);
+    } else if (body && body.kind === "binary") {
+        parts.push(`-H ${shellQuote(`Content-Type: ${body.type}`)}`, `--data-binary ${shellQuote(`@${body.value.name}`)}`);
     }
     return parts.join(" \\\n  ");
 }
@@ -234,11 +237,14 @@ function addLogEntry({ method, url, status, data, body, ms, error }) {
     const container = $("log-entries");
     if (!container.querySelector("details")) container.replaceChildren();
 
-    const path = url.replace(state.apiBase, "");
+    // Las subidas (PUT a la URL firmada) se resumen sin la firma; el curl la conserva para reproducir
+    const shown = method === "PUT" ? `${url.split("?")[0]}?…` : url;
+    const path = shown.startsWith(state.apiBase) ? shown.replace(state.apiBase, "") : shown;
     const statusBadge = badge(status ? String(status) : "sin respuesta", status >= 200 && status < 300 ? "ok" : "error");
     let requestBody = null;
     if (body && body.kind === "json") requestBody = JSON.stringify(body.value, null, 2);
     if (body && body.kind === "file") requestBody = `multipart/form-data → file: ${body.value.name} (${fmtBytes(body.value.size)})`;
+    if (body && body.kind === "binary") requestBody = `${body.type} → ${body.value.name} (${fmtBytes(body.value.size)}), directo al almacenamiento`;
 
     const entry = el("details", { class: "card" },
         el("summary", {}, statusBadge, `${method} ${path} · ${ms} ms · ${new Date().toLocaleTimeString()}`),
@@ -382,7 +388,10 @@ function readFile() {
 function updateFileInfo() {
     const file = $("file-input").files[0];
     const type = file && FILE_TYPES[fileExtension(file.name)];
-    $("file-info").textContent = file ? `${file.name} · ${type ? type.label : "formato no admitido"} · ${fmtBytes(file.size)}` : "";
+    const uploaded = file && state.upload && state.upload.key === fileKey(file);
+    $("file-info").textContent = file
+        ? `${file.name} · ${type ? type.label : "formato no admitido"} · ${fmtBytes(file.size)}${uploaded ? " · ya subido" : " · se sube al extraer o analizar"}`
+        : "";
 }
 
 function renderExtraction(doc) {
@@ -425,10 +434,68 @@ async function processText() {
     renderExtraction(await api("POST", "/documents/process-text", { body: { kind: "json", value: { text } } }));
 }
 
-async function processFile() {
+// ---------------------------------------------------------------------------
+// Subida directa al almacenamiento (Issues #62 y #63): el archivo no pasa por la API
+// ---------------------------------------------------------------------------
+
+const fileKey = (file) => `${file.name}|${file.size}|${file.lastModified}`;
+
+// PUT con XMLHttpRequest para mostrar el progreso (fetch no lo informa en las subidas)
+function putFile(url, headers, file) {
+    return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", url);
+        for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) $("busy-text").textContent = `Subiendo ${file.name}… ${Math.round((e.loaded / e.total) * 100)} %`;
+        };
+        xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+        xhr.onerror = () => resolve({ status: 0, text: "" });
+        xhr.ontimeout = () => resolve({ status: 0, text: "timeout" });
+        xhr.timeout = REQUEST_TIMEOUT_MS;
+        xhr.send(file);
+    });
+}
+
+/**
+ * Sube el archivo elegido y devuelve su file_id. Si es el mismo archivo que ya se subió (y no
+ * venció), lo reutiliza: extraer y diagnosticar no lo vuelven a subir.
+ */
+async function ensureUploaded() {
     const file = readFile();
-    const label = FILE_TYPES[fileExtension(file.name)].label;
-    renderExtraction(await api("POST", "/documents/upload", { body: { kind: "file", value: file }, busyText: `Extrayendo ${label}…` }));
+    const key = fileKey(file);
+    if (state.upload && state.upload.key === key && new Date(state.upload.expiresAt) > new Date()) return state.upload.fileId;
+
+    const type = FILE_TYPES[fileExtension(file.name)].mime;
+    const ticket = await api("POST", "/files/upload-url", {
+        body: { kind: "json", value: { filename: file.name, content_type: type, size_bytes: file.size } },
+        busyText: "Pidiendo la URL de subida…",
+    });
+
+    setBusy(true, `Subiendo ${file.name}…`);
+    const started = performance.now();
+    const put = await putFile(ticket.upload.url, ticket.upload.headers, file);
+    setBusy(false);
+    const ok = put.status >= 200 && put.status < 300;
+    const error = ok ? null : put.status === 0
+        ? "No se pudo subir el archivo: sin conexión con el almacenamiento o el origen de esta web no está en su CORS."
+        : `El almacenamiento rechazó la subida (${put.status}). Si la URL venció (5 minutos), volvé a intentar.`;
+    addLogEntry({
+        method: "PUT", url: ticket.upload.url, status: put.status, data: put.text || null,
+        body: { kind: "binary", value: file, type }, ms: Math.round(performance.now() - started), error,
+    });
+    if (!ok) throw new ApiError(error, put.status, null);
+
+    const info = await api("POST", `/files/${encodeURIComponent(ticket.file.file_id)}/complete`, { busyText: "Verificando el archivo…" });
+    state.upload = { key, fileId: info.file_id, expiresAt: info.expires_at };
+    $("file-info").textContent = `${file.name} · subido (file_id ${info.file_id}, vence ${fmtDate(info.expires_at)})`;
+    return info.file_id;
+}
+
+async function processFile() {
+    const fileId = await ensureUploaded();
+    const label = FILE_TYPES[fileExtension(readFile().name)].label;
+    renderExtraction(await api("POST", `/documents/files/${encodeURIComponent(fileId)}`, { busyText: `Extrayendo ${label}…` }));
 }
 
 const ANALYSIS_BUSY = () => isMock()
@@ -446,14 +513,13 @@ async function analyzeText(dismissed = []) {
 }
 
 async function analyzeFile(dismissed = []) {
-    const file = readFile();
-    const data = await api("POST", "/analysis/file", {
+    const fileId = await ensureUploaded();
+    const data = await api("POST", `/analysis/files/${encodeURIComponent(fileId)}`, {
         query: {
             mock: isMock(),
             dismissed,
             confirm_images_without_personal_data: $("confirm-images").checked || undefined,
         },
-        body: { kind: "file", value: file },
         busyText: ANALYSIS_BUSY(),
     });
     await showAnalysis(data);

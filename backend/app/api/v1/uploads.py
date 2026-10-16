@@ -4,6 +4,8 @@ Lectura y validación de archivos subidos en PDF, Word (.docx) o PowerPoint (.pp
 Valida extensión, Content-Type, tamaño y firma binaria antes de procesar. Que el contenido
 corresponda de verdad a la extensión lo termina de verificar DocumentService.process_file.
 """
+import asyncio
+
 from fastapi import HTTPException, UploadFile, status
 
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
@@ -75,3 +77,47 @@ def check_signature(first_chunk: bytes, extension: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El contenido del archivo no corresponde a un documento de Word o PowerPoint válido.",
         )
+
+
+_SIGNATURE_PREFIX_BYTES = 1024
+
+
+async def read_stored_file(file_id: str, owner: str) -> tuple[bytes, str]:
+    """
+    Archivo subido con la subida directa (Issue #62), leído por su file_id en memoria y del lado
+    del servidor (Issue #63): nunca pasa por el cliente. Mismas validaciones que la subida
+    multipart (10 MB y firma binaria). Devuelve (contenido, nombre original).
+    """
+    from app.db import file_repository as files
+    from app.services import storage_service
+    from app.services.storage_service import StorageError
+
+    record = await asyncio.to_thread(files.get_for_user, file_id, owner)
+    if record is None or record["kind"] != "upload":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archivo no encontrado o vencido.")
+    if record["status"] != "uploaded":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="El archivo todavía no terminó de subirse: confirmalo con POST /files/{file_id}/complete.",
+        )
+    too_large = HTTPException(
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="El archivo supera el límite máximo permitido de 10 MB.",
+    )
+    if record["size_bytes"] > MAX_UPLOAD_SIZE_BYTES:
+        raise too_large
+    try:
+        content = await asyncio.to_thread(storage_service.get_storage().read, record["object_key"], MAX_UPLOAD_SIZE_BYTES)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El archivo ya no está disponible en el almacenamiento.")
+    except StorageError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos.",
+        )
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise too_large
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El archivo está vacío (0 bytes).")
+    filename = record["filename"]
+    check_signature(content[:_SIGNATURE_PREFIX_BYTES], "." + filename.rsplit(".", 1)[-1].lower())
+    return content, filename
