@@ -13,6 +13,7 @@ En desarrollo (STORAGE_BACKEND=local) la URL firmada apunta a /files/local/..., 
 en disco; ese camino responde 404 con R2.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
@@ -21,7 +22,17 @@ from app.api.v1.uploads import ALLOWED_CONTENT_TYPES, MAX_UPLOAD_SIZE_BYTES, SUP
 from app.core.config import settings
 from app.core.owner import current_owner
 from app.db import file_repository as files
-from app.schemas.file import FileDownloadResponse, FileInfo, FileUploadRequest, FileUploadResponse, PresignedRequest
+from app.db import share_repository as shares
+from app.schemas.file import (
+    FileDownloadResponse,
+    FileInfo,
+    FileUploadRequest,
+    FileUploadResponse,
+    PresignedRequest,
+    ShareCreated,
+    ShareCreateRequest,
+    ShareInfo,
+)
 from app.services import storage_service
 from app.services.storage_service import LocalStorage, StorageError, content_disposition, new_object_key
 
@@ -185,6 +196,79 @@ def create_download_url(file_id: str, request: Request, owner: str = Depends(cur
         file=_info(record),
         download=PresignedRequest(url=_absolute(request, url), method="GET", headers={}, expires_in_seconds=ttl),
     )
+
+
+# ---------------------------------------------------------------------------
+# Enlaces para compartir (Issue #65): /s/{token} redirige a una URL firmada de minutos
+# ---------------------------------------------------------------------------
+
+def _share_info(record: dict) -> dict:
+    return {
+        "share_id": record["id"], "created_at": record["created_at"], "expires_at": record["expires_at"],
+        "access_count": record["access_count"], "last_access_at": record["last_access_at"],
+    }
+
+
+@router.post(
+    "/{file_id}/shares",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ShareCreated,
+    summary="Crear un enlace para compartir el archivo",
+    responses={
+        404: {"description": "No existe, venció o es de otro usuario."},
+        409: {"description": "El archivo todavía no terminó de subirse."},
+    },
+)
+def create_share(file_id: str, request: Request, body: ShareCreateRequest | None = None,
+                 owner: str = Depends(current_owner)):
+    """
+    ## Compartir un archivo (Issue #65)
+
+    Devuelve un **enlace corto del backend** (`/s/{token}`) para pegar donde haga falta (aula
+    virtual, mensaje, correo). Quien lo abre recibe una redirección `302` a una URL firmada de pocos
+    minutos y descarga el archivo **directo del almacenamiento**, con su nombre original.
+
+    - A diferencia de una URL firmada de R2 (máximo 7 días y sin forma de revocarla), el enlace se
+      puede **revocar** y deja de funcionar al instante.
+    - Vence a las `expires_in_hours` horas, nunca después que el archivo.
+    - El enlace completo se muestra **solo en esta respuesta**: el backend guarda un hash del token.
+      Si se pierde, se crea otro.
+    """
+    record = _owned_or_404(file_id, owner)
+    if record["status"] != "uploaded":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El archivo todavía no terminó de subirse.")
+    expires_at = record["expires_at"]
+    if body and body.expires_in_hours:
+        wanted = (datetime.now(timezone.utc) + timedelta(hours=body.expires_in_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        expires_at = min(wanted, expires_at)
+    token, share = shares.create(file_id=record["id"], created_by=owner, expires_at=expires_at)
+    return ShareCreated(**_share_info(share), url=f"{str(request.base_url).rstrip('/')}/s/{token}")
+
+
+@router.get(
+    "/{file_id}/shares",
+    response_model=list[ShareInfo],
+    summary="Listar los enlaces activos del archivo",
+    responses={404: {"description": "No existe, venció o es de otro usuario."}},
+)
+def list_shares(file_id: str, owner: str = Depends(current_owner)):
+    """Enlaces vigentes (sin revocar ni vencidos), con cuántas veces se abrieron. No incluye las URLs."""
+    _owned_or_404(file_id, owner)
+    return [_share_info(s) for s in shares.list_active(file_id)]
+
+
+@router.delete(
+    "/{file_id}/shares/{share_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revocar un enlace",
+    responses={404: {"description": "El archivo o el enlace no existen, o el enlace ya estaba revocado."}},
+)
+def revoke_share(file_id: str, share_id: str, owner: str = Depends(current_owner)):
+    """El enlace deja de funcionar de inmediato: quien lo abra recibe 404."""
+    _owned_or_404(file_id, owner)
+    if not shares.revoke(file_id, share_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enlace no encontrado o ya revocado.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
