@@ -115,7 +115,8 @@ backend/
 
 Para evitar caídas de servicio cuando se agota la capa gratuita de los proveedores de IA, el backend expone un panel interno en **`/admin`** (HTML con Obelisco V2) que permite:
 
-- **Ver métricas de uso** de la IA por período (24 h, 7 y 30 días): llamadas, tokens, latencia p95 y errores, tokens por proveedor y llamadas por resultado. También uso del producto: diagnósticos, puntajes, barreras y decisiones del docente. Los gráficos tienen leyenda, tooltip, navegación con teclado y vista de tabla, con colores validados para daltonismo.
+- **Ver métricas de uso** de la IA por período (24 h, 7 y 30 días): llamadas, tokens, latencia p95 y errores, tokens por proveedor y llamadas por resultado. También uso del producto: diagnósticos, puntajes, barreras y decisiones del docente.
+- **Ver la actividad de archivos y enlaces compartidos** del período (pestaña Uso del producto, #98): subidas, exportaciones, descargas, enlaces creados y abiertos, volumen subido, archivos por formato, enlaces por estado y exportaciones por forma de entrega. Sale de `file_events`, un registro con la fecha, el tipo de evento, el formato y el tamaño, nunca el nombre ni el contenido del archivo. Se conserva `AI_USAGE_RETENTION_DAYS` (30 días). Los gráficos tienen leyenda, tooltip, navegación con teclado y vista de tabla, con colores validados para daltonismo.
 - **Visualizar el consumo en tiempo real** por conexión: requests y tokens usados vs. sus umbrales — **RPM** (requests/minuto), **TPM** (tokens/minuto), **RPD** (requests/día) y **TPD** (tokens/día).
 - **Cargar y priorizar múltiples conexiones de IA**, cada una con sus propios umbrales configurables.
 - **Rotación automática**: cuando la key activa se acerca a cualquiera de sus umbrales o recibe un error de cuota (`429`/`503`), el backend cambia automáticamente a la siguiente conexión disponible.
@@ -425,7 +426,8 @@ Para descargar: `GET /api/v1/files/{file_id}/download-url`.
 - En la base se guarda el **hash SHA-256 del token**, nunca el token, así que quien lea la base no puede abrir los enlaces. Por eso el enlace completo se muestra solo al crearlo; el listado da el `share_id`, el vencimiento y la cantidad de accesos.
 - `/s/{token}` tiene rate limit en memoria: `SHARE_RATE_LIMIT_PER_IP_MINUTE` (30) y `SHARE_RATE_LIMIT_GLOBAL_MINUTE` (300).
 - Solo el dueño crea, lista y revoca (provisional `anon` hasta #60; el permiso `files:share` llega con #61). También se pueden compartir las exportaciones.
-- Antes de desplegar, aplicar la migración `0003_file_shares.sql` en D1 (`npm run migrate:remote`). Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
+- Antes de desplegar, aplicar la migración `0003_file_shares.sql` en D1 (`npm run migrate:remote`).
+- Cada subida, exportación, descarga y enlace queda en `file_events` (migración `0004_file_events.sql`) para las métricas del panel. Registrar un evento nunca hace fallar la operación. Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
 
 - **Claves**: `users/<usuario>/uploads/<aleatorio>.<ext>` y `users/<usuario>/exports/...`. No son adivinables y tienen prefijo por usuario.
 - **Dueño provisional**: hasta el login de docentes (#60), todos los archivos son del usuario `anon` (`app/core/owner.py`) y el acceso depende de conocer el `file_id` (UUID aleatorio). Con #60 solo cambia `current_owner()`; los endpoints, la tabla y las claves no cambian.
@@ -459,6 +461,7 @@ Después, en el dashboard: **R2 → Manage API tokens → Create API token** con
 6. Versión adaptada (`GET /adaptations/final-version`): original y versión final lado a lado con los cambios resaltados, para copiar o descargar como `.txt`. Se regenera sola al cambiar una decisión.
 7. Informe final (`GET /adaptations/report`): puntaje antes → después, resumen, decisión por barrera y penalizaciones de reglas antes/después, descargable como `.txt`. También se regenera solo.
 8. Exportar el material (`docx`, `pdf`, `md`, `txt`) y el informe (`pdf`, `md`, `txt`) con `GET /export/...&delivery=link`: el archivo queda en el almacenamiento y se descarga con una URL firmada de 5 minutos.
+9. Archivos y enlaces compartidos: los subidos y exportados en la sesión (o agregados por `file_id`). Por cada uno: datos, descarga (`download-url`), crear enlaces (`/files/{id}/shares`) con vigencia opcional, ver sus aperturas y revocarlos. El enlace completo se ve solo al crearlo, con botón para copiar.
 
 Si el material tiene posibles datos personales (`422 sensitive_data_detected`), la página muestra los hallazgos enmascarados y permite descartar los que no lo son y reintentar (`?dismissed=`).
 

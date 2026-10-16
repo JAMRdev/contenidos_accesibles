@@ -39,6 +39,7 @@ const state = {
     finalVersion: null, // último AdaptedDocumentResponse del diagnóstico actual
     report: null, // último FinalReportResponse del diagnóstico actual
     upload: null, // último archivo subido al almacenamiento: { key, fileId, expiresAt }
+    files: new Map(), // file_id → { info, links: Map(share_id → url) } de la sección 9
 };
 
 const $ = (id) => document.getElementById(id);
@@ -488,6 +489,7 @@ async function ensureUploaded() {
 
     const info = await api("POST", `/files/${encodeURIComponent(ticket.file.file_id)}/complete`, { busyText: "Verificando el archivo…" });
     state.upload = { key, fileId: info.file_id, expiresAt: info.expires_at };
+    rememberFile(info);
     $("file-info").textContent = `${file.name} · subido (file_id ${info.file_id}, vence ${fmtDate(info.expires_at)})`;
     return info.file_id;
 }
@@ -1152,6 +1154,7 @@ async function exportFile(kind) {
         query: { analysis_id: analysisId, format, delivery: "link" },
         busyText: "Generando el archivo…",
     });
+    rememberFile(data.file);
     const expires = new Date(Date.now() + data.download.expires_in_seconds * 1000);
     const box = $("exports");
     if (!box.querySelector(".card")) box.replaceChildren();
@@ -1166,6 +1169,113 @@ async function exportFile(kind) {
         el("div", { class: "row" }, el("a", { href: data.download.url, target: "_blank", rel: "noopener" }, "Descargar")),
         rawJson(data),
     ));
+}
+
+// ---------------------------------------------------------------------------
+// 9. Archivos y enlaces compartidos (Issues #62 y #65)
+// ---------------------------------------------------------------------------
+
+function rememberFile(info) {
+    const known = state.files.get(info.file_id);
+    state.files.set(info.file_id, { info, links: known ? known.links : new Map() });
+    renderFiles();
+}
+
+async function addFileById() {
+    const id = $("file-id-input").value.trim();
+    if (!id) throw new InputError("Ingresá un file_id.");
+    rememberFile(await api("GET", `/files/${encodeURIComponent(id)}`));
+    $("file-id-input").value = "";
+}
+
+async function copyToClipboard(text, button) {
+    try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copiado";
+    } catch {
+        button.textContent = "Copialo a mano";
+    }
+    setTimeout(() => { button.textContent = "Copiar"; }, 1500);
+}
+
+function renderFiles() {
+    const box = $("files");
+    if (!state.files.size) {
+        box.replaceChildren(el("p", { class: "muted" }, "Todavía no hay archivos: subí uno en el paso 1, exportá en el paso 8 o agregalo por file_id."));
+        return;
+    }
+    box.replaceChildren(...[...state.files.values()].reverse().map((entry) => fileCard(entry)));
+}
+
+function fileCard(entry) {
+    const f = entry.info;
+    const card = el("div", { class: "card" });
+    const sharesBox = el("div", {}, el("p", { class: "muted" }, "Enlaces: tocá \"Ver enlaces\" para consultarlos."));
+    const hours = el("input", { type: "number", min: 1, placeholder: "hasta que vence el archivo", class: "hours" });
+
+    const refresh = async () => rememberFile(await api("GET", `/files/${encodeURIComponent(f.file_id)}`));
+    const download = async () => {
+        const data = await api("GET", `/files/${encodeURIComponent(f.file_id)}/download-url`, { busyText: "Firmando la descarga…" });
+        window.open(data.download.url, "_blank", "noopener");
+    };
+    const loadShares = async () => {
+        const list = await api("GET", `/files/${encodeURIComponent(f.file_id)}/shares`);
+        if (!list.length) {
+            sharesBox.replaceChildren(el("p", { class: "muted" }, "Sin enlaces activos."));
+            return;
+        }
+        sharesBox.replaceChildren(el("table", {},
+            el("tr", {}, el("th", {}, "Enlace"), el("th", {}, "Vence"), el("th", {}, "Aperturas"), el("th", {}, "Última"), el("th", {}, "")),
+            list.map((s) => {
+                const url = entry.links.get(s.share_id);
+                const copy = url ? el("button", { type: "button", class: "secondary", onclick: (ev) => copyToClipboard(url, ev.target) }, "Copiar") : null;
+                return el("tr", {},
+                    el("td", {}, url ? el("a", { href: url, target: "_blank", rel: "noopener" }, url)
+                        : el("span", { class: "muted", title: s.share_id }, `${s.share_id.slice(0, 10)}… (creado antes: la URL ya no se puede ver)`)),
+                    el("td", {}, fmtDate(s.expires_at)),
+                    el("td", {}, String(s.access_count)),
+                    el("td", {}, s.last_access_at ? fmtDate(s.last_access_at) : "nunca"),
+                    el("td", {}, el("div", { class: "row" }, copy,
+                        el("button", {
+                            type: "button", class: "danger",
+                            onclick: () => run(card, async () => {
+                                await api("DELETE", `/files/${encodeURIComponent(f.file_id)}/shares/${encodeURIComponent(s.share_id)}`);
+                                entry.links.delete(s.share_id);
+                                await loadShares();
+                            }),
+                        }, "Revocar"))),
+                );
+            }),
+        ));
+    };
+    const share = async () => {
+        const value = hours.value ? { expires_in_hours: Number(hours.value) } : null;
+        const created = await api("POST", `/files/${encodeURIComponent(f.file_id)}/shares`, value ? { body: { kind: "json", value } } : {});
+        entry.links.set(created.share_id, created.url);
+        await loadShares();
+    };
+
+    card.append(
+        el("div", {}, badge(f.kind === "export" ? "exportación" : "subido", "type"), badge(f.status), el("strong", {}, f.filename)),
+        kv([
+            ["file_id", f.file_id],
+            ["Tamaño", fmtBytes(f.size_bytes)],
+            ["Tipo", f.content_type],
+            ["Vence", fmtDate(f.expires_at)],
+        ]),
+        el("div", { class: "row" },
+            el("button", { type: "button", class: "secondary", onclick: () => run(card, refresh) }, "Actualizar"),
+            el("button", { type: "button", class: "secondary", disabled: f.status !== "uploaded", onclick: () => run(card, download) }, "Descargar"),
+            el("button", { type: "button", class: "secondary", onclick: () => run(card, loadShares) }, "Ver enlaces"),
+        ),
+        el("div", { class: "row" },
+            el("label", {}, "Vigencia del enlace (horas, opcional)", hours),
+            el("button", { type: "button", disabled: f.status !== "uploaded", onclick: () => run(card, share) }, "Crear enlace para compartir"),
+        ),
+        el("p", { class: "muted" }, "El enlace completo se ve solo al crearlo, en esta sesión: el backend guarda un hash del token. Revocarlo lo corta al instante."),
+        sharesBox,
+    );
+    return card;
 }
 
 // ---------------------------------------------------------------------------
@@ -1205,6 +1315,7 @@ function init() {
     $("show-done-barriers").addEventListener("change", renderBarriers);
     $("btn-export-content").addEventListener("click", () => run($("exports").parentElement, () => exportFile("content")));
     $("btn-export-report").addEventListener("click", () => run($("exports").parentElement, () => exportFile("report")));
+    $("btn-add-file").addEventListener("click", () => run($("files").parentElement, addFileById));
     $("btn-clear-log").addEventListener("click", () =>
         $("log-entries").replaceChildren(el("p", { class: "muted" }, "Todavía no se hizo ninguna llamada.")));
 

@@ -53,7 +53,7 @@ def resolve(token: str) -> dict | None:
     now = _now()
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT s.id AS share_id, f.object_key, f.filename, f.content_type "
+            "SELECT s.id AS share_id, f.object_key, f.filename, f.content_type, f.kind "
             "FROM file_shares s JOIN files f ON f.id = s.file_id "
             "WHERE s.id = ? AND s.revoked_at IS NULL AND s.expires_at > ? "
             "AND f.expires_at > ? AND f.status = 'uploaded'",

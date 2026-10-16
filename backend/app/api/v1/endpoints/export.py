@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.owner import current_owner
+from app.db import file_event_repository as file_events
 from app.db import file_repository as files
 from app.schemas.file import FileDownloadResponse, FileInfo, PresignedRequest
 from app.services import adaptation_service, export_service, storage_service
@@ -44,7 +45,9 @@ _RESPONSES = {
 }
 
 
-def _deliver(request: Request, data: bytes, content_type: str, filename: str, delivery: Delivery, owner: str):
+def _deliver(request: Request, data: bytes, content_type: str, filename: str, delivery: Delivery, owner: str,
+             document: str):
+    file_events.record("export", format=file_events.file_format(filename), size_bytes=len(data), detail=f"{document}:{delivery}")
     if delivery == "file":
         return StreamingResponse(
             io.BytesIO(data),
@@ -110,7 +113,7 @@ def export_content(
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = export_service.build_filename("material_adaptado", analysis_id, format)
-    return _deliver(request, data, content_type, filename, delivery, owner)
+    return _deliver(request, data, content_type, filename, delivery, owner, "content")
 
 
 @router.get(
@@ -157,4 +160,4 @@ def export_report(
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = export_service.build_filename("informe_accesibilidad", analysis_id, format)
-    return _deliver(request, data, content_type, filename, delivery, owner)
+    return _deliver(request, data, content_type, filename, delivery, owner, "report")

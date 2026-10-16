@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 from app.api.v1.uploads import ALLOWED_CONTENT_TYPES, MAX_UPLOAD_SIZE_BYTES, SUPPORTED_EXTENSIONS, check_signature
 from app.core.config import settings
 from app.core.owner import current_owner
+from app.db import file_event_repository as file_events
 from app.db import file_repository as files
 from app.db import share_repository as shares
 from app.schemas.file import (
@@ -70,6 +71,7 @@ def _discard(record: dict, detail: str) -> HTTPException:
     except StorageError:
         pass  # queda para la limpieza por vencimiento (#64)
     files.delete(record["id"])
+    file_events.record("upload_rejected", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"])
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
 
 
@@ -167,6 +169,7 @@ def complete_upload(file_id: str, owner: str = Depends(current_owner)):
         raise _discard(record, e.detail)
 
     files.mark_uploaded(record["id"])
+    file_events.record("upload", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"])
     return _info(files.get_for_user(record["id"], owner))
 
 
@@ -192,6 +195,8 @@ def create_download_url(file_id: str, request: Request, owner: str = Depends(cur
         url = storage_service.get_storage().presign_get(record["object_key"], record["filename"], record["content_type"], ttl)
     except StorageError:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_STORAGE_DOWN)
+    file_events.record("download", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"],
+                       detail=record["kind"])
     return FileDownloadResponse(
         file=_info(record),
         download=PresignedRequest(url=_absolute(request, url), method="GET", headers={}, expires_in_seconds=ttl),
@@ -242,6 +247,7 @@ def create_share(file_id: str, request: Request, body: ShareCreateRequest | None
         wanted = (datetime.now(timezone.utc) + timedelta(hours=body.expires_in_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
         expires_at = min(wanted, expires_at)
     token, share = shares.create(file_id=record["id"], created_by=owner, expires_at=expires_at)
+    file_events.record("share_created", format=file_events.file_format(record["filename"]), detail=record["kind"])
     return ShareCreated(**_share_info(share), url=f"{str(request.base_url).rstrip('/')}/s/{token}")
 
 
@@ -265,9 +271,10 @@ def list_shares(file_id: str, owner: str = Depends(current_owner)):
 )
 def revoke_share(file_id: str, share_id: str, owner: str = Depends(current_owner)):
     """El enlace deja de funcionar de inmediato: quien lo abra recibe 404."""
-    _owned_or_404(file_id, owner)
+    record = _owned_or_404(file_id, owner)
     if not shares.revoke(file_id, share_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enlace no encontrado o ya revocado.")
+    file_events.record("share_revoked", format=file_events.file_format(record["filename"]), detail=record["kind"])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

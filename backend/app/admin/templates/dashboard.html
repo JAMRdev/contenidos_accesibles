@@ -193,6 +193,44 @@
                 <tbody id="recent-body"></tbody>
             </table>
         </div>
+
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Archivos y enlaces compartidos</h2>
+                <p class="admin-muted admin-section-lead">
+                    Según el período elegido arriba. Se registra cada subida, exportación, descarga y enlace
+                    con su formato y tamaño, nunca el nombre ni el contenido del archivo, y se conserva {{ retention_days }} días.
+                </p>
+            </div>
+        </div>
+        <div class="kpi-grid" id="files-kpis"></div>
+        <div class="chart-grid">
+            <div class="chart-card chart-wide" id="chart-files-activity"></div>
+            <div class="chart-card" id="chart-files-formats"></div>
+            <div class="chart-card" id="chart-files-shares"></div>
+            <div class="chart-card chart-wide" id="chart-files-exports"></div>
+        </div>
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Últimos enlaces compartidos</h2>
+                <p class="admin-muted admin-section-lead">Creados en el período. Sin nombres de archivo: solo el formato y el origen.</p>
+            </div>
+        </div>
+        <div class="table-card">
+            <table class="table table-borderless admin-table">
+                <caption class="visually-hidden">Últimos enlaces compartidos del período</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Creado</th>
+                        <th scope="col">Archivo</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col" class="num">Aperturas</th>
+                        <th scope="col">Última apertura</th>
+                    </tr>
+                </thead>
+                <tbody id="shares-body"></tbody>
+            </table>
+        </div>
     </section>
 
     {% if admin.can_edit %}
