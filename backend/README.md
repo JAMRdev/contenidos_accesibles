@@ -288,6 +288,8 @@ Pasos en el dashboard de Railway:
    ADMIN_CLERK_PUBLISHABLE_KEY=<pk_test_... de la aplicación de Clerk del panel>
    ADMIN_CLERK_SECRET_KEY=<sk_test_...>
    ADMIN_CLERK_JWT_KEY=<JWT public key en PEM, pegada tal cual>
+   USERS_CLERK_SECRET_KEY=<sk_test_... de la aplicación de Clerk de docentes>
+   USERS_CLERK_JWT_KEY=<JWT public key en PEM de la aplicación de docentes>
    ADMIN_GITHUB_ADMINS=JAMRdev,VictoriaMackenzie,malessan4
    ADMIN_GITHUB_VIEWERS=camposmatias,Silvanam1,Jos022
    TEST_WEB_URL=https://<sitio-de-render>.onrender.com
@@ -319,6 +321,13 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 - Al arrancar con Clerk, el backend crea o actualiza en Clerk la cuenta `ADMIN_USERNAME` con `ADMIN_PASSWORD` (aparece en el log).
 - Los usuarios de GitHub y su rol (admin o solo lectura) se cargan desde `ADMIN_GITHUB_ADMINS` / `ADMIN_GITHUB_VIEWERS` y después se administran en la pestaña **Usuarios** de `/admin`.
 - La web de pruebas (`TEST_WEB_URL`) pide el mismo login: toda llamada a la API desde ese origen necesita sesión. Con solo lectura, la web funciona únicamente en modo mock.
+
+#### Login de docentes (Issue #60)
+
+- Los docentes inician sesión en el Frontend con **Clerk** (Google o Microsoft), en una aplicación de Clerk **distinta** de la del panel. El Frontend manda el token de sesión en cada request: `Authorization: Bearer <token>`.
+- Con `USERS_CLERK_JWT_KEY` configurada, `/analysis/*` y `/adaptations/*` exigen ese token, **también con `?mock=true`**. Sin token, o con uno vencido, de otro origen o inválido, responden `401` con el header `WWW-Authenticate: Bearer`. `/health` sigue público.
+- El token se valida sin llamadas de red con la clave pública y solo si fue emitido para un origen de `BACKEND_CORS_ORIGINS` (protección CSRF).
+- Sin `USERS_CLERK_JWT_KEY` la API sigue anónima: así funciona en local y hasta que el Frontend mande el token. La web de pruebas sigue usando su propio login.
 
 ### Rate limit de IA
 
