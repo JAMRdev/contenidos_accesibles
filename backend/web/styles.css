@@ -56,3 +56,5 @@ details summary { cursor: pointer; font-size: 0.85rem; }
 .barrier-item { border-top: 1px dashed #ddd; padding-top: 0.6rem; margin-top: 0.6rem; }
 .barrier-item:first-of-type { border-top: 0; }
 .card.flash { outline: 3px solid #f0b400; transition: outline-color 0.3s; }
+#files input.hours { width: 14rem; }
+#files td a { word-break: break-all; }

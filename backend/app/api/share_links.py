@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
 from app.core.rate_limit import limit_share_access
+from app.db import file_event_repository as file_events
 from app.db import share_repository as shares
 from app.services import storage_service
 from app.services.storage_service import StorageError
@@ -53,6 +54,8 @@ async def open_shared_link(token: str, request: Request):
     except StorageError:
         raise HTTPException(status_code=502, detail="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos.")
     await asyncio.to_thread(shares.record_access, share["share_id"])
+    await asyncio.to_thread(file_events.record, "share_opened", format=file_events.file_format(share["filename"]),
+                            detail=share["kind"])
     if url.startswith("/"):  # almacenamiento local (desarrollo): ruta del propio backend
         url = f"{str(request.base_url).rstrip('/')}{url}"
     return RedirectResponse(url, status_code=302, headers=_NO_STORE)

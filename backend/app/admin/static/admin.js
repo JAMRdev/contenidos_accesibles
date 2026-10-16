@@ -178,7 +178,13 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         },
         decision: { aceptada: "Aceptada", editada: "Editada", descartada: "Descartada", pendiente: "Pendiente" },
         source: { text: "Texto", pdf: "PDF", docx: "Word", pptx: "PowerPoint" },
+        format: { pdf: "PDF", docx: "Word", pptx: "PowerPoint", md: "Markdown", txt: "Texto" },
+        fileKind: { upload: "Material subido", export: "Exportación" },
+        shareState: { activo: "Activo", revocado: "Revocado", vencido: "Vencido" },
+        exportDocument: { content: "Material adaptado", report: "Informe" },
     };
+    const SHARE_STATE_CLASS = { activo: "active", revocado: "exhausted", vencido: "disabled" };
+    const SHARE_STATE_ICON = { activo: "link", revocado: "link_off", vencido: "schedule" };
     const STATUS = {
         active: { icon: "check_circle", label: "Activa" },
         standby: { icon: "pause_circle", label: "En espera" },
@@ -238,12 +244,14 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         return dayFmt.format(d).replace(".", "");
     }
 
-    // Escala "linda": 0 a un máximo redondeado con 3-5 marcas (pasos 1, 2 o 5 × 10^k)
+    // Escala "linda": 0 a un máximo redondeado con 3-5 marcas (pasos 1, 2 o 5 × 10^k).
+    // Con datos enteros (conteos) el paso mínimo es 1: no tiene sentido una marca en 0,25 archivos.
     function niceScale(max, ticks = 4) {
         if (!max || max <= 0) return { max: 1, step: 1, ticks: [0, 1] };
         const raw = max / ticks;
         const mag = 10 ** Math.floor(Math.log10(raw));
-        const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((st) => st >= raw);
+        let step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((st) => st >= raw);
+        if (Number.isInteger(max) && step < 1) step = 1;
         const top = Math.ceil(max / step) * step;
         const list = [];
         for (let v = 0; v <= top + step / 2; v += step) list.push(Math.round(v * 1000) / 1000);
@@ -904,6 +912,122 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     }
 
     // -----------------------------------------------------------------------
+    // Archivos y enlaces compartidos (Issue #98)
+    // -----------------------------------------------------------------------
+
+    // Tamaños: KB hasta 1 MB, después MB con un decimal
+    const bytesUnit = (b) => (b >= 1024 * 1024 ? "MB" : "KB");
+    const bytesValue = (b) => (b >= 1024 * 1024 ? nf.format(Math.round((b / 1024 / 1024) * 10) / 10) : nf.format(Math.ceil(b / 1024)));
+
+    function renderFiles(d) {
+        const f = d.files;
+        if (!f) return;
+        const k = f.kpis;
+        const sh = f.shares;
+        $("files-kpis").replaceChildren(
+            kpiCard({ label: "Archivos subidos", iconName: "upload_file", value: num(k.uploads.value), foot: delta(k.uploads.value, k.uploads.previous, false), spark: sparkline(k.uploads.spark, C.s1) }),
+            kpiCard({ label: "Exportaciones", iconName: "file_download", value: num(k.exports.value), foot: delta(k.exports.value, k.exports.previous, false), spark: sparkline(k.exports.spark, C.s2) }),
+            kpiCard({ label: "Enlaces creados", iconName: "add_link", value: num(k.shares_created.value),
+                foot: h("span", { class: "kpi-delta", text: sh.created ? `${num(sh.opened)} de ${num(sh.created)} abiertos al menos una vez` : "Sin enlaces en el período" }) }),
+            kpiCard({ label: "Aperturas de enlaces", iconName: "open_in_new", value: num(k.share_opens.value), foot: delta(k.share_opens.value, k.share_opens.previous, false), spark: sparkline(k.share_opens.spark, C.s4) }),
+            kpiCard({ label: "Volumen subido", iconName: "cloud_upload", value: bytesValue(k.uploaded_bytes.value), unit: bytesUnit(k.uploaded_bytes.value),
+                foot: f.rejected_uploads ? h("span", { class: "kpi-delta", text: `${num(f.rejected_uploads)} subida${f.rejected_uploads === 1 ? "" : "s"} rechazada${f.rejected_uploads === 1 ? "" : "s"} (no coincidían)` }) : delta(k.uploaded_bytes.value, k.uploaded_bytes.previous, false),
+                spark: sparkline(k.uploaded_bytes.spark, C.s1) }),
+        );
+
+        const rangeName = { "24h": "últimas 24 h", "7d": "últimos 7 días", "30d": "últimos 30 días" }[d.range];
+        const unitName = d.unit === "hour" ? "Por hora" : "Por día";
+        const labels = d.buckets.map((b) => bucketLabel(b, d.unit));
+        const longLabels = d.buckets.map((b) => bucketLabel(b, d.unit, true));
+
+        const actSeries = [
+            { label: "Subidas", color: C.s1, values: f.activity.upload },
+            { label: "Exportaciones", color: C.s2, values: f.activity.export },
+            { label: "Descargas directas", color: C.s3, values: f.activity.download },
+            { label: "Aperturas de enlaces", color: C.s4, values: f.activity.share_opened },
+        ];
+        const anyActivity = actSeries.some((sr) => sr.values.some((v) => v > 0));
+        chartCard($("chart-files-activity"), {
+            title: "Actividad de archivos",
+            subtitle: `${unitName}. Descargas directas: URLs firmadas que pidió el docente; aperturas: enlaces compartidos abiertos.`,
+            legend: actSeries.map((sr) => ({ label: sr.label, color: sr.color, line: true })),
+            svg: anyActivity ? lineChart({ labels, longLabels, series: actSeries, fmt: num, ariaLabel: `Actividad de archivos, ${rangeName}`, width: widthOf("chart-files-activity") }) : null,
+            table: anyActivity ? {
+                headers: ["Período", ...actSeries.map((sr) => sr.label)],
+                rows: longLabels.map((l, i) => [l, ...actSeries.map((sr) => num(sr.values[i]))]),
+            } : null,
+            empty: anyActivity ? null : { icon: "folder_open", text: "No hubo subidas, exportaciones ni enlaces abiertos en este período." },
+        });
+
+        const fmtSeries = [{ label: "Subidos", color: C.s1 }, { label: "Exportados", color: C.s2 }];
+        const fmtRows = Object.entries(f.by_format).map(([fmt, v]) => ({ label: LABELS.format[fmt] || fmt, values: [v.upload, v.export] }))
+            .filter((r) => r.values.some((v) => v > 0));
+        chartCard($("chart-files-formats"), {
+            title: "Archivos por formato",
+            subtitle: "Subidos por los docentes y generados al exportar.",
+            legend: fmtSeries,
+            svg: fmtRows.length ? hBars({ rows: fmtRows, series: fmtSeries, fmt: num, ariaLabel: "Archivos por formato, subidos y exportados", width: widthOf("chart-files-formats") }) : null,
+            table: fmtRows.length ? {
+                headers: ["Formato", ...fmtSeries.map((sr) => sr.label), "Total"],
+                rows: fmtRows.map((r) => [r.label, ...r.values.map(num), num(r.values[0] + r.values[1])]),
+            } : null,
+            empty: fmtRows.length ? null : { icon: "draft", text: "No se subieron ni exportaron archivos en este período." },
+        });
+
+        const stateSeries = [
+            { label: LABELS.shareState.activo, color: C.s1 },
+            { label: LABELS.shareState.revocado, color: C.s2 },
+            { label: LABELS.shareState.vencido, color: C.neutral },
+        ];
+        const shareRows = Object.entries(sh.by_kind).map(([kind, v]) => ({ label: LABELS.fileKind[kind] || kind, values: [v.activo, v.revocado, v.vencido] }))
+            .filter((r) => r.values.some((v) => v > 0));
+        chartCard($("chart-files-shares"), {
+            title: "Enlaces compartidos por estado",
+            subtitle: `Estado actual de los enlaces creados en el período. ${num(sh.opens)} apertura${sh.opens === 1 ? "" : "s"} en total.`,
+            legend: stateSeries,
+            svg: shareRows.length ? hBars({
+                rows: shareRows, series: stateSeries, fmt: num, percent: true,
+                endLabel: (total) => `${num(total)} enlace${total === 1 ? "" : "s"}`,
+                ariaLabel: "Enlaces compartidos por tipo de archivo y estado", width: widthOf("chart-files-shares"),
+            }) : null,
+            table: shareRows.length ? {
+                headers: ["Archivo", ...stateSeries.map((sr) => sr.label), "Total"],
+                rows: shareRows.map((r) => [r.label, ...r.values.map(num), num(r.values.reduce((a, b) => a + b, 0))]),
+            } : null,
+            empty: shareRows.length ? null : { icon: "link", text: "No se crearon enlaces en este período." },
+        });
+
+        const delSeries = [{ label: "Descarga directa (archivo en la respuesta)", color: C.s1 }, { label: "Con enlace (guardado en el almacenamiento)", color: C.s2 }];
+        const expRows = Object.entries(f.exports).map(([doc, v]) => ({ label: LABELS.exportDocument[doc] || doc, values: [v.file, v.link] }));
+        const anyExport = expRows.some((r) => r.values.some((v) => v > 0));
+        chartCard($("chart-files-exports"), {
+            title: "Exportaciones por documento y forma de entrega",
+            subtitle: "Con enlace, el archivo queda en el almacenamiento y se descarga con una URL firmada.",
+            legend: delSeries,
+            svg: anyExport ? hBars({ rows: expRows, series: delSeries, fmt: num, ariaLabel: "Exportaciones por documento y forma de entrega", width: widthOf("chart-files-exports") }) : null,
+            table: anyExport ? {
+                headers: ["Documento", ...delSeries.map((sr) => sr.label), "Total"],
+                rows: expRows.map((r) => [r.label, ...r.values.map(num), num(r.values[0] + r.values[1])]),
+            } : null,
+            empty: anyExport ? null : { icon: "file_download", text: "No hubo exportaciones en este período." },
+        });
+
+        const body = $("shares-body");
+        if (!sh.recent.length) {
+            body.replaceChildren(h("tr", {}, h("td", { colspan: "5", class: "admin-muted", text: "No se crearon enlaces en este período." })));
+            return;
+        }
+        body.replaceChildren(...sh.recent.map((r) => h("tr", {},
+            h("td", { text: fullFmt.format(new Date(r.created_at)) }),
+            h("td", {}, h("span", { class: "badge badge-s-default badge-sm", text: LABELS.format[r.format] || r.format || "—" }), " ",
+                h("span", { class: "cell-sub", text: LABELS.fileKind[r.kind] || "Archivo borrado" })),
+            h("td", {}, h("span", { class: `status status-${SHARE_STATE_CLASS[r.state]}` }, icon(SHARE_STATE_ICON[r.state]), LABELS.shareState[r.state])),
+            h("td", { class: "num" }, h("strong", { text: num(r.access_count) })),
+            h("td", { text: r.last_access_at ? fullFmt.format(new Date(r.last_access_at)) : "Nunca" }),
+        )));
+    }
+
+    // -----------------------------------------------------------------------
     // Modales de conexión
     // -----------------------------------------------------------------------
 
@@ -1257,6 +1381,7 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         renderSummary(d);
         renderConnections(d);
         renderProduct(d);
+        renderFiles(d);
         $("updated-at").textContent = `Actualizado a las ${hourFmt.format(new Date())}`;
     }
 

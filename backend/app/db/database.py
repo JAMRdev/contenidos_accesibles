@@ -167,6 +167,22 @@ CREATE INDEX IF NOT EXISTS idx_file_shares_file
     ON file_shares(file_id);
 CREATE INDEX IF NOT EXISTS idx_file_shares_expires_at
     ON file_shares(expires_at);
+
+-- Eventos de archivos y enlaces para las métricas del panel (Issue #98). Una fila por evento,
+-- sin nombres, contenido ni ids de archivo. Se borran al superar AI_USAGE_RETENTION_DAYS.
+CREATE TABLE IF NOT EXISTS file_events (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at              TEXT NOT NULL,
+    -- upload, upload_rejected, export, download, share_created, share_opened, share_revoked
+    event                   TEXT NOT NULL,
+    -- extensión del archivo: pdf, docx, pptx, md o txt
+    format                  TEXT,
+    size_bytes              INTEGER,
+    -- exportaciones: '<content|report>:<file|link>'; enlaces: 'upload' o 'export'
+    detail                  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_file_events_created_at
+    ON file_events(created_at);
 """
 
 
@@ -174,7 +190,7 @@ _d1_client = None
 _d1_lock = threading.Lock()
 
 # Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
-REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares"}
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events"}
 
 
 def _shared_d1_client():

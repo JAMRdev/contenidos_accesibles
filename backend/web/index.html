@@ -259,6 +259,23 @@
         <div id="exports"><p class="muted">Todavía no se exportó nada.</p></div>
     </section>
 
+    <!-- 9. Archivos y enlaces compartidos -->
+    <section>
+        <h2>9. Archivos y enlaces compartidos</h2>
+        <p class="muted">
+            Archivos subidos (paso 1) y exportados con enlace (paso 8) en esta sesión. Por cada uno: datos
+            (<code>GET /files/{id}</code>), descarga (<code>download-url</code>) y enlaces para compartir
+            (<code>/files/{id}/shares</code> → <code>/s/{token}</code>), con sus aperturas y la opción de revocarlos.
+        </p>
+        <div class="row">
+            <label class="grow">Agregar un archivo por <code>file_id</code>
+                <input id="file-id-input" type="text" placeholder="uuid" autocomplete="off">
+            </label>
+            <button type="button" id="btn-add-file" class="secondary">Agregar</button>
+        </div>
+        <div id="files"><p class="muted">Todavía no hay archivos: subí uno en el paso 1, exportá en el paso 8 o agregalo por file_id.</p></div>
+    </section>
+
     <!-- Registro de requests -->
     <section id="log">
         <div class="row">

@@ -5,15 +5,16 @@ Junta en un solo JSON lo que muestran los gráficos y tablas del panel:
 - Uso de la IA a lo largo del tiempo (tabla ai_usage_events).
 - Estado y consumo de cada conexión (tabla api_keys).
 - Uso del producto en las últimas horas (diagnósticos y propuestas vigentes).
+- Archivos y enlaces compartidos en el período (tabla file_events y enlaces de file_shares).
 
-Nunca devuelve el material analizado, los textos propuestos ni las API keys.
+Nunca devuelve el material analizado, los textos propuestos, las API keys ni nombres de archivo.
 """
 import json
 import math
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 
-from app.db import ai_usage_repository
+from app.db import ai_usage_repository, file_event_repository
 from app.db.database import get_connection
 from app.services import key_rotation_service
 
@@ -34,6 +35,14 @@ ADAPTATION_TYPES = ["lenguaje_claro", "consigna_en_pasos", "reorganizar", "mejor
 PROPOSAL_STATUSES = ["aceptada", "editada", "descartada", "pendiente"]
 SOURCE_TYPES = ["text", "pdf", "docx", "pptx"]
 RECENT_ANALYSES = 15
+FILE_FORMATS = ["pdf", "docx", "pptx", "md", "txt"]
+FILE_KINDS = ["upload", "export"]
+SHARE_STATES = ["activo", "revocado", "vencido"]
+EXPORT_DOCUMENTS = ["content", "report"]
+EXPORT_DELIVERIES = ["file", "link"]
+RECENT_SHARES = 15
+# Series del gráfico de actividad (4 colores validados de la paleta categórica)
+FILE_ACTIVITY = ["upload", "export", "download", "share_opened"]
 
 
 def _percentile(values: list[int], pct: float) -> int | None:
@@ -232,6 +241,96 @@ def _product(now: datetime) -> dict:
     }
 
 
+def _share_state(row: dict, now_iso: str) -> str:
+    if row["revoked_at"]:
+        return "revocado"
+    file_expires = row["file_expires_at"]
+    if row["expires_at"] <= now_iso or (file_expires and file_expires <= now_iso):
+        return "vencido"
+    return "activo"
+
+
+def _files(events: list[dict], previous: list[dict], starts: list[datetime], step: timedelta,
+           start: datetime, end: datetime, now: datetime) -> dict:
+    """Archivos y enlaces del período: eventos de file_events y enlaces creados en file_shares."""
+    n = len(starts)
+    activity = {k: [0] * n for k in FILE_ACTIVITY}
+    uploaded_bytes = [0] * n
+    by_format = {f: {k: 0 for k in FILE_KINDS} for f in FILE_FORMATS}
+    exports = {d: {v: 0 for v in EXPORT_DELIVERIES} for d in EXPORT_DOCUMENTS}
+    for e in events:
+        i = _bucket_index(_parse_utc(e["created_at"]), starts, step)
+        if i is None:
+            continue
+        if e["event"] in activity:
+            activity[e["event"]][i] += 1
+        if e["event"] == "upload":
+            uploaded_bytes[i] += e["size_bytes"] or 0
+        if e["event"] in ("upload", "export") and e["format"] in by_format:
+            by_format[e["format"]][e["event"]] += 1
+        if e["event"] == "export" and e["detail"]:
+            document, _, delivery = e["detail"].partition(":")
+            if document in exports and delivery in exports[document]:
+                exports[document][delivery] += 1
+
+    def count(rows: list[dict], event: str) -> int:
+        return sum(1 for r in rows if r["event"] == event)
+
+    def total_bytes(rows: list[dict]) -> int:
+        return sum(r["size_bytes"] or 0 for r in rows if r["event"] == "upload")
+
+    kpis = {
+        "uploads": {"value": count(events, "upload"), "previous": count(previous, "upload"), "spark": activity["upload"]},
+        "exports": {"value": count(events, "export"), "previous": count(previous, "export"), "spark": activity["export"]},
+        "shares_created": {"value": count(events, "share_created"), "previous": count(previous, "share_created"), "spark": None},
+        "share_opens": {"value": count(events, "share_opened"), "previous": count(previous, "share_opened"),
+                        "spark": activity["share_opened"]},
+        "uploaded_bytes": {"value": total_bytes(events), "previous": total_bytes(previous), "spark": uploaded_bytes},
+    }
+
+    now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    with get_connection() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT s.created_at, s.expires_at, s.revoked_at, s.access_count, s.last_access_at, "
+            "f.kind, f.filename, f.expires_at AS file_expires_at "
+            "FROM file_shares s LEFT JOIN files f ON f.id = s.file_id "
+            "WHERE s.created_at >= ? AND s.created_at < ? ORDER BY s.created_at DESC",
+            (start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        )]
+    shares_by_kind = {k: {s: 0 for s in SHARE_STATES} for k in FILE_KINDS}
+    recent = []
+    for r in rows:
+        state = _share_state(r, now_iso)
+        if r["kind"] in shares_by_kind:
+            shares_by_kind[r["kind"]][state] += 1
+        if len(recent) < RECENT_SHARES:
+            recent.append({
+                "created_at": r["created_at"],
+                # Solo la extensión: el nombre del archivo puede tener datos del docente o del curso
+                "format": file_event_repository.file_format(r["filename"]),
+                "kind": r["kind"],
+                "state": state,
+                "access_count": r["access_count"],
+                "last_access_at": r["last_access_at"],
+            })
+
+    return {
+        "kpis": kpis,
+        "rejected_uploads": count(events, "upload_rejected"),
+        "revoked_shares": count(events, "share_revoked"),
+        "activity": activity,
+        "by_format": by_format,
+        "exports": exports,
+        "shares": {
+            "by_kind": shares_by_kind,
+            "created": len(rows),
+            "opened": sum(1 for r in rows if r["access_count"] > 0),
+            "opens": sum(r["access_count"] for r in rows),
+            "recent": recent,
+        },
+    }
+
+
 def build_metrics(range_key: str = "24h", tz_offset_minutes: int = 0, now: datetime | None = None) -> dict:
     if range_key not in RANGES:
         raise ValueError(f"Rango inválido. Opciones: {', '.join(RANGES)}.")
@@ -246,6 +345,8 @@ def build_metrics(range_key: str = "24h", tz_offset_minutes: int = 0, now: datet
     previous = ai_usage_repository.list_between(start - (end - start), start)
     usage = _usage_block(events, starts, step)
     connections = _connections(events)
+    file_events = file_event_repository.list_between(start, end)
+    previous_file_events = file_event_repository.list_between(start - (end - start), start)
 
     return {
         "range": range_key,
@@ -262,4 +363,5 @@ def build_metrics(range_key: str = "24h", tz_offset_minutes: int = 0, now: datet
             if c["status"] in ("near-limit", "exhausted")
         ],
         "product": _product(now),
+        "files": _files(file_events, previous_file_events, starts, step, start, end, now),
     }

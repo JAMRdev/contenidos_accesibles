@@ -25,7 +25,7 @@ from app.admin import clerk_auth, session
 from app.core.config import settings
 from app.core.security import verify_same_origin
 from app.db import admin_member_repository as members
-from app.db import ai_usage_repository
+from app.db import ai_usage_repository, file_event_repository
 from app.db import api_key_repository as repo
 from app.services import admin_metrics_service, status_service
 from app.services.llm.providers import PRESETS, presets_as_dicts
@@ -321,6 +321,7 @@ def metrics(
     if range_key not in admin_metrics_service.RANGES:
         raise HTTPException(status_code=400, detail="Rango inválido. Opciones: 24h, 7d, 30d.")
     ai_usage_repository.delete_expired()
+    file_event_repository.delete_expired()
     return admin_metrics_service.build_metrics(range_key, tz)
 
 
