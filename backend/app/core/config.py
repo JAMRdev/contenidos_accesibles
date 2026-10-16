@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     ADMIN_GITHUB_ADMINS: str = ""
     ADMIN_GITHUB_VIEWERS: str = ""
 
+    # --- Login de docentes con Clerk (Issue #60): aplicación de Clerk de docentes (Google y Microsoft) ---
+    # Con CLERK_JWT_KEY cargada, /analysis y /adaptations exigen el token de sesión (Authorization: Bearer).
+    # Sin ella la API sigue anónima: así se usa en local y hasta que el Frontend mande el token.
+    CLERK_SECRET_KEY: SecretStr | None = None
+    # Clave pública PEM de la aplicación de docentes: valida los tokens sin llamadas de red
+    CLERK_JWT_KEY: str | None = None
+
     # --- Persistencia local (SQLite) de conexiones de IA y contadores de uso ---
     DATABASE_PATH: str = "app_data.db"
 
@@ -145,7 +152,7 @@ class Settings(BaseSettings):
                 raise ValueError(f"STORAGE_BACKEND=r2 requiere {', '.join(missing)}.")
         return self
 
-    @field_validator("ADMIN_CLERK_JWT_KEY", mode="before")
+    @field_validator("ADMIN_CLERK_JWT_KEY", "CLERK_JWT_KEY", mode="before")
     @classmethod
     def normalize_pem(cls, v: str | None) -> str | None:
         """
@@ -224,6 +231,11 @@ class Settings(BaseSettings):
         return self.ADMIN_AUTH != "local" and bool(
             self.ADMIN_CLERK_PUBLISHABLE_KEY and self.ADMIN_CLERK_SECRET_KEY and self.ADMIN_CLERK_JWT_KEY
         )
+
+    @property
+    def teacher_auth_enabled(self) -> bool:
+        """El login de docentes se exige solo si está la clave pública de su aplicación de Clerk."""
+        return bool(self.CLERK_JWT_KEY)
 
     @property
     def admin_local_login_enabled(self) -> bool:
