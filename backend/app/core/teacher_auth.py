@@ -3,14 +3,14 @@ Login de docentes con Clerk (Issue #60).
 
 El Frontend inicia sesión con Clerk (Google o Microsoft) y manda el token de sesión en cada
 request (`Authorization: Bearer <token>`). Esta dependencia lo valida sin llamadas de red, con
-la clave pública de la aplicación de docentes (CLERK_JWT_KEY), igual que el panel valida el suyo
+la clave pública de la aplicación de docentes (USERS_CLERK_JWT_KEY), igual que el panel valida el suyo
 en app/admin/clerk_auth.py:
 
 - Solo se aceptan tokens de sesión (los de máquina no aplican).
 - El token tiene que haber sido emitido para uno de los orígenes del Frontend (authorized_parties
   = orígenes de CORS): un token robado no sirve desde otro sitio.
 
-Sin CLERK_JWT_KEY no se exige nada (local y hasta que el Frontend esté listo). Las llamadas de la
+Sin USERS_CLERK_JWT_KEY no se exige nada (local y hasta que el Frontend esté listo). Las llamadas de la
 web de pruebas ya llegan validadas por su propio login (app/admin/test_web_auth.py) y pasan.
 """
 from clerk_backend_api.security.types import (
@@ -55,7 +55,7 @@ def require_teacher(request: Request) -> None:
             raise TokenVerificationError(TokenVerificationErrorReason.INVALID_TOKEN_TYPE)
         claims = verify_token(
             token,
-            VerifyTokenOptions(jwt_key=settings.CLERK_JWT_KEY, authorized_parties=settings.cors_origins),
+            VerifyTokenOptions(jwt_key=settings.USERS_CLERK_JWT_KEY, authorized_parties=settings.cors_origins),
         )
     except TokenVerificationError:
         raise _unauthorized("La sesión no es válida o venció. Volvé a iniciar sesión.")

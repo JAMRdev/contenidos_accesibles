@@ -1,6 +1,6 @@
 """
 Login de docentes con Clerk (Issue #60): /analysis y /adaptations exigen el token de sesión
-solo si CLERK_JWT_KEY está configurada.
+solo si USERS_CLERK_JWT_KEY está configurada.
 
 Los tokens se firman con una clave RSA de prueba (como en test_admin_auth.py): ningún test
 hace llamadas de red.
@@ -55,8 +55,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "DATABASE_PATH", str(tmp_path / "test.db"))
     monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", [FRONT])
     monkeypatch.setattr(settings, "TEST_WEB_URL", None)
-    monkeypatch.setattr(settings, "CLERK_JWT_KEY", None)
-    monkeypatch.setattr(settings, "CLERK_SECRET_KEY", None)
+    monkeypatch.setattr(settings, "USERS_CLERK_JWT_KEY", None)
+    monkeypatch.setattr(settings, "USERS_CLERK_SECRET_KEY", None)
     init_db()
     session.reset()
     rate_limit.reset()
@@ -68,12 +68,12 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture
 def teacher_auth_on(monkeypatch):
-    monkeypatch.setattr(settings, "CLERK_JWT_KEY", PUBLIC_PEM)
-    monkeypatch.setattr(settings, "CLERK_SECRET_KEY", SecretStr("sk_test_prueba"))
+    monkeypatch.setattr(settings, "USERS_CLERK_JWT_KEY", PUBLIC_PEM)
+    monkeypatch.setattr(settings, "USERS_CLERK_SECRET_KEY", SecretStr("sk_test_prueba"))
 
 
 # ---------------------------------------------------------------------------
-# Sin CLERK_JWT_KEY: la API sigue anónima (local y hasta que el Frontend mande el token)
+# Sin USERS_CLERK_JWT_KEY: la API sigue anónima (local y hasta que el Frontend mande el token)
 # ---------------------------------------------------------------------------
 
 def test_sin_clave_la_api_sigue_anonima(client):
@@ -83,7 +83,7 @@ def test_sin_clave_la_api_sigue_anonima(client):
 
 
 # ---------------------------------------------------------------------------
-# Con CLERK_JWT_KEY
+# Con USERS_CLERK_JWT_KEY
 # ---------------------------------------------------------------------------
 
 def test_token_valido_puede_usar_la_api(client, teacher_auth_on):
