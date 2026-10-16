@@ -7,11 +7,14 @@ api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(test_ai.router, prefix="/ai", tags=["AI Integration"])
 api_router.include_router(documents.router, prefix="/documents", tags=["Documents"])
 # Login de docentes (Issue #60): se exige solo con CLERK_JWT_KEY configurada
+_TEACHER_401 = {401: {"description": "Falta el token de sesión del docente o no es válido (solo con CLERK_JWT_KEY configurada)"}}
 api_router.include_router(
-    analysis.router, prefix="/analysis", tags=["Accessibility Analysis"], dependencies=[Depends(require_teacher)]
+    analysis.router, prefix="/analysis", tags=["Accessibility Analysis"],
+    dependencies=[Depends(require_teacher)], responses=_TEACHER_401,
 )
 api_router.include_router(
-    adaptations.router, prefix="/adaptations", tags=["AI Adaptations"], dependencies=[Depends(require_teacher)]
+    adaptations.router, prefix="/adaptations", tags=["AI Adaptations"],
+    dependencies=[Depends(require_teacher)], responses=_TEACHER_401,
 )
 api_router.include_router(export.router, prefix="/export", tags=["Export"])
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
