@@ -166,7 +166,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `POST` | `/api/v1/analysis/sample` | Escáner de accesibilidad IA + reglas sobre texto pegado (`application/json` o `text/plain`) con semáforo, puntaje combinado y barreras. `?mock=true` simula la IA | ✅ Operativo |
 | `POST` | `/api/v1/analysis/pdf` | Escáner de accesibilidad IA + reglas sobre un PDF subido (máx. 10 MB). `?mock=true` simula la IA | ✅ Operativo |
 | `POST` | `/api/v1/analysis/file` | Igual que `/analysis/pdf`, aceptando `.pdf`, `.docx` y `.pptx` (máx. 10 MB). `?mock=true` simula la IA | ✅ Operativo |
-| `POST` | `/api/v1/adaptations` | Propuesta de adaptación con IA para una barrera (`lenguaje_claro`, `consigna_en_pasos`, `reorganizar`, `mejorar_estructura`): original + propuesta + explicación, en estado `pendiente`. `?mock=true` simula la IA | ✅ Operativo |
+| `POST` | `/api/v1/adaptations` | Propuesta de adaptación con IA para una barrera (`lenguaje_claro`, `consigna_en_pasos`, `reorganizar`, `mejorar_estructura`): original + propuesta + explicación, en estado `pendiente`. Como mucho una pendiente por barrera: otra responde `409` (`pending_proposal_exists`) sin llamar a la IA. `?mock=true` simula la IA | ✅ Operativo |
 | `GET` | `/api/v1/adaptations?analysis_id=` | Propuestas de adaptación generadas para un diagnóstico | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/{proposal_id}` | Recuperar una propuesta de adaptación por ID | ✅ Operativo |
 | `POST` | `/api/v1/adaptations/{proposal_id}/decision` | Revisión docente: aceptar, editar (con `edited_text`) o descartar una propuesta pendiente. El original nunca se modifica | ✅ Operativo |
@@ -435,11 +435,12 @@ Después, en el dashboard: **R2 → Manage API tokens → Create API token** con
 
 1. Extracción opcional (`/documents/process-text`, `/documents/upload`).
 2. Diagnóstico (`/analysis/sample`, `/analysis/file`) o recuperación por `analysis_id` (`GET /analysis/{id}`).
-3. Propuesta de adaptación por barrera (`POST /adaptations`), con tipo y fragmento opcional.
+3. Propuesta de adaptación por barrera (`POST /adaptations`), con tipo y fragmento opcional. Las barreras que citan el mismo fragmento se muestran juntas, y cada una indica su estado (sin propuesta, propuesta pendiente, resuelta o descartada) y se actualiza con cada decisión. Las resueltas y descartadas se ocultan, con opción de verlas. Una barrera con propuesta pendiente no ofrece pedir otra: lleva a la existente.
 4. Revisión docente: aceptar, editar, descartar y deshacer (`/adaptations/{id}/decision`, `/undo`).
 5. Registro de decisiones (`GET /adaptations/decisions`).
 6. Versión adaptada (`GET /adaptations/final-version`): original y versión final lado a lado con los cambios resaltados, para copiar o descargar como `.txt`. Se regenera sola al cambiar una decisión.
 7. Informe final (`GET /adaptations/report`): puntaje antes → después, resumen, decisión por barrera y penalizaciones de reglas antes/después, descargable como `.txt`. También se regenera solo.
+8. Exportar el material (`docx`, `pdf`, `md`, `txt`) y el informe (`pdf`, `md`, `txt`) con `GET /export/...&delivery=link`: el archivo queda en el almacenamiento y se descarga con una URL firmada de 5 minutos.
 
 Si el material tiene posibles datos personales (`422 sensitive_data_detected`), la página muestra los hallazgos enmascarados y permite descartar los que no lo son y reintentar (`?dismissed=`).
 

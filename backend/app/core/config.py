@@ -153,6 +153,14 @@ class Settings(BaseSettings):
         v = v.strip().strip('"').strip("'").replace("\\r\\n", "\n").replace("\\n", "\n").strip()
         return v or None
 
+    @field_validator("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", mode="before")
+    @classmethod
+    def clean_r2_value(cls, v: str | None) -> str | None:
+        """Quita espacios, saltos de línea y comillas que quedan al pegar las credenciales en Railway."""
+        if not isinstance(v, str):
+            return v
+        return v.strip().strip('"').strip("'").strip() or None
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, list[str]]) -> list[str]:

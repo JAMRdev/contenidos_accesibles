@@ -51,3 +51,8 @@ mark.removed { background: #fbdadb; }
 
 #busy { position: fixed; bottom: 1rem; right: 1rem; background: #1a1a1a; color: #fff; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.9rem; }
 details summary { cursor: pointer; font-size: 0.85rem; }
+
+/* Barreras agrupadas por fragmento y propuesta resaltada al saltar a ella (Issue #94) */
+.barrier-item { border-top: 1px dashed #ddd; padding-top: 0.6rem; margin-top: 0.6rem; }
+.barrier-item:first-of-type { border-top: 0; }
+.card.flash { outline: 3px solid #f0b400; transition: outline-color 0.3s; }

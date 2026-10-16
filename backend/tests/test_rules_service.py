@@ -216,14 +216,16 @@ def _meta() -> dict:
 
 
 def test_mock_runs_real_rules():
-    # La oración larga no va primera: el mock cita la primera y cubriría la barrera de reglas.
+    # El mock cita la oración más larga, así que la barrera de la regla se fusiona con la suya
+    # (como con la IA real); que las reglas corrieron se ve en las métricas y las penalidades.
     doc = document_service.process_text("Leé el texto.\n" + LONG_SENTENCE)
     response = asyncio.run(analyze_document(doc, mock=True))
     assert response.metadata.provider == "mock"
     assert response.metadata.rules_metrics.long_sentences == 1
     assert response.score_breakdown.ai_score == 68
     assert response.estimated_score == response.score_breakdown.final_score
-    assert any(b.source == "rules" for b in response.barriers)
+    assert response.score_breakdown.penalties
+    assert [b.source for b in response.barriers].count("ai") == 1
 
 
 # --- Párrafos de PDF --------------------------------------------------------
@@ -479,3 +481,19 @@ def test_rules_metrics_task25():
     assert result.metrics.visual_only_references == 1
     assert result.metrics.readability_score_szigriszt is None  # < 100 palabras
 
+
+
+def test_barreras_repetidas_se_quitan_y_las_distintas_sobre_la_misma_cita_quedan():
+    from app.services.accessibility_service import _drop_repeated
+
+    base = {"category": "comprension", "severity": "para_revisar", "original_text": "Leé el texto y respondé."}
+    barriers = [
+        {**base, "issue": "Oración extensa"},
+        {**base, "issue": "oración  extensa", "original_text": "“Leé el texto y respondé.”"},  # repetida
+        {**base, "issue": "Consigna con varias acciones"},  # otro problema, misma cita: queda
+        {**base, "issue": "Índice de legibilidad bajo", "original_text": ""},
+        {**base, "issue": "Índice de legibilidad bajo", "original_text": ""},  # globales: no se comparan
+    ]
+    assert [b["issue"] for b in _drop_repeated(barriers)] == [
+        "Oración extensa", "Consigna con varias acciones", "Índice de legibilidad bajo", "Índice de legibilidad bajo",
+    ]

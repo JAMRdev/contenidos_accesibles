@@ -138,9 +138,27 @@ class R2Storage:
         try:
             return getattr(self._s3, operation)(Bucket=self.bucket, **params)
         except ClientError as e:
-            raise StorageError(f"R2 respondió un error ({e.response.get('Error', {}).get('Code')}).") from e
+            raise StorageError(_explain(e)) from e
         except BotoCoreError as e:
             raise StorageError(f"No se pudo conectar con R2 ({e.__class__.__name__}).") from e
+
+
+# Qué revisar según la respuesta de R2 (sin datos secretos: sale en la pestaña Estado del panel)
+_R2_HINTS = {
+    "403": "credenciales rechazadas: revisá R2_ACCESS_KEY_ID y R2_SECRET_ACCESS_KEY, y que el token tenga acceso a este bucket",
+    "AccessDenied": "credenciales rechazadas: revisá R2_ACCESS_KEY_ID y R2_SECRET_ACCESS_KEY, y que el token tenga acceso a este bucket",
+    "SignatureDoesNotMatch": "la firma no coincide: revisá R2_SECRET_ACCESS_KEY",
+    "InvalidAccessKeyId": "R2_ACCESS_KEY_ID no existe en esa cuenta",
+    "404": "el bucket no existe en esa cuenta: revisá R2_BUCKET y R2_ACCOUNT_ID",
+    "NoSuchBucket": "el bucket no existe en esa cuenta: revisá R2_BUCKET y R2_ACCOUNT_ID",
+    "400": "pedido inválido: revisá R2_ACCOUNT_ID",
+}
+
+
+def _explain(error) -> str:
+    code = str(error.response.get("Error", {}).get("Code") or error.response.get("ResponseMetadata", {}).get("HTTPStatusCode"))
+    hint = _R2_HINTS.get(code)
+    return f"R2 respondió {code}" + (f": {hint}." if hint else ".")
 
 
 # ---------------------------------------------------------------------------

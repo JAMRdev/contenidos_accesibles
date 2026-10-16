@@ -84,7 +84,9 @@ def test_flujo_mvp_completo_con_texto():
     edited = "El ciclo del agua es la circulación del agua en la naturaleza. El agua se evapora y forma nubes."
     p_edit = _propose(aid, _barrier(analysis, LONG_SENTENCE)["id"], "lenguaje_claro")
     p_steps = _propose(aid, _barrier(analysis, ACTIVITY)["id"], "consigna_en_pasos", fragment=ACTIVITY)
-    p_discard = _propose(aid, _barrier(analysis, "Unidad 3")["id"], "mejorar_estructura", fragment="Unidad 3: El ciclo del agua")
+    # Una propuesta pendiente por barrera: la tercera va a otra barrera, con el fragmento del docente
+    other = next(b["id"] for b in analysis["barriers"] if b["id"] not in (p_edit["barrier_id"], p_steps["barrier_id"]))
+    p_discard = _propose(aid, other, "mejorar_estructura", fragment="Unidad 3: El ciclo del agua")
     _decide(p_edit["proposal_id"], "editada", edited)
     _decide(p_steps["proposal_id"], "aceptada")
     _decide(p_discard["proposal_id"], "descartada")

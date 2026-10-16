@@ -14,6 +14,7 @@ from app.services import adaptation_service
 from app.services.adaptation_service import (
     AdaptationNotFoundError,
     FragmentRequiredError,
+    PendingProposalError,
     ProposalStateError,
 )
 from app.services.key_rotation_service import AllKeysExhaustedError
@@ -68,7 +69,10 @@ async def create_adaptation(
     - **Nunca se aplica sola**: la propuesta se guarda en estado `pendiente` y vence junto con
       su diagnóstico (`expires_at`).
     - **Modo Mock (`?mock=true`)**: misma respuesta y mismos errores, sin consumir IA.
-     - **Datos personales (Issue #66)**: si `fragment` contiene datos personales, no se envía a la IA
+    - **Una propuesta pendiente por barrera**: si la barrera ya tiene una (o se está generando),
+      responde `409` sin llamar a la IA, con `detail.code = "pending_proposal_exists"` y el
+      `detail.proposal_id` de la existente. Después de decidirla se puede pedir otra.
+    - **Datos personales (Issue #66)**: si `fragment` contiene datos personales, no se envía a la IA
       y se responde `422` con `detail.code = "sensitive_data_detected"`. Para seguir igual,
       reenviá el pedido con los `id` descartados en `dismissed`.
     """
@@ -82,6 +86,8 @@ async def create_adaptation(
         raise HTTPException(status_code=404, detail=str(e))
     except FragmentRequiredError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except PendingProposalError as e:
+        raise HTTPException(status_code=409, detail=e.to_detail())
     except AllKeysExhaustedError as e:
         raise HTTPException(status_code=429, detail=str(e))
     except LLMInvalidResponseError as e:
@@ -228,10 +234,15 @@ def decide_adaptation(proposal_id: str, payload: DecisionRequest):
     summary="Deshacer la decisión sobre una propuesta",
 )
 def undo_adaptation(proposal_id: str):
-    """Revierte la decisión vigente: la propuesta vuelve a `pendiente`. Si ya estaba pendiente, `409`."""
+    """
+    Revierte la decisión vigente: la propuesta vuelve a `pendiente`. Responde `409` si ya estaba
+    pendiente, o si la barrera tiene otra propuesta pendiente (`detail.code = "pending_proposal_exists"`).
+    """
     try:
         return adaptation_service.undo(proposal_id)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except PendingProposalError as e:
+        raise HTTPException(status_code=409, detail=e.to_detail())
     except ProposalStateError as e:
         raise HTTPException(status_code=409, detail=str(e))
