@@ -116,6 +116,8 @@ Los tests automáticos del backend también se pueden correr con `pytest` desde 
 
 Las respuestas mock se reconocen por `metadata.provider = "mock"` y textos que empiezan con `[MOCK]`.
 
+En el diagnóstico mock, la "IA" simulada cita oraciones reales del material: la consigna con más verbos en imperativo (leé, subrayá, respondé) y la oración más larga. Las reglas que marcan esas mismas oraciones se fusionan con ellas, igual que con la IA real, así que no aparecen dos barreras con la misma cita y el mismo problema.
+
 ### 2.2 Diagnóstico, barreras y vencimiento
 
 - Cada análisis devuelve un `analysis_id` (UUID) y `expires_at`: el diagnóstico y sus propuestas **vencen a las 24 h**. Después responden 404.
@@ -410,6 +412,9 @@ curl -X POST "$API/adaptations?mock=true" -H "Content-Type: application/json" -d
 | `barrier_id` inexistente | 404 |
 | `adaptation_type` inválido | 422 |
 | Sin mock, por encima del rate limit | 429 |
+| Pedir otra propuesta para una barrera que ya tiene una `pendiente` | 409 con `detail.code = "pending_proposal_exists"` y el `detail.proposal_id` de la existente; con IA real no consume tokens |
+| Dos pedidos seguidos para la misma barrera (doble clic) | Uno 201 y el otro 409 ("Ya se está generando…") |
+| Pedir otra después de aceptar, editar o descartar la anterior | 201 |
 
 ### 4.9 Consultar propuestas
 
@@ -434,6 +439,7 @@ curl -X POST "$API/adaptations/<proposal_id>/undo"
 | Decidir sobre una ya decidida | 409 |
 | Deshacer una decidida | 200, vuelve a `pendiente` |
 | Deshacer una pendiente | 409 |
+| Deshacer cuando la barrera ya tiene otra propuesta `pendiente` | 409 `pending_proposal_exists` (primero hay que decidir la otra) |
 | Dos decisiones simultáneas sobre la misma propuesta | una 200 y la otra 409 |
 | Propuesta inexistente | 404 |
 

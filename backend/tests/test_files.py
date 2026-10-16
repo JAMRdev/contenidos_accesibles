@@ -275,3 +275,20 @@ def test_content_disposition_con_caracteres_no_ascii():
 def test_r2_exige_credenciales_al_arrancar():
     with pytest.raises(ValueError, match="R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET"):
         Settings(STORAGE_BACKEND="r2", R2_ACCOUNT_ID="", R2_ACCESS_KEY_ID="", R2_SECRET_ACCESS_KEY="", R2_BUCKET="")
+
+
+def test_r2_explica_que_revisar_segun_el_error(r2):
+    with Stubber(r2._s3) as stub:
+        stub.add_client_error("head_bucket", service_error_code="403", http_status_code=403)
+        stub.add_client_error("head_bucket", service_error_code="NoSuchBucket", http_status_code=404)
+        with pytest.raises(StorageError, match="R2_ACCESS_KEY_ID y R2_SECRET_ACCESS_KEY"):
+            r2.ping()
+        with pytest.raises(StorageError, match="revisá R2_BUCKET"):
+            r2.ping()
+
+
+def test_valores_de_r2_pegados_con_espacios_o_comillas_se_limpian():
+    s = Settings(STORAGE_BACKEND="r2", R2_ACCOUNT_ID=" cuenta\n", R2_ACCESS_KEY_ID='"AKID"',
+                 R2_SECRET_ACCESS_KEY="  secreto \n", R2_BUCKET="'archivos' ")
+    assert (s.R2_ACCOUNT_ID, s.R2_ACCESS_KEY_ID, s.R2_SECRET_ACCESS_KEY.get_secret_value(), s.R2_BUCKET) == \
+        ("cuenta", "AKID", "secreto", "archivos")

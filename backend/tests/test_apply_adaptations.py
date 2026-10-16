@@ -87,12 +87,11 @@ def test_apply_only_accepted_proposals(client):
     # Creamos 2 propuestas para fragmentos distintos
     frag1 = "Leé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
     p1 = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag1)
+    # Aceptamos p1 (una sola pendiente por barrera) y dejamos p2 en pendiente
+    _decide(client, p1["proposal_id"], "aceptada")
 
     frag2 = "Las plantas utilizan agua y dióxido de carbono para producir glucosa y liberar oxígeno a la atmósfera."
     p2 = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag2)
-
-    # Aceptamos p1, dejamos p2 en pendiente
-    _decide(client, p1["proposal_id"], "aceptada")
 
     res = _get_final(client, aid)
     assert res.status_code == 200
@@ -162,16 +161,15 @@ def test_mixed_decisions_combination(client):
     frag3 = "Leé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
     frag4 = "Este proceso es fundamental para el sostenimiento de todos los ecosistemas terrestres y acuáticos."
 
+    # 1 aceptada, 1 editada, 1 descartada, 1 pendiente (cada una se decide antes de pedir la siguiente)
     p1 = _create_proposal(client, aid, "bar-1", "mejorar_estructura", fragment=frag1)
-    p2 = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag2)
-    p3 = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag3)
-    p4 = _create_proposal(client, aid, "bar-1", "reorganizar", fragment=frag4)
-
-    # 1 aceptada, 1 editada, 1 descartada, 1 pendiente
     _decide(client, p1["proposal_id"], "aceptada")
+    p2 = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag2)
     teacher_p2 = "Las plantas usan agua y dióxido de carbono. Fabrican glucosa y liberan oxígeno."
     _decide(client, p2["proposal_id"], "editada", edited_text=teacher_p2)
+    p3 = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag3)
     _decide(client, p3["proposal_id"], "descartada")
+    p4 = _create_proposal(client, aid, "bar-1", "reorganizar", fragment=frag4)
     # p4 se deja pendiente
 
     res = _get_final(client, aid)
@@ -201,11 +199,10 @@ def test_overlapping_proposals_teacher_edit_takes_precedence(client):
     frag_full = "Leé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
     frag_sub = "subrayá las ideas principales y respondé las preguntas del final."
 
-    p_full = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag_full)
-    p_sub = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag_sub)
-
     # p_full fue aceptada (por IA), pero p_sub fue editada explícitamente por el docente
+    p_full = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag_full)
     _decide(client, p_full["proposal_id"], "aceptada")
+    p_sub = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag_sub)
     _decide(client, p_sub["proposal_id"], "editada", edited_text="marcar ideas centrales y contestar preguntas.")
 
     res = _get_final(client, aid)
@@ -227,8 +224,8 @@ def test_same_fragment_in_two_proposals_is_an_overlap_not_missing(client):
 
     frag = "Leé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
     p_accepted = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag)
-    p_edited = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag)
     _decide(client, p_accepted["proposal_id"], "aceptada")
+    p_edited = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag)
     _decide(client, p_edited["proposal_id"], "editada", edited_text="Leé la página 8 y respondé las preguntas.")
 
     data = _get_final(client, aid).json()
@@ -248,10 +245,9 @@ def test_overlapping_proposals_same_status_recent_decision_takes_precedence(clie
     frag2 = "subrayá las ideas principales y respondé las preguntas del final."
 
     p1 = _create_proposal(client, aid, "bar-1", "consigna_en_pasos", fragment=frag1)
-    p2 = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag2)
-
-    # Decidimos p1 primero
+    # Decidimos p1 primero (una sola pendiente por barrera)
     _decide(client, p1["proposal_id"], "aceptada")
+    p2 = _create_proposal(client, aid, "bar-1", "lenguaje_claro", fragment=frag2)
 
     # Simulamos que p2 se decidió con timestamp posterior
     rec2 = adaptation_repository.get(p2["proposal_id"])

@@ -91,6 +91,40 @@ class ProposalStateError(ValueError):
     """La operación no corresponde al estado actual de la propuesta (ej. decidir dos veces)."""
 
 
+class PendingProposalError(ProposalStateError):
+    """La barrera ya tiene una propuesta pendiente (o se está generando una): como mucho una por barrera."""
+
+    CODE = "pending_proposal_exists"
+
+    def __init__(self, message: str, proposal_id: str | None = None):
+        super().__init__(message)
+        self.proposal_id = proposal_id
+
+    def to_detail(self) -> dict:
+        return {"code": self.CODE, "message": str(self), "proposal_id": self.proposal_id}
+
+
+# Barreras con una propuesta generándose ahora (la IA tarda segundos): evita que un doble clic
+# o dos pestañas pasen el control a la vez. En memoria alcanza porque hay una sola réplica.
+_generating: set[tuple[str, str]] = set()
+_generating_lock = asyncio.Lock()
+
+
+async def _reserve_barrier(analysis_id: str, barrier_id: str) -> tuple[str, str]:
+    key = (analysis_id, barrier_id)
+    async with _generating_lock:
+        if key in _generating:
+            raise PendingProposalError("Ya se está generando una propuesta para esta barrera. Esperá a que termine.")
+        pending = await asyncio.to_thread(adaptation_repository.find_pending, analysis_id, barrier_id)
+        if pending:
+            raise PendingProposalError(
+                "Esta barrera ya tiene una propuesta pendiente: aceptala, editala o descartala antes de pedir otra.",
+                proposal_id=pending,
+            )
+        _generating.add(key)
+    return key
+
+
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -244,6 +278,24 @@ async def create_proposal( request: AdaptationRequest, *, mock: bool = False, di
     else:
         fragment, warnings = resolve_fragment(barrier, extracted_text, request.adaptation_type)
 
+    # Una propuesta pendiente por barrera: se controla antes de llamar a la IA (no gasta cuota)
+    reserved = await _reserve_barrier(request.analysis_id, barrier.id)
+    try:
+        return await _generate_and_save(request, barrier, analysis, extracted_text, fragment, warnings, mock=mock)
+    finally:
+        _generating.discard(reserved)
+
+
+async def _generate_and_save(
+    request: AdaptationRequest,
+    barrier: BarrierReport,
+    analysis: AccessibilityAnalysisResponse,
+    extracted_text: str,
+    fragment: str,
+    warnings: list[str],
+    *,
+    mock: bool,
+) -> AdaptationProposal:
     if mock:
         output = _mock_output(fragment, request.adaptation_type)
         warnings.append("Propuesta generada en modo simulación (?mock=true). No se consumieron tokens de IA.")
@@ -396,6 +448,11 @@ def undo(proposal_id: str) -> AdaptationProposal:
     proposal = get_proposal(proposal_id)
     if proposal.status == "pendiente":
         raise ProposalStateError("La propuesta está pendiente: no hay ninguna decisión para deshacer.")
+    other = adaptation_repository.find_pending(proposal.analysis_id, proposal.barrier_id, exclude_id=proposal.proposal_id)
+    if other:
+        raise PendingProposalError(
+            "La barrera ya tiene otra propuesta pendiente: decidí esa antes de deshacer esta.", proposal_id=other,
+        )
     return _apply_transition(proposal, action="deshacer", to_status="pendiente", edited_text=None, final_text=None)
 
 

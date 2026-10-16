@@ -165,6 +165,23 @@ def _merge_dimensions(
     return merged
 
 
+def _drop_repeated(barriers: list[dict]) -> list[dict]:
+    """
+    Quita barreras repetidas: misma cita y mismo problema (la IA a veces devuelve la misma dos
+    veces). Queda la primera. Problemas distintos sobre la misma cita se mantienen: los agrupa
+    el frontend.
+    """
+    seen: set[tuple[str, str]] = set()
+    unique = []
+    for barrier in barriers:
+        key = (_normalize(barrier.get("original_text") or ""), _normalize(barrier["issue"]))
+        if key[0] and key in seen:
+            continue
+        seen.add(key)
+        unique.append(barrier)
+    return unique
+
+
 def _assign_barrier_ids(raw_barriers: list[dict]) -> list[BarrierReport]:
     """Asigna identificadores secuenciales ('bar-1', 'bar-2', ...) a cada barrera del reporte."""
     return [
@@ -195,7 +212,7 @@ def _build_response(
         f.barrier for f in rules.findings if not any(_ai_covers(b, f) for b in ai.barriers)
     ]
     # Graves primero; dentro de cada severidad se respeta el orden de impacto de la IA.
-    barriers = sorted(ai.barriers + rule_barriers, key=lambda b: b["severity"] != "barrera_detectada")
+    barriers = sorted(_drop_repeated(ai.barriers + rule_barriers), key=lambda b: b["severity"] != "barrera_detectada")
     breakdown = compute_score(ai.score, rules)
 
     if doc.is_truncated:
@@ -224,12 +241,62 @@ def _build_response(
 
 
 
+# Imperativos de voseo (leé, subrayá, respondé, completá): así se escriben las consignas
+_IMPERATIVE = re.compile(r"\b\w+[áéí]\b", re.IGNORECASE)
+
+
+def _mock_quote(sentence: str) -> str:
+    return sentence if len(sentence) <= 160 else sentence[:160] + "..."
+
+
 def _mock_ai_part(doc: ExtractedDocument) -> _AIPart:
+    """
+    IA simulada (?mock=true). Cita oraciones reales del material como lo haría el modelo:
+    la consigna con más verbos en imperativo y la oración más larga (otra distinta). Así las
+    reglas que marcan esas mismas oraciones se fusionan con estas barreras y no salen repetidas.
+    """
     text = doc.text_for_analysis.strip()
-    sentences = split_sentences(text)
-    first_sentence = sentences[0] if sentences else "Fragmento de ejemplo del documento."
-    if len(first_sentence) > 160:
-        first_sentence = first_sentence[:160] + "..."
+    sentences = [s.strip() for s in split_sentences(text) if len(s.strip()) >= MIN_OVERLAP_CHARS]
+    barriers = []
+
+    chained = max(sentences, key=lambda s: len(_IMPERATIVE.findall(s)), default=None)
+    if chained and len(_IMPERATIVE.findall(chained)) >= 2:
+        barriers.append({
+            "category": "estructura",
+            "severity": "barrera_detectada",
+            "issue": "Consigna con múltiples acciones simultáneas",
+            "original_text": _mock_quote(chained),
+            "explanation": (
+                "Concentrar varias instrucciones dentro de una misma oración sobrecarga la memoria "
+                "de trabajo y dificulta que el estudiante identifique el orden de resolución."
+            ),
+            "recommendation": "Dividí la consigna en una lista numerada donde cada paso indique una única acción.",
+            "suggested_rewrite": (
+                "1. Leé el texto completo.\n"
+                "2. Subrayá las ideas principales de cada párrafo.\n"
+                "3. Completá el cuadro sinóptico.\n"
+                "4. Respondé las preguntas de la guía."
+            ),
+            "fragment_found": True,
+            "source": "ai",
+        })
+
+    longest = max((s for s in sentences if not barriers or s != chained), key=len, default=None)
+    if longest:
+        barriers.append({
+            "category": "comprension",
+            "severity": "para_revisar",
+            "issue": "Oración extensa con vocabulario complejo",
+            "original_text": _mock_quote(longest),
+            "explanation": (
+                "Las formulaciones abstractas o de longitud excesiva pueden dificultar la comprensión "
+                "autónoma de qué se espera como entrega final."
+            ),
+            "recommendation": "Reemplazá las nominalizaciones por verbos directos y oraciones breves en lenguaje claro.",
+            "suggested_rewrite": "Explicá con tus palabras los temas principales que vimos en clase.",
+            "fragment_found": True,
+            "source": "ai",
+        })
 
     return _AIPart(
         score=68,
@@ -254,41 +321,7 @@ def _mock_ai_part(doc: ExtractedDocument) -> _AIPart:
             "Propósito pedagógico identificable en el material.",
             "Temática pertinente para el nivel educativo objetivo.",
         ],
-        barriers=[
-            {
-                "category": "estructura",
-                "severity": "barrera_detectada",
-                "issue": "Consigna con múltiples acciones simultáneas",
-                "original_text": first_sentence,
-                "explanation": (
-                    "Concentrar varias instrucciones dentro de una misma oración sobrecarga la memoria "
-                    "de trabajo y dificulta que el estudiante identifique el orden de resolución."
-                ),
-                "recommendation": "Dividí la consigna en una lista numerada donde cada paso indique una única acción.",
-                "suggested_rewrite": (
-                    "1. Leé el texto completo.\n"
-                    "2. Subrayá las ideas principales de cada párrafo.\n"
-                    "3. Completá el cuadro sinóptico.\n"
-                    "4. Respondé las preguntas de la guía."
-                ),
-                "fragment_found": bool(text),
-                "source": "ai",
-            },
-            {
-                "category": "comprension",
-                "severity": "para_revisar",
-                "issue": "Oración extensa con vocabulario complejo",
-                "original_text": first_sentence,
-                "explanation": (
-                    "Las formulaciones abstractas o de longitud excesiva pueden dificultar la comprensión "
-                    "autónoma de qué se espera como entrega final."
-                ),
-                "recommendation": "Reemplazá las nominalizaciones por verbos directos y oraciones breves en lenguaje claro.",
-                "suggested_rewrite": "Explicá con tus palabras los temas principales que vimos en clase.",
-                "fragment_found": bool(text),
-                "source": "ai",
-            },
-        ],
+        barriers=barriers,
     )
 
 

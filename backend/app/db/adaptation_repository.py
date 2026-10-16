@@ -112,6 +112,18 @@ def list_by_analysis(analysis_id: str) -> list[dict]:
         return [_row_to_dict(r) for r in rows]
 
 
+def find_pending(analysis_id: str, barrier_id: str, *, exclude_id: str | None = None) -> str | None:
+    """Id de la propuesta 'pendiente' vigente de esa barrera (como mucho hay una), o None."""
+    with get_connection() as conn:
+        _ensure_table(conn)
+        row = conn.execute(
+            "SELECT id FROM adaptation_proposals WHERE analysis_id = ? AND barrier_id = ? AND status = 'pendiente' "
+            "AND expires_at > ? AND id != ? ORDER BY created_at LIMIT 1",
+            (analysis_id, barrier_id, _now_utc_iso(), exclude_id or ""),
+        ).fetchone()
+        return row["id"] if row else None
+
+
 def transition(
     proposal_id: str,
     from_status: str,

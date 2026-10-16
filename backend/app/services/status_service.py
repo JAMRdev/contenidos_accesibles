@@ -153,6 +153,9 @@ async def check_storage(_client: httpx.AsyncClient) -> Check:
     start = time.perf_counter()
     try:
         await asyncio.to_thread(storage_service.get_storage().ping)
+    except storage_service.StorageError as e:
+        # El mensaje dice qué revisar (credenciales, bucket o cuenta) y no incluye secretos
+        return Check("down", str(e), facts=facts)
     except Exception as e:  # noqa: BLE001 - cualquier falla del almacenamiento es "caída"
         return Check("down", f"No responde ({e.__class__.__name__})", facts=facts)
     latency = _elapsed_ms(start)

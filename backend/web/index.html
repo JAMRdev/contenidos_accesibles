@@ -172,8 +172,10 @@
         <h2>3. Barreras → propuestas de adaptación</h2>
         <p class="muted">
             Elegí el tipo de adaptación por barrera. El fragmento es opcional, salvo en barreras globales
-            sin texto citado (el backend responde 422 si falta).
+            sin texto citado (el backend responde 422 si falta). Cada barrera admite una sola propuesta
+            pendiente; las que citan el mismo fragmento se muestran juntas.
         </p>
+        <label class="check"><input type="checkbox" id="show-done-barriers"> Mostrar resueltas y descartadas</label>
         <div id="barriers"><p class="muted">Sin barreras para mostrar.</p></div>
     </section>
 
@@ -221,6 +223,35 @@
             <button type="button" id="btn-report">Generar informe</button>
         </div>
         <div id="report"><p class="muted">Todavía no se generó.</p></div>
+    </section>
+
+    <!-- 8. Exportar -->
+    <section>
+        <h2>8. Exportar</h2>
+        <p class="muted">
+            <code>GET /export/content</code> y <code>/export/report</code> con <code>delivery=link</code>: el archivo
+            queda en el almacenamiento (R2 en producción) y se descarga con una URL firmada que vence a los 5 minutos.
+        </p>
+        <div class="row">
+            <label>Material adaptado
+                <select id="export-content-format">
+                    <option value="docx">Word (.docx)</option>
+                    <option value="pdf">PDF</option>
+                    <option value="md">Markdown</option>
+                    <option value="txt">Texto</option>
+                </select>
+            </label>
+            <button type="button" id="btn-export-content">Exportar material</button>
+            <label>Informe
+                <select id="export-report-format">
+                    <option value="pdf">PDF</option>
+                    <option value="md">Markdown</option>
+                    <option value="txt">Texto</option>
+                </select>
+            </label>
+            <button type="button" id="btn-export-report">Exportar informe</button>
+        </div>
+        <div id="exports"><p class="muted">Todavía no se exportó nada.</p></div>
     </section>
 
     <!-- Registro de requests -->

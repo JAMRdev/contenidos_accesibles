@@ -218,9 +218,9 @@ def test_get_and_list_proposals(client):
     created = [
         client.post(
             "/api/v1/adaptations?mock=true",
-            json={"analysis_id": analysis["analysis_id"], "barrier_id": "bar-1", "adaptation_type": t},
+            json={"analysis_id": analysis["analysis_id"], "barrier_id": barrier_id, "adaptation_type": t},
         ).json()
-        for t in ("lenguaje_claro", "consigna_en_pasos")
+        for barrier_id, t in (("bar-1", "lenguaje_claro"), ("bar-2", "consigna_en_pasos"))
     ]
 
     res = client.get(f"/api/v1/adaptations/{created[0]['proposal_id']}")
@@ -363,10 +363,12 @@ def test_ai_path_unchanged_proposal_adds_warning(client):
     with patch(
         "app.services.adaptation_service.llm_service.generate_structured", new_callable=AsyncMock
     ) as mock_gen:
-        res_original = client.post(
+        first = client.post(
             "/api/v1/adaptations?mock=true",
             json={"analysis_id": analysis["analysis_id"], "barrier_id": "bar-1", "adaptation_type": "lenguaje_claro"},
-        ).json()["original_text"]
+        ).json()
+        res_original = first["original_text"]
+        client.post(f"/api/v1/adaptations/{first['proposal_id']}/decision", json={"decision": "descartada"})
         mock_gen.return_value = _structured(
             AdaptationAIOutput(proposed_text=res_original, explanation="x", preserved_objective="y")
         )
@@ -376,3 +378,66 @@ def test_ai_path_unchanged_proposal_adds_warning(client):
         )
     assert res.status_code == 201
     assert any("igual al fragmento original" in w for w in res.json()["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# Una propuesta pendiente por barrera (Issue #94)
+# ---------------------------------------------------------------------------
+
+def _ask(client, analysis_id: str, barrier_id: str = "bar-1", mock: bool = True):
+    return client.post(
+        f"/api/v1/adaptations{'?mock=true' if mock else ''}",
+        json={"analysis_id": analysis_id, "barrier_id": barrier_id, "adaptation_type": "lenguaje_claro"},
+    )
+
+
+def test_segunda_propuesta_pendiente_de_la_misma_barrera_es_409_sin_llamar_a_la_ia(client):
+    aid = _analyze(client)["analysis_id"]
+    first = _ask(client, aid).json()
+    with patch("app.services.adaptation_service.llm_service.generate_structured", new_callable=AsyncMock) as ai:
+        again = _ask(client, aid, mock=False)
+    assert again.status_code == 409
+    assert again.json()["detail"]["code"] == "pending_proposal_exists"
+    assert again.json()["detail"]["proposal_id"] == first["proposal_id"]
+    ai.assert_not_awaited()
+    assert _ask(client, aid, "bar-2").status_code == 201  # otra barrera sí
+    assert len(client.get("/api/v1/adaptations", params={"analysis_id": aid}).json()) == 2
+
+
+def test_despues_de_decidir_se_puede_pedir_otra(client):
+    aid = _analyze(client)["analysis_id"]
+    first = _ask(client, aid).json()
+    client.post(f"/api/v1/adaptations/{first['proposal_id']}/decision", json={"decision": "descartada"})
+    assert _ask(client, aid).status_code == 201
+
+
+def test_deshacer_con_otra_pendiente_de_la_misma_barrera_es_409(client):
+    aid = _analyze(client)["analysis_id"]
+    first = _ask(client, aid).json()
+    client.post(f"/api/v1/adaptations/{first['proposal_id']}/decision", json={"decision": "aceptada"})
+    second = _ask(client, aid).json()
+    res = client.post(f"/api/v1/adaptations/{first['proposal_id']}/undo")
+    assert res.status_code == 409 and res.json()["detail"]["proposal_id"] == second["proposal_id"]
+    client.post(f"/api/v1/adaptations/{second['proposal_id']}/decision", json={"decision": "descartada"})
+    assert client.post(f"/api/v1/adaptations/{first['proposal_id']}/undo").status_code == 200
+
+
+def test_mientras_se_genera_otra_propuesta_de_la_barrera_es_409(client):
+    from app.services import adaptation_service
+
+    aid = _analyze(client)["analysis_id"]
+    adaptation_service._generating.add((aid, "bar-1"))
+    try:
+        res = _ask(client, aid)
+    finally:
+        adaptation_service._generating.discard((aid, "bar-1"))
+    assert res.status_code == 409 and "se está generando" in res.json()["detail"]["message"]
+    assert _ask(client, aid).status_code == 201  # al terminar se libera
+
+
+def test_si_la_ia_falla_la_barrera_queda_libre(client):
+    aid = _analyze(client)["analysis_id"]
+    with patch("app.services.adaptation_service.llm_service.generate_structured",
+               new_callable=AsyncMock, side_effect=RuntimeError("caída")):
+        assert _ask(client, aid, mock=False).status_code == 500
+    assert _ask(client, aid).status_code == 201

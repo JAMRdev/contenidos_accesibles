@@ -151,10 +151,10 @@ def test_report_mixed_decisions(client):
     frag1 = "Leé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
     frag2 = "Las plantas realizan la fotosíntesis utilizando luz solar, agua y dióxido de carbono para producir glucosa."
 
+    # Una propuesta pendiente por barrera: se decide cada una antes de pedir la siguiente
     p1 = _propose(client, aid, "bar-1", frag1)
-    p2 = _propose(client, aid, "bar-1", frag2)
-
     _decide(client, p1["proposal_id"], "aceptada")
+    p2 = _propose(client, aid, "bar-1", frag2)
     _decide(client, p2["proposal_id"], "descartada")
 
     data = _report(client, aid).json()

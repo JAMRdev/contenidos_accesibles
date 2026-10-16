@@ -478,7 +478,7 @@ async function showAnalysis(data) {
     fill($("report"), el("p", { class: "muted" }, "Todavía no se generó."));
     if (data.analysis_id) $("analysis-id-input").value = data.analysis_id;
     renderDiagnosis(data);
-    renderBarriers(data);
+    renderBarriers();
     $("diagnosis").scrollIntoView({ behavior: "smooth", block: "start" });
     if (data.analysis_id) {
         await refreshProposals();
@@ -572,17 +572,112 @@ function suggestType(barrier) {
     return "lenguaje_claro";
 }
 
-function renderBarriers(d) {
-    const box = $("barriers");
-    const barriers = d.barriers || [];
-    if (!barriers.length) {
-        box.replaceChildren(el("p", { class: "muted" }, "El diagnóstico no detectó barreras."));
-        return;
-    }
-    box.replaceChildren(...barriers.map((b) => barrierCard(b)));
+// Estado de una barrera según sus propuestas (Issue #94). Como mucho hay una pendiente por barrera.
+function barrierState(barrierId) {
+    const own = state.proposals.filter((p) => p.barrier_id === barrierId);
+    const pending = own.find((p) => p.status === "pendiente");
+    if (pending) return { key: "pendiente", label: "propuesta pendiente", proposal: pending };
+    const applied = own.find((p) => p.status === "editada") || own.find((p) => p.status === "aceptada");
+    if (applied) return { key: "aceptada", label: `resuelta (${applied.status})`, proposal: applied };
+    if (own.some((p) => p.status === "descartada")) return { key: "descartada", label: "descartada" };
+    return { key: "none", label: "sin propuesta" };
 }
 
-function barrierCard(b) {
+const isDone = (s) => s.key === "aceptada" || s.key === "descartada";
+
+// Las barreras que citan el mismo fragmento se muestran juntas (son problemas distintos del mismo texto).
+function quoteKey(b) {
+    if (!b.original_text) return `global:${b.id}`;
+    return b.original_text.normalize("NFKC").toLowerCase().replace(/["'“”‘’«»]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function renderBarriers() {
+    const box = $("barriers");
+    const barriers = (state.analysis && state.analysis.barriers) || [];
+    if (!barriers.length) {
+        box.replaceChildren(el("p", { class: "muted" }, state.analysis ? "El diagnóstico no detectó barreras." : "Sin barreras para mostrar."));
+        return;
+    }
+    const groups = new Map();
+    for (const b of barriers) {
+        const key = quoteKey(b);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(b);
+    }
+    const showDone = $("show-done-barriers").checked;
+    const counts = {};
+    let hidden = 0;
+    const cards = [];
+    for (const group of groups.values()) {
+        const states = group.map((b) => barrierState(b.id));
+        states.forEach((s) => { counts[s.label.split(" (")[0]] = (counts[s.label.split(" (")[0]] || 0) + 1; });
+        if (states.every(isDone) && !showDone) {
+            hidden += group.length;
+            continue;
+        }
+        cards.push(barrierGroupCard(group, states));
+    }
+    fill(box,
+        el("p", {}, Object.entries(counts).map(([label, n]) => badge(`${label}: ${n}`, label === "sin propuesta" ? "id" : {
+            "propuesta pendiente": "pendiente", resuelta: "aceptada", descartada: "descartada",
+        }[label]))),
+        cards,
+        hidden ? el("p", { class: "muted" }, `${hidden} barrera(s) resuelta(s) o descartada(s) ocultas. Marcá "Mostrar resueltas y descartadas" para verlas.`) : null,
+        !cards.length && !hidden ? el("p", { class: "muted" }, "Sin barreras para mostrar.") : null,
+    );
+}
+
+function barrierGroupCard(group, states) {
+    const first = group[0];
+    return el("div", { class: "card" },
+        group.length > 1 ? el("p", { class: "muted" }, `${group.length} problemas sobre el mismo fragmento:`) : null,
+        first.original_text ? el("pre", {}, first.original_text) : null,
+        group.map((b, i) => barrierItem(b, states[i], group.length > 1)),
+    );
+}
+
+function scrollToProposal(proposalId) {
+    const target = document.getElementById(`proposal-${proposalId}`);
+    if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.classList.add("flash");
+        setTimeout(() => target.classList.remove("flash"), 1500);
+    }
+}
+
+function barrierItem(b, st, grouped) {
+    const item = el("div", { class: grouped ? "barrier-item" : "" });
+    // append escribiría null como texto: se filtra igual que en fill()
+    const add = (...children) => item.append(...children.flat().filter((c) => c !== null && c !== undefined && c !== false));
+    add(
+        el("div", {},
+            badge(b.id, "id"), badge(b.severity), badge(b.category, "cat"), badge(b.source === "ai" ? "IA" : "reglas", "src"),
+            badge(st.label, st.key === "none" ? "id" : st.key),
+            b.fragment_found === false ? badge("fragmento no encontrado en el material", "error") : null,
+            el("strong", {}, b.issue),
+        ),
+        b.original_text ? null : el("p", { class: "muted" }, "(barrera global, sin fragmento citado)"),
+        kv([
+            ["Por qué", b.explanation],
+            ["Recomendación", b.recommendation],
+            ["Reescritura sugerida", b.suggested_rewrite || undefined],
+        ]),
+    );
+    if (st.proposal) {
+        add(el("div", { class: "row" },
+            el("span", { class: "muted grow" }, st.key === "pendiente"
+                ? "Tiene una propuesta pendiente: decidila en el paso 4 antes de pedir otra."
+                : "Ya tiene una propuesta aplicada. Para cambiarla, deshacé la decisión en el paso 4."),
+            el("button", { type: "button", class: "secondary", onclick: () => scrollToProposal(st.proposal.proposal_id) }, "Ver propuesta"),
+        ));
+        return item;
+    }
+    if (st.key === "descartada") add(el("p", { class: "muted" }, "La propuesta anterior se descartó: podés pedir otra."));
+    add(proposalForm(b, item));
+    return item;
+}
+
+function proposalForm(b, item) {
     const select = el("select", {},
         Object.entries(ADAPTATION_TYPES).map(([value, label]) => el("option", { value }, label)));
     select.value = suggestType(b);
@@ -592,43 +687,37 @@ function barrierCard(b) {
             ? "Opcional: dejalo vacío para adaptar el fragmento citado por la barrera."
             : "Obligatorio: esta barrera no cita texto. Pegá el fragmento a adaptar (mín. 10 caracteres).",
     });
-
-    const card = el("div", { class: "card" });
     const submit = el("button", {
         type: "button",
-        onclick: () => run(card, async (dismissed) => {
+        onclick: () => run(item, async (dismissed) => {
             const payload = { analysis_id: state.analysis.analysis_id, barrier_id: b.id, adaptation_type: select.value };
             const custom = fragment.value.trim();
             if (custom) payload.fragment = custom;
-            await api("POST", "/adaptations", {
-                query: { mock: isMock(), dismissed },
-                body: { kind: "json", value: payload },
-                busyText: isMock() ? "Generando propuesta (mock)…" : "Generando propuesta con IA…",
-            });
+            let created;
+            try {
+                created = await api("POST", "/adaptations", {
+                    query: { mock: isMock(), dismissed },
+                    body: { kind: "json", value: payload },
+                    busyText: isMock() ? "Generando propuesta (mock)…" : "Generando propuesta con IA…",
+                });
+            } catch (err) {
+                // 409: la barrera ya tiene una pendiente (por ejemplo, desde otra pestaña): se muestra esa
+                if (err instanceof ApiError && err.status === 409 && err.data && err.data.detail
+                    && err.data.detail.code === "pending_proposal_exists") {
+                    await refreshProposals();
+                    if (err.data.detail.proposal_id) scrollToProposal(err.data.detail.proposal_id);
+                }
+                throw err;
+            }
             await refreshProposals();
-            $("proposals").scrollIntoView({ behavior: "smooth", block: "start" });
+            scrollToProposal(created.proposal_id);
         }),
     }, "Proponer adaptación");
-
-    card.append(
-        el("div", {},
-            badge(b.id, "id"), badge(b.severity), badge(b.category, "cat"), badge(b.source === "ai" ? "IA" : "reglas", "src"),
-            b.fragment_found === false ? badge("fragmento no encontrado en el material", "error") : null,
-            el("strong", {}, b.issue),
-        ),
-        b.original_text ? el("pre", {}, b.original_text) : el("p", { class: "muted" }, "(barrera global, sin fragmento citado)"),
-        kv([
-            ["Por qué", b.explanation],
-            ["Recomendación", b.recommendation],
-            ["Reescritura sugerida", b.suggested_rewrite || undefined],
-        ]),
-        el("div", { class: "row" },
-            el("label", { class: "grow" }, "Tipo de adaptación", select),
-        ),
+    return el("div", {},
+        el("div", { class: "row" }, el("label", { class: "grow" }, "Tipo de adaptación", select)),
         el("label", {}, "Fragmento a adaptar", fragment),
         el("div", { class: "row" }, submit),
     );
-    return card;
 }
 
 // ---------------------------------------------------------------------------
@@ -654,6 +743,7 @@ function barrierLabel(barrierId) {
 
 function renderProposals() {
     const box = $("proposals");
+    renderBarriers();
     if (!state.proposals.length) {
         box.replaceChildren(el("p", { class: "muted" }, "Sin propuestas todavía. Pedí una desde una barrera (paso 3)."));
         return;
@@ -712,7 +802,7 @@ function proposalActions(p, card) {
 }
 
 function proposalCard(p) {
-    const card = el("div", { class: "card" });
+    const card = el("div", { class: "card", id: `proposal-${p.proposal_id}` });
     card.append(
         el("div", {},
             badge(p.status), badge(ADAPTATION_TYPES[p.adaptation_type] || p.adaptation_type, "type"),
@@ -986,6 +1076,33 @@ function renderReport(r) {
 }
 
 // ---------------------------------------------------------------------------
+// 8. Exportar (Issues #40 y #62): el archivo queda en el almacenamiento y se baja con URL firmada
+// ---------------------------------------------------------------------------
+
+async function exportFile(kind) {
+    const analysisId = requireAnalysisId();
+    const format = $(`export-${kind}-format`).value;
+    const data = await api("GET", `/export/${kind}`, {
+        query: { analysis_id: analysisId, format, delivery: "link" },
+        busyText: "Generando el archivo…",
+    });
+    const expires = new Date(Date.now() + data.download.expires_in_seconds * 1000);
+    const box = $("exports");
+    if (!box.querySelector(".card")) box.replaceChildren();
+    box.prepend(el("div", { class: "card" },
+        el("div", {}, badge(kind === "content" ? "material" : "informe", "type"), badge(format, "id"), el("strong", {}, data.file.filename)),
+        kv([
+            ["Tamaño", fmtBytes(data.file.size_bytes)],
+            ["file_id", data.file.file_id],
+            ["El enlace vence", expires.toLocaleTimeString()],
+            ["El archivo vence", fmtDate(data.file.expires_at)],
+        ]),
+        el("div", { class: "row" }, el("a", { href: data.download.url, target: "_blank", rel: "noopener" }, "Descargar")),
+        rawJson(data),
+    ));
+}
+
+// ---------------------------------------------------------------------------
 // Inicio
 // ---------------------------------------------------------------------------
 
@@ -1019,6 +1136,9 @@ function init() {
     $("btn-refresh-decisions").addEventListener("click", () => run($("decisions").parentElement, refreshDecisions));
     $("btn-final-version").addEventListener("click", () => run($("final-version").parentElement, generateFinalVersion));
     $("btn-report").addEventListener("click", () => run($("report").parentElement, generateReport));
+    $("show-done-barriers").addEventListener("change", renderBarriers);
+    $("btn-export-content").addEventListener("click", () => run($("exports").parentElement, () => exportFile("content")));
+    $("btn-export-report").addEventListener("click", () => run($("exports").parentElement, () => exportFile("report")));
     $("btn-clear-log").addEventListener("click", () =>
         $("log-entries").replaceChildren(el("p", { class: "muted" }, "Todavía no se hizo ninguna llamada.")));
 
