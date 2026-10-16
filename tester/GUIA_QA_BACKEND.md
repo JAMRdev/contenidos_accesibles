@@ -552,6 +552,22 @@ curl -s "$API/files/<file_id>/download-url"
 | `download-url` antes de confirmar | 404 |
 | `file_id` inventado | 404 |
 
+**Diagnóstico y extracción por `file_id` (#63).** Después de `complete`:
+
+```bash
+curl -s -X POST "$API/analysis/files/<file_id>?mock=true"
+curl -s -X POST "$API/documents/files/<file_id>"
+```
+
+| Caso | Esperado |
+| :--- | :--- |
+| Archivo confirmado (`.pdf`, `.docx` o `.pptx`) | 200, mismo diagnóstico que `/analysis/file` con ese archivo |
+| Diagnosticar dos veces el mismo `file_id` | 200 las dos, con `analysis_id` distintos |
+| Archivo sin `complete` | 409 |
+| `file_id` inventado o vencido | 404 |
+| Sin mock, por encima del rate limit | 429 (mismo límite que `/analysis/file`) |
+| `/analysis/pdf`, `/analysis/file`, `/documents/upload*` en Swagger | Aparecen tachados (deprecados), pero siguen funcionando |
+
 ---
 
 ## 5. Flujos de punta a punta

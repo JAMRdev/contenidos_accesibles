@@ -51,6 +51,7 @@ class Storage(Protocol):
     def presign_get(self, key: str, filename: str, content_type: str, expires_s: int) -> str: ...
     def head(self, key: str) -> StoredObject | None: ...
     def read_prefix(self, key: str, length: int) -> bytes: ...
+    def read(self, key: str, max_bytes: int) -> bytes: ...
     def put(self, key: str, data: bytes, content_type: str) -> None: ...
     def delete(self, key: str) -> None: ...
     def ping(self) -> None: ...
@@ -122,6 +123,21 @@ class R2Storage:
 
     def read_prefix(self, key: str, length: int) -> bytes:
         return self._call("get_object", Key=key, Range=f"bytes=0-{length - 1}")["Body"].read()
+
+    def read(self, key: str, max_bytes: int) -> bytes:
+        """Objeto completo en memoria; lee hasta max_bytes + 1 para que quien llama detecte el exceso."""
+        from botocore.exceptions import ClientError
+
+        try:
+            body = self._s3.get_object(Bucket=self.bucket, Key=key)["Body"]
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+                raise FileNotFoundError(key) from e
+            raise StorageError(_explain(e)) from e
+        try:
+            return body.read(max_bytes + 1)
+        finally:
+            body.close()
 
     def put(self, key: str, data: bytes, content_type: str) -> None:
         self._call("put_object", Key=key, Body=data, ContentType=content_type)
@@ -215,6 +231,10 @@ class LocalStorage:
     def read_prefix(self, key: str, length: int) -> bytes:
         with self.path_for(key).open("rb") as f:
             return f.read(length)
+
+    def read(self, key: str, max_bytes: int) -> bytes:
+        with self.path_for(key).open("rb") as f:
+            return f.read(max_bytes + 1)
 
     def put(self, key: str, data: bytes, content_type: str) -> None:
         path = self.path_for(key)

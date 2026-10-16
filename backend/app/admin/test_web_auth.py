@@ -25,8 +25,13 @@ PREFIX = "/test-web/auth"
 
 router = APIRouter(prefix=PREFIX, include_in_schema=False)
 
-# Rutas que la web de pruebas puede llamar sin token (antes de iniciar sesión)
-_PUBLIC_PATHS = (f"{settings.API_V1_STR}{PREFIX}/", f"{settings.API_V1_STR}/health")
+# Rutas que la web de pruebas puede llamar sin token: login, health y las URLs firmadas del
+# almacenamiento local (Issue #62), que ya llevan su propia firma y no pueden mandar el token
+_PUBLIC_PATHS = (
+    f"{settings.API_V1_STR}{PREFIX}/",
+    f"{settings.API_V1_STR}/health",
+    f"{settings.API_V1_STR}/files/local/",
+)
 
 
 def principal_from_request(request: Request) -> session.Principal | None:

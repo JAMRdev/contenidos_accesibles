@@ -161,11 +161,13 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET` | `/api/v1/health` | Chequeo de estado y versión del backend | ✅ Operativo |
 | `POST` | `/api/v1/ai/test-gemini` | Validación de conectividad con IA (con rotación automática de keys) | ✅ Operativo |
 | `POST` | `/api/v1/documents/process-text` | Procesamiento y extracción de métricas de texto plano directo | ✅ Operativo |
-| `POST` | `/api/v1/documents/upload-pdf` | Carga y extracción en memoria de archivos PDF (texto, páginas, imágenes y detección de escaneo) | ✅ Operativo |
-| `POST` | `/api/v1/documents/upload` | Igual que `upload-pdf`, aceptando también Word (`.docx`) y PowerPoint (`.pptx`) | ✅ Operativo |
+| `POST` | `/api/v1/documents/upload-pdf` | Carga y extracción en memoria de archivos PDF (texto, páginas, imágenes y detección de escaneo) | ⚠️ Deprecado (#63) |
+| `POST` | `/api/v1/documents/upload` | Igual que `upload-pdf`, aceptando también Word (`.docx`) y PowerPoint (`.pptx`) | ⚠️ Deprecado (#63) |
+| `POST` | `/api/v1/documents/files/{file_id}` | Extracción de un archivo ya subido al almacenamiento (#63): lo lee el backend, en memoria | ✅ Operativo |
 | `POST` | `/api/v1/analysis/sample` | Escáner de accesibilidad IA + reglas sobre texto pegado (`application/json` o `text/plain`) con semáforo, puntaje combinado y barreras. `?mock=true` simula la IA | ✅ Operativo |
-| `POST` | `/api/v1/analysis/pdf` | Escáner de accesibilidad IA + reglas sobre un PDF subido (máx. 10 MB). `?mock=true` simula la IA | ✅ Operativo |
-| `POST` | `/api/v1/analysis/file` | Igual que `/analysis/pdf`, aceptando `.pdf`, `.docx` y `.pptx` (máx. 10 MB). `?mock=true` simula la IA | ✅ Operativo |
+| `POST` | `/api/v1/analysis/pdf` | Escáner de accesibilidad IA + reglas sobre un PDF subido (máx. 10 MB). `?mock=true` simula la IA | ⚠️ Deprecado (#63) |
+| `POST` | `/api/v1/analysis/file` | Igual que `/analysis/pdf`, aceptando `.pdf`, `.docx` y `.pptx` (máx. 10 MB). `?mock=true` simula la IA | ⚠️ Deprecado (#63) |
+| `POST` | `/api/v1/analysis/files/{file_id}` | Igual que `/analysis/file`, para un archivo ya subido al almacenamiento (#63): el archivo no viaja en el pedido. `?mock=true` simula la IA | ✅ Operativo |
 | `POST` | `/api/v1/adaptations` | Propuesta de adaptación con IA para una barrera (`lenguaje_claro`, `consigna_en_pasos`, `reorganizar`, `mejorar_estructura`): original + propuesta + explicación, en estado `pendiente`. Como mucho una pendiente por barrera: otra responde `409` (`pending_proposal_exists`) sin llamar a la IA. `?mock=true` simula la IA | ✅ Operativo |
 | `GET` | `/api/v1/adaptations?analysis_id=` | Propuestas de adaptación generadas para un diagnóstico | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/{proposal_id}` | Recuperar una propuesta de adaptación por ID | ✅ Operativo |
@@ -407,6 +409,8 @@ Regla de diseño (#62): **la API no transporta archivos** y **los archivos no se
 2. El navegador hace `PUT upload.url` con el archivo y **esos headers** (el `Content-Type` va firmado: si cambia, se rechaza).
 3. `POST /api/v1/files/{file_id}/complete`. El backend verifica con `HEAD` que el objeto llegó con el tamaño y el tipo declarados, y que la firma binaria corresponde a la extensión (`%PDF-` o ZIP de Office). Si no coincide, lo borra y responde 422.
 
+Para diagnosticarlo o extraerlo: `POST /api/v1/analysis/files/{file_id}` y `POST /api/v1/documents/files/{file_id}` (#63). El backend lee el objeto del lado del servidor, en memoria, con el límite de 10 MB y la validación de firma; el archivo no viaja en el pedido ni vuelve al cliente. Los endpoints multipart (`/analysis/pdf`, `/analysis/file`, `/documents/upload-pdf`, `/documents/upload`) siguen funcionando, marcados como deprecados, hasta que el frontend migre.
+
 Para descargar: `GET /api/v1/files/{file_id}/download-url`. Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
 
 - **Claves**: `users/<usuario>/uploads/<aleatorio>.<ext>` y `users/<usuario>/exports/...`. No son adivinables y tienen prefijo por usuario.
@@ -433,8 +437,8 @@ Después, en el dashboard: **R2 → Manage API tokens → Create API token** con
 
 `web/` es una página estática (HTML + JS, sin build ni dependencias) para recorrer el flujo completo de la API con texto o un archivo PDF, Word o PowerPoint:
 
-1. Extracción opcional (`/documents/process-text`, `/documents/upload`).
-2. Diagnóstico (`/analysis/sample`, `/analysis/file`) o recuperación por `analysis_id` (`GET /analysis/{id}`).
+1. Material: texto, o un archivo que se sube **directo al almacenamiento** (`POST /files/upload-url` → `PUT` con progreso → `/files/{id}/complete`), una sola vez. Extracción opcional (`/documents/process-text`, `/documents/files/{file_id}`).
+2. Diagnóstico (`/analysis/sample`, `/analysis/files/{file_id}`) o recuperación por `analysis_id` (`GET /analysis/{id}`).
 3. Propuesta de adaptación por barrera (`POST /adaptations`), con tipo y fragmento opcional. Las barreras que citan el mismo fragmento se muestran juntas, y cada una indica su estado (sin propuesta, propuesta pendiente, resuelta o descartada) y se actualiza con cada decisión. Las resueltas y descartadas se ocultan, con opción de verlas. Una barrera con propuesta pendiente no ofrece pedir otra: lleva a la existente.
 4. Revisión docente: aceptar, editar, descartar y deshacer (`/adaptations/{id}/decision`, `/undo`).
 5. Registro de decisiones (`GET /adaptations/decisions`).

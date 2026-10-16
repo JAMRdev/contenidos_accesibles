@@ -1,6 +1,7 @@
 import asyncio
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from app.api.v1.uploads import read_supported_upload
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from app.api.v1.uploads import read_stored_file, read_supported_upload
+from app.core.owner import current_owner
 from app.schemas.document import ExtractedDocument, TextInputRequest
 from app.services.document_service import document_service
 
@@ -44,7 +45,8 @@ _PDF_MAGIC_HEADER = b"%PDF-"
     "/upload-pdf",
     response_model=ExtractedDocument,
     summary="Cargar y extraer contenido de un archivo PDF",
-    response_description="Contenido textual, métricas y detección de imágenes del PDF"
+    response_description="Contenido textual, métricas y detección de imágenes del PDF",
+    deprecated=True,  # Issue #63: usar la subida directa (/files) y el endpoint por file_id
 )
 async def upload_pdf_document(
     file: UploadFile = File(
@@ -120,6 +122,7 @@ async def upload_pdf_document(
     response_model=ExtractedDocument,
     summary="Cargar y extraer contenido de un PDF, Word o PowerPoint",
     response_description="Contenido textual, estructura, métricas e imágenes del documento",
+    deprecated=True,  # Issue #63: usar la subida directa (/files) y el endpoint por file_id
 )
 async def upload_document(
     file: UploadFile = File(
@@ -140,6 +143,9 @@ async def upload_document(
     - **PowerPoint:** `page_count` es la cantidad de diapositivas visibles; las ocultas y las notas del
       orador no se analizan.
     - **Procesamiento en memoria** y en un hilo separado, con límite de 10 MB.
+
+    > **Deprecado (Issue #63):** el archivo viaja en el pedido. Usar la subida directa
+    > (`POST /files/upload-url`) y `POST /documents/files/{file_id}`.
     """
     content, filename = await read_supported_upload(file)
     try:
@@ -153,3 +159,33 @@ async def upload_document(
         )
     finally:
         await file.close()
+
+
+@router.post(
+    "/files/{file_id}",
+    response_model=ExtractedDocument,
+    summary="Extraer el contenido de un archivo subido al almacenamiento, por su file_id",
+    response_description="Contenido textual, estructura, métricas e imágenes del documento",
+    responses={
+        404: {"description": "El archivo no existe, venció o es de otro usuario."},
+        409: {"description": "El archivo todavía no terminó de subirse (falta /files/{file_id}/complete)."},
+    },
+)
+async def extract_stored_file(file_id: str, owner: str = Depends(current_owner)):
+    """
+    ## Extracción por `file_id` (Issue #63)
+
+    Igual que `/documents/upload`, pero el archivo no viaja en el pedido: se sube antes directo al
+    almacenamiento (`POST /files/upload-url` → `PUT` → `POST /files/{file_id}/complete`) y el backend
+    lo lee del lado del servidor, en memoria, con las mismas validaciones (10 MB y firma binaria).
+    """
+    content, filename = await read_stored_file(file_id, owner)
+    try:
+        return await asyncio.to_thread(document_service.process_file, content, filename)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error interno al procesar el documento: {str(e)}",
+        )
