@@ -10,6 +10,7 @@ from app.admin.router import LEGACY_PREFIX as ADMIN_LEGACY_PREFIX
 from app.admin.router import PREFIX as ADMIN_PREFIX
 from app.admin.router import legacy_router as admin_legacy_router
 from app.admin.router import router as admin_router
+from app.api import share_links
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.docs import setup_protected_docs
@@ -109,6 +110,8 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 # Login de la web de pruebas (fuera del esquema OpenAPI: no es parte del contrato de la API)
 app.include_router(test_web_auth.router, prefix=settings.API_V1_STR)
+# Enlaces para compartir archivos (/s/{token}, Issue #65): en la raíz para que sean cortos
+app.include_router(share_links.router)
 
 # Panel de administración (HTML interno: login con Clerk o con el usuario del .env)
 app.include_router(admin_router, prefix=ADMIN_PREFIX)

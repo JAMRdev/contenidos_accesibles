@@ -150,6 +150,23 @@ CREATE INDEX IF NOT EXISTS idx_files_user_created
     ON files(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_files_expires_at
     ON files(expires_at);
+
+-- Enlaces para compartir archivos (Issue #65). Se guarda el hash SHA-256 del token, nunca el
+-- token: quien lea la base no puede usar los enlaces. /s/{token} redirige a una URL firmada.
+CREATE TABLE IF NOT EXISTS file_shares (
+    id                      TEXT PRIMARY KEY,
+    file_id                 TEXT NOT NULL,
+    created_by              TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    expires_at              TEXT NOT NULL,
+    revoked_at              TEXT,
+    access_count            INTEGER NOT NULL DEFAULT 0,
+    last_access_at          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_file_shares_file
+    ON file_shares(file_id);
+CREATE INDEX IF NOT EXISTS idx_file_shares_expires_at
+    ON file_shares(expires_at);
 """
 
 
@@ -157,7 +174,7 @@ _d1_client = None
 _d1_lock = threading.Lock()
 
 # Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
-REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files"}
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares"}
 
 
 def _shared_d1_client():

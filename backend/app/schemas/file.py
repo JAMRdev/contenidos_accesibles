@@ -39,3 +39,22 @@ class FileUploadResponse(BaseModel):
 class FileDownloadResponse(BaseModel):
     file: FileInfo
     download: PresignedRequest
+
+
+class ShareCreateRequest(BaseModel):
+    expires_in_hours: int | None = Field(
+        default=None, ge=1,
+        description="Vigencia del enlace en horas. Por defecto, y como máximo, hasta que vence el archivo.",
+    )
+
+
+class ShareInfo(BaseModel):
+    share_id: str = Field(description="Id del enlace (para revocarlo). No sirve para abrirlo.")
+    created_at: str
+    expires_at: str
+    access_count: int = Field(description="Veces que se abrió el enlace.")
+    last_access_at: str | None
+
+
+class ShareCreated(ShareInfo):
+    url: str = Field(description="Enlace para copiar y compartir. Se muestra solo ahora: no se puede volver a consultar.")

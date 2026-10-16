@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     FILE_UPLOAD_URL_TTL_S: int = Field(default=300, ge=30, le=3600)
     FILE_DOWNLOAD_URL_TTL_S: int = Field(default=300, ge=30, le=3600)
     FILE_TTL_HOURS: int = Field(default=24, ge=1)
+    # Enlaces para compartir (Issue #65): /s/{token} redirige a una URL firmada de pocos minutos.
+    # Rate limit en memoria por IP y global (0 desactiva ese límite).
+    SHARE_RATE_LIMIT_PER_IP_MINUTE: int = Field(default=30, ge=0)
+    SHARE_RATE_LIMIT_GLOBAL_MINUTE: int = Field(default=300, ge=0)
 
     # Tiempo de retención de diagnósticos antes de expirar (TTL en horas, Semana 4)
     ANALYSIS_TTL_HOURS: int = 24

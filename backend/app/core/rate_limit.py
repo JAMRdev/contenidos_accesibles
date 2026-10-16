@@ -108,3 +108,18 @@ async def limit_ai_usage(request: Request) -> None:
 
     for key in (ip, _GLOBAL_KEY):
         _hits.setdefault(key, deque()).append(now)
+
+
+async def limit_share_access(request: Request) -> None:
+    """Dependencia de /s/{token} (Issue #65): frena a quien prueba tokens o descarga en loop."""
+    now = _now()
+    ip = f"share:{request.client.host if request.client else 'desconocida'}"
+    for key, per_minute in ((ip, settings.SHARE_RATE_LIMIT_PER_IP_MINUTE), ("share:*", settings.SHARE_RATE_LIMIT_GLOBAL_MINUTE)):
+        wait = _retry_after(key, per_minute, 0, now)
+        if wait is not None:
+            raise _reject(f"Demasiados accesos a enlaces compartidos. Probá de nuevo en {max(1, math.ceil(wait))} s.", wait)
+    for key in (ip, "share:*"):
+        hits = _hits.setdefault(key, deque())
+        hits.append(now)
+        while hits[0] <= now - _MINUTE:  # acá solo cuenta el último minuto: no se guardan 24 h
+            hits.popleft()

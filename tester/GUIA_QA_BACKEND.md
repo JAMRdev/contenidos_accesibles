@@ -568,6 +568,30 @@ curl -s -X POST "$API/documents/files/<file_id>"
 | Sin mock, por encima del rate limit | 429 (mismo límite que `/analysis/file`) |
 | `/analysis/pdf`, `/analysis/file`, `/documents/upload*` en Swagger | Aparecen tachados (deprecados), pero siguen funcionando |
 
+
+**Compartir con enlace revocable (#65).** Con un archivo ya confirmado:
+
+```bash
+curl -s -X POST "$API/files/<file_id>/shares" -H 'Content-Type: application/json' -d '{"expires_in_hours": 2}'
+# Copiar url (https://<backend>/s/<token>) y share_id: la url se muestra solo esta vez
+curl -sI "<url>"                                # 302 a la URL firmada de R2
+curl -s "$API/files/<file_id>/shares"           # enlaces activos y access_count
+curl -s -X DELETE "$API/files/<file_id>/shares/<share_id>"
+```
+
+| Caso | Esperado |
+| :--- | :--- |
+| Abrir el enlace en el navegador | Descarga el archivo con su nombre original, directo desde R2 |
+| `curl -I` al enlace | 302, `Cache-Control: no-store`, `Location` en `r2.cloudflarestorage.com` |
+| Abrir la `Location` después de 5 minutos | 403 (la URL firmada venció); el enlace `/s/...` sigue sirviendo |
+| Listar los enlaces | No incluye la URL; `access_count` sube con cada apertura |
+| Revocar y volver a abrir | 204 y después 404 de inmediato |
+| Revocar dos veces | 404 la segunda |
+| `expires_in_hours` mayor que la vida del archivo | El enlace vence con el archivo |
+| Archivo sin `complete` | 409 al crear el enlace |
+| Token inventado o el `share_id` en lugar del token | 404 |
+| Más de 30 aperturas por minuto desde la misma IP | 429 con `Retry-After` |
+
 ---
 
 ## 5. Flujos de punta a punta

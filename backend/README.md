@@ -181,6 +181,10 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `POST` | `/api/v1/files/{file_id}/complete` | Confirma la subida: verifica tamaño, tipo y firma del archivo | ✅ Operativo |
 | `GET` | `/api/v1/files/{file_id}` | Metadatos del archivo (estado, tamaño, vencimiento) | ✅ Operativo |
 | `GET` | `/api/v1/files/{file_id}/download-url` | URL firmada `GET` de descarga, con el nombre original | ✅ Operativo |
+| `POST` | `/api/v1/files/{file_id}/shares` | Crea un enlace para compartir el archivo (`/s/{token}`), revocable y con vencimiento (#65) | ✅ Operativo |
+| `GET` | `/api/v1/files/{file_id}/shares` | Enlaces activos del archivo, con cuántas veces se abrieron | ✅ Operativo |
+| `DELETE` | `/api/v1/files/{file_id}/shares/{share_id}` | Revoca un enlace: deja de funcionar al instante | ✅ Operativo |
+| `GET` | `/s/{token}` | Enlace compartido (público): `302` a una URL firmada de descarga de minutos; `404` si se revocó o venció | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
@@ -411,7 +415,17 @@ Regla de diseño (#62): **la API no transporta archivos** y **los archivos no se
 
 Para diagnosticarlo o extraerlo: `POST /api/v1/analysis/files/{file_id}` y `POST /api/v1/documents/files/{file_id}` (#63). El backend lee el objeto del lado del servidor, en memoria, con el límite de 10 MB y la validación de firma; el archivo no viaja en el pedido ni vuelve al cliente. Los endpoints multipart (`/analysis/pdf`, `/analysis/file`, `/documents/upload-pdf`, `/documents/upload`) siguen funcionando, marcados como deprecados, hasta que el frontend migre.
 
-Para descargar: `GET /api/v1/files/{file_id}/download-url`. Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
+Para descargar: `GET /api/v1/files/{file_id}/download-url`.
+
+**Compartir (#65).** `POST /api/v1/files/{file_id}/shares` devuelve un enlace corto del backend (`https://<backend>/s/<token>`) para pegar en el aula virtual, un mensaje o un correo. Quien lo abre recibe un `302` a una URL firmada de pocos minutos y descarga **directo de R2**; el archivo no pasa por la API.
+
+- Se eligió un enlace con redirección y no una URL firmada de R2, porque esta dura como máximo 7 días y no se puede revocar.
+- El enlace **se puede revocar** (`DELETE .../shares/{share_id}`) y deja de funcionar al instante: la redirección no se cachea (`Cache-Control: no-store`).
+- Vence a las `expires_in_hours` horas, nunca después que el archivo.
+- En la base se guarda el **hash SHA-256 del token**, nunca el token, así que quien lea la base no puede abrir los enlaces. Por eso el enlace completo se muestra solo al crearlo; el listado da el `share_id`, el vencimiento y la cantidad de accesos.
+- `/s/{token}` tiene rate limit en memoria: `SHARE_RATE_LIMIT_PER_IP_MINUTE` (30) y `SHARE_RATE_LIMIT_GLOBAL_MINUTE` (300).
+- Solo el dueño crea, lista y revoca (provisional `anon` hasta #60; el permiso `files:share` llega con #61). También se pueden compartir las exportaciones.
+- Antes de desplegar, aplicar la migración `0003_file_shares.sql` en D1 (`npm run migrate:remote`). Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
 
 - **Claves**: `users/<usuario>/uploads/<aleatorio>.<ext>` y `users/<usuario>/exports/...`. No son adivinables y tienen prefijo por usuario.
 - **Dueño provisional**: hasta el login de docentes (#60), todos los archivos son del usuario `anon` (`app/core/owner.py`) y el acceso depende de conocer el `file_id` (UUID aleatorio). Con #60 solo cambia `current_owner()`; los endpoints, la tabla y las claves no cambian.
