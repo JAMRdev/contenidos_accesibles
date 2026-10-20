@@ -337,7 +337,9 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 - Roles: **docente** (analiza, adapta, sube, exporta y comparte sus propios archivos) y **admin** (además configura la retención de archivos y administra usuarios).
 - El rol se guarda en `publicMetadata.role` del usuario en Clerk y viaja en el token de sesión como claim `role`. Para eso, en la aplicación de Clerk de docentes, **Sessions → Customize session token** tiene que incluir `{"role": "{{user.public_metadata.role}}"}`. Sin claim, o con un valor desconocido, el rol es `docente`: es el rol por defecto al registrarse.
 - Los permisos se derivan del rol en `app/core/permissions.py` (`analysis:create`, `adaptations:manage`, `files:manage`, `files:share`, `export:create`, `settings:retention`, `users:manage`). Sin el permiso, la API responde `403`.
-- Los archivos quedan a nombre de quien los sube: el id de usuario de Clerk, `test-web_<tipo>_<usuario>` desde la web de pruebas (con el rol de la API según el del panel: admin → admin, solo lectura → docente) o `anon` mientras la API es anónima.
+- Los diagnósticos, las propuestas, las decisiones y los archivos quedan a nombre de quien los crea (columna `user_id`): el id de usuario de Clerk, `test-web_<tipo>_<usuario>` desde la web de pruebas (con el rol de la API según el del panel: admin → admin, solo lectura → docente) o `anon` mientras la API es anónima.
+- Un docente solo accede a lo suyo: el diagnóstico, la propuesta, el informe o el archivo de otro usuario responde `404`, igual que uno inexistente.
+- **Antes de desplegar este cambio en producción** hay que aplicar la migración `0005_user_id.sql` en D1 (`cd d1-gateway && npm run migrate:remote`): con D1, el arranque verifica que esté la columna `user_id`. En SQLite local la columna se agrega sola al iniciar; lo previo queda a nombre de `anon`.
 - El panel `/admin` mantiene sus propios roles (admin y solo lectura) y su login; no depende de los roles de docentes.
 
 ### Rate limit de IA

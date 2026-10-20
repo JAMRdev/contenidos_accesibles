@@ -103,7 +103,7 @@ def export_content(
     guarda en el almacenamiento y la respuesta trae una **URL firmada de descarga**.
     """
     try:
-        adapted = adaptation_service.build_adapted_document(analysis_id)
+        adapted = adaptation_service.build_adapted_document(analysis_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -150,7 +150,7 @@ def export_report(
     trae una **URL firmada de descarga**.
     """
     try:
-        report = adaptation_service.build_final_report(analysis_id)
+        report = adaptation_service.build_final_report(analysis_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

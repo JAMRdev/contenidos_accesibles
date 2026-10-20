@@ -201,3 +201,11 @@ def test_origen_viejo_sin_tablas_nuevas(d1, tmp_path):
     copied = migrate(path, d1, out=lambda *_: None)
     assert copied == {"api_keys": 1}
     assert d1.query("SELECT provider, priority FROM api_keys").rows == [{"provider": "gemini", "priority": 100}]
+
+
+def test_init_db_en_d1_sin_la_columna_user_id_explica_que_hacer(d1):
+    init_db()
+    with database.get_connection() as conn:
+        conn.execute("ALTER TABLE adaptation_decisions DROP COLUMN user_id")
+    with pytest.raises(RuntimeError, match="adaptation_decisions.*user_id.*npm run migrate:remote"):
+        init_db()

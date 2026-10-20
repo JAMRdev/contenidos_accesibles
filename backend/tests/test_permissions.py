@@ -297,3 +297,99 @@ def test_modo_mock_no_cuenta_para_el_limite_por_usuario(ai_client, teacher_auth_
     for _ in range(3):
         assert ai_client.post("/ia?mock=true", headers=ana).status_code == 200
     assert ai_client.post("/ia", headers=ana).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Dueño de diagnósticos, propuestas y decisiones
+# ---------------------------------------------------------------------------
+
+MATERIAL = (
+    "Actividad de Ciencias Naturales\n"
+    + " ".join(["La fotosíntesis es el proceso por el cual las plantas transforman la energía de la luz en energía química."] * 12)
+    + "\nLeé el texto de la página 8, subrayá las ideas principales y respondé las preguntas del final."
+)
+
+
+def _owner_column(table: str, row_id: str, column: str = "id") -> list[str]:
+    with get_connection() as conn:
+        return [r["user_id"] for r in conn.execute(f"SELECT user_id FROM {table} WHERE {column} = ?", (row_id,))]
+
+
+def _analysis_with_proposal(client, headers: dict) -> tuple[str, str]:
+    analysis = client.post("/api/v1/analysis/sample?mock=true", json={"text": MATERIAL}, headers=headers)
+    assert analysis.status_code == 200, analysis.text
+    analysis_id = analysis.json()["analysis_id"]
+    proposal = client.post(
+        "/api/v1/adaptations?mock=true", headers=headers,
+        json={"analysis_id": analysis_id, "barrier_id": "bar-1", "adaptation_type": "lenguaje_claro"},
+    )
+    assert proposal.status_code == 201, proposal.text
+    return analysis_id, proposal.json()["proposal_id"]
+
+
+def test_diagnosticos_propuestas_y_decisiones_quedan_a_nombre_del_docente(client, teacher_auth_on):
+    ana = bearer(clerk_token("user_ana"))
+    analysis_id, proposal_id = _analysis_with_proposal(client, ana)
+    decided = client.post(f"/api/v1/adaptations/{proposal_id}/decision", json={"decision": "aceptada"}, headers=ana)
+    assert decided.status_code == 200, decided.text
+
+    assert _owner_column("analyses", analysis_id) == ["user_ana"]
+    assert _owner_column("adaptation_proposals", proposal_id) == ["user_ana"]
+    assert _owner_column("adaptation_decisions", proposal_id, "proposal_id") == ["user_ana"]
+
+
+def test_otro_docente_no_ve_ni_modifica_lo_ajeno(client, teacher_auth_on):
+    ana, beto = bearer(clerk_token("user_ana")), bearer(clerk_token("user_beto"))
+    analysis_id, proposal_id = _analysis_with_proposal(client, ana)
+
+    for method, path, body in [
+        ("get", f"/api/v1/analysis/{analysis_id}", None),
+        ("post", "/api/v1/adaptations?mock=true", {"analysis_id": analysis_id, "barrier_id": "bar-2", "adaptation_type": "lenguaje_claro"}),
+        ("get", f"/api/v1/adaptations?analysis_id={analysis_id}", None),
+        ("get", f"/api/v1/adaptations/decisions?analysis_id={analysis_id}", None),
+        ("get", f"/api/v1/adaptations/final-version?analysis_id={analysis_id}", None),
+        ("get", f"/api/v1/adaptations/report?analysis_id={analysis_id}", None),
+        ("get", f"/api/v1/adaptations/{proposal_id}", None),
+        ("post", f"/api/v1/adaptations/{proposal_id}/decision", {"decision": "descartada"}),
+        ("post", f"/api/v1/adaptations/{proposal_id}/undo", None),
+        ("get", f"/api/v1/export/content?analysis_id={analysis_id}&format=txt", None),
+        ("get", f"/api/v1/export/report?analysis_id={analysis_id}&format=txt", None),
+    ]:
+        kwargs = {"headers": beto} | ({"json": body} if body is not None else {})
+        assert getattr(client, method)(path, **kwargs).status_code == 404, path
+
+    # Lo de Ana sigue intacto y accesible para ella
+    proposal = client.get(f"/api/v1/adaptations/{proposal_id}", headers=ana)
+    assert proposal.status_code == 200 and proposal.json()["status"] == "pendiente"
+    assert client.get(f"/api/v1/analysis/{analysis_id}", headers=ana).status_code == 200
+    assert client.get(f"/api/v1/export/content?analysis_id={analysis_id}&format=txt", headers=ana).status_code == 200
+
+
+def test_sin_login_de_docentes_todo_sigue_siendo_de_anon(client):
+    analysis_id, proposal_id = _analysis_with_proposal(client, {})
+    assert _owner_column("analyses", analysis_id) == ["anon"]
+    assert _owner_column("adaptation_proposals", proposal_id) == ["anon"]
+    assert client.get(f"/api/v1/adaptations/{proposal_id}").status_code == 200
+
+
+def test_una_base_local_anterior_recibe_la_columna_user_id(tmp_path, monkeypatch):
+    import sqlite3
+
+    path = tmp_path / "vieja.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE analyses (id TEXT PRIMARY KEY, source_type TEXT NOT NULL, filename TEXT, extracted_text TEXT NOT NULL,"
+        " diagnostic_json TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);"
+        "CREATE TABLE adaptation_proposals (id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL, barrier_id TEXT NOT NULL,"
+        " status TEXT NOT NULL DEFAULT 'pendiente', proposal_json TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);"
+        "INSERT INTO analyses VALUES ('a1', 'text', NULL, 't', '{}', 'x', 'y');"
+    )
+    old.commit()
+    old.close()
+
+    monkeypatch.setattr(settings, "DATABASE_PATH", str(path))
+    init_db()
+    assert _owner_column("analyses", "a1") == ["anon"]
+    with get_connection() as conn:
+        for table in ("adaptation_proposals", "adaptation_decisions"):
+            assert "user_id" in {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}

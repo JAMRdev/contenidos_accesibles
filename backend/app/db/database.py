@@ -56,7 +56,9 @@ CREATE TABLE IF NOT EXISTS analyses (
     extracted_text          TEXT NOT NULL,
     diagnostic_json         TEXT NOT NULL,
     created_at              TEXT NOT NULL,
-    expires_at              TEXT NOT NULL
+    expires_at              TEXT NOT NULL,
+    -- Dueño (Issue #61): id de usuario de Clerk, test-web_<tipo>_<usuario> o 'anon'
+    user_id                 TEXT NOT NULL DEFAULT 'anon'
 );
 CREATE INDEX IF NOT EXISTS idx_analyses_expires_at
     ON analyses(expires_at);
@@ -69,7 +71,8 @@ CREATE TABLE IF NOT EXISTS adaptation_proposals (
     status                  TEXT NOT NULL DEFAULT 'pendiente',
     proposal_json           TEXT NOT NULL,
     created_at              TEXT NOT NULL,
-    expires_at              TEXT NOT NULL
+    expires_at              TEXT NOT NULL,
+    user_id                 TEXT NOT NULL DEFAULT 'anon'
 );
 CREATE INDEX IF NOT EXISTS idx_adaptation_proposals_analysis
     ON adaptation_proposals(analysis_id);
@@ -88,7 +91,8 @@ CREATE TABLE IF NOT EXISTS adaptation_decisions (
     to_status               TEXT NOT NULL,
     edited_text             TEXT,
     created_at              TEXT NOT NULL,
-    expires_at              TEXT NOT NULL
+    expires_at              TEXT NOT NULL,
+    user_id                 TEXT NOT NULL DEFAULT 'anon'
 );
 CREATE INDEX IF NOT EXISTS idx_adaptation_decisions_analysis
     ON adaptation_decisions(analysis_id);
@@ -261,8 +265,17 @@ _ENV_CONNECTION_COLUMNS = {
 
 _ADDED_COLUMNS = {**_MULTI_PROVIDER_COLUMNS, **_ENV_CONNECTION_COLUMNS}
 
+# Dueño de diagnósticos, propuestas y decisiones (Issue #61). Lo previo queda a nombre de 'anon'.
+# En D1 lo agrega la migración 0005_user_id.sql.
+_OWNED_TABLES = ("analyses", "adaptation_proposals", "adaptation_decisions")
+_USER_ID_COLUMN = "user_id TEXT NOT NULL DEFAULT 'anon'"
+
 
 def _migrate_columns(conn: sqlite3.Connection) -> None:
+    for table in _OWNED_TABLES:
+        if "user_id" not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {_USER_ID_COLUMN}")
+
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(api_keys)")}
     missing = [c for c in _ADDED_COLUMNS if c not in existing]
     for column in missing:
@@ -289,9 +302,19 @@ def _check_d1_schema() -> None:
     """En D1 el esquema lo crean las migraciones de wrangler: acá solo se verifica que estén aplicadas."""
     with get_connection() as conn:
         tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    missing = REQUIRED_TABLES - tables
-    if missing:
+        missing = REQUIRED_TABLES - tables
+        if missing:
+            raise RuntimeError(
+                f"A la base D1 le faltan las tablas {', '.join(sorted(missing))}. "
+                "Aplicá las migraciones: cd d1-gateway && npm run migrate:remote"
+            )
+        # Columnas agregadas después (0005_user_id.sql)
+        without_owner = [
+            t for t in _OWNED_TABLES
+            if "user_id" not in {row["name"] for row in conn.execute(f"PRAGMA table_info({t})")}
+        ]
+    if without_owner:
         raise RuntimeError(
-            f"A la base D1 le faltan las tablas {', '.join(sorted(missing))}. "
+            f"A las tablas {', '.join(without_owner)} de D1 les falta la columna user_id. "
             "Aplicá las migraciones: cd d1-gateway && npm run migrate:remote"
         )

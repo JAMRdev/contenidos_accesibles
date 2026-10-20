@@ -36,7 +36,7 @@ def test_fragmento_con_datos_personales_no_llega_a_la_ia():
     async def _run():
         with patch(LLM_TARGET, new_callable=AsyncMock) as llm:
             with pytest.raises(SensitiveDataError) as exc_info:
-                await adaptation_service.create_proposal(_request(SENSITIVE_FRAGMENT), mock=False)
+                await adaptation_service.create_proposal(_request(SENSITIVE_FRAGMENT), owner="anon", mock=False)
         assert llm.call_count == 0
         assert [f.type for f in exc_info.value.findings] == ["nombre_rotulado"]
 
@@ -45,7 +45,7 @@ def test_fragmento_con_datos_personales_no_llega_a_la_ia():
 
 def test_fragmento_con_datos_personales_se_bloquea_tambien_en_mock():
     with pytest.raises(SensitiveDataError):
-        asyncio.run(adaptation_service.create_proposal(_request(SENSITIVE_FRAGMENT), mock=True))
+        asyncio.run(adaptation_service.create_proposal(_request(SENSITIVE_FRAGMENT), owner="anon", mock=True))
 
 
 def test_fragmento_con_hallazgos_descartados_sigue_el_flujo_normal():
@@ -53,7 +53,7 @@ def test_fragmento_con_hallazgos_descartados_sigue_el_flujo_normal():
     with pytest.raises(AdaptationNotFoundError):
         asyncio.run(
             adaptation_service.create_proposal(
-                _request(SENSITIVE_FRAGMENT), mock=True, dismissed_findings=ids
+                _request(SENSITIVE_FRAGMENT), owner="anon", mock=True, dismissed_findings=ids
             )
         )
 
@@ -61,11 +61,11 @@ def test_fragmento_con_hallazgos_descartados_sigue_el_flujo_normal():
 def test_fragmento_limpio_sigue_el_flujo_normal():
     with pytest.raises(AdaptationNotFoundError):
         asyncio.run(
-            adaptation_service.create_proposal(_request("Leé el texto y respondé las preguntas."), mock=True)
+            adaptation_service.create_proposal(_request("Leé el texto y respondé las preguntas."), owner="anon", mock=True)
         )
 
 
 def test_sin_fragmento_no_cambia_nada():
     """Sin fragmento se usa el texto del diagnóstico, que ya pasó por el detector al analizarlo."""
     with pytest.raises(AdaptationNotFoundError):
-        asyncio.run(adaptation_service.create_proposal(_request(None), mock=True))
+        asyncio.run(adaptation_service.create_proposal(_request(None), owner="anon", mock=True))
