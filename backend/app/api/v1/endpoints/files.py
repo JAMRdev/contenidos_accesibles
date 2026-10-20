@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 from app.api.v1.uploads import ALLOWED_CONTENT_TYPES, MAX_UPLOAD_SIZE_BYTES, SUPPORTED_EXTENSIONS, check_signature
 from app.core.config import settings
 from app.core.owner import current_owner
+from app.core.teacher_auth import require_permission
 from app.db import file_event_repository as file_events
 from app.db import file_repository as files
 from app.db import share_repository as shares
@@ -77,6 +78,7 @@ def _discard(record: dict, detail: str) -> HTTPException:
 
 @router.post(
     "/upload-url",
+    dependencies=[Depends(require_permission("files:manage"))],
     status_code=status.HTTP_201_CREATED,
     response_model=FileUploadResponse,
     summary="Pedir una URL firmada para subir un archivo",
@@ -131,6 +133,7 @@ def create_upload_url(body: FileUploadRequest, request: Request, owner: str = De
 
 @router.post(
     "/{file_id}/complete",
+    dependencies=[Depends(require_permission("files:manage"))],
     response_model=FileInfo,
     summary="Confirmar que el archivo se subió",
     responses={
@@ -174,6 +177,7 @@ def complete_upload(file_id: str, owner: str = Depends(current_owner)):
 
 
 @router.get("/{file_id}", response_model=FileInfo, summary="Consultar un archivo",
+            dependencies=[Depends(require_permission("files:manage"))],
             responses={404: {"description": "No existe, venció o es de otro usuario."}})
 def get_file(file_id: str, owner: str = Depends(current_owner)):
     return _info(_owned_or_404(file_id, owner))
@@ -181,6 +185,7 @@ def get_file(file_id: str, owner: str = Depends(current_owner)):
 
 @router.get(
     "/{file_id}/download-url",
+    dependencies=[Depends(require_permission("files:manage"))],
     response_model=FileDownloadResponse,
     summary="Pedir una URL firmada de descarga",
     responses={404: {"description": "No existe, venció, es de otro usuario o no terminó de subirse."}},
@@ -216,6 +221,7 @@ def _share_info(record: dict) -> dict:
 
 @router.post(
     "/{file_id}/shares",
+    dependencies=[Depends(require_permission("files:share"))],
     status_code=status.HTTP_201_CREATED,
     response_model=ShareCreated,
     summary="Crear un enlace para compartir el archivo",
@@ -253,6 +259,7 @@ def create_share(file_id: str, request: Request, body: ShareCreateRequest | None
 
 @router.get(
     "/{file_id}/shares",
+    dependencies=[Depends(require_permission("files:share"))],
     response_model=list[ShareInfo],
     summary="Listar los enlaces activos del archivo",
     responses={404: {"description": "No existe, venció o es de otro usuario."}},
@@ -265,6 +272,7 @@ def list_shares(file_id: str, owner: str = Depends(current_owner)):
 
 @router.delete(
     "/{file_id}/shares/{share_id}",
+    dependencies=[Depends(require_permission("files:share"))],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revocar un enlace",
     responses={404: {"description": "El archivo o el enlace no existen, o el enlace ya estaba revocado."}},

@@ -193,6 +193,9 @@ class Settings(BaseSettings):
     # 0 desactiva ese límite. El global protege la cuota aunque se falsee la IP.
     AI_RATE_LIMIT_PER_IP_MINUTE: int = Field(default=5, ge=0)
     AI_RATE_LIMIT_PER_IP_DAY: int = Field(default=50, ge=0)
+    # Por usuario autenticado (docente con token o persona logueada en la web de pruebas, Issue #61)
+    AI_RATE_LIMIT_PER_USER_MINUTE: int = Field(default=5, ge=0)
+    AI_RATE_LIMIT_PER_USER_DAY: int = Field(default=50, ge=0)
     AI_RATE_LIMIT_GLOBAL_MINUTE: int = Field(default=20, ge=0)
     AI_RATE_LIMIT_GLOBAL_DAY: int = Field(default=500, ge=0)
 
