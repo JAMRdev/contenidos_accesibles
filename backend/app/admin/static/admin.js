@@ -1274,6 +1274,107 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     if ($("member-role") && !$("member-role").value) ObSelect.set("member-role", "viewer");
 
     // -----------------------------------------------------------------------
+    // Retención de archivos (Issue #64)
+    // -----------------------------------------------------------------------
+
+    function hoursText(hours) {
+        if (hours % 24 === 0) return hours === 24 ? "1 día" : `${hours / 24} días`;
+        return hours === 1 ? "1 hora" : `${hours} horas`;
+    }
+
+    async function retentionApi(method, body) {
+        const r = await fetch(api("/api/retention"), {
+            method,
+            headers: { Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        if (r.status === 401) { goToLogin(); return null; }
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(" ") : data.detail;
+            throw new Error(detail || `HTTP ${r.status}`);
+        }
+        return data;
+    }
+
+    function retentionFeedback(text, kind = "danger") {
+        $("retention-feedback").replaceChildren(text
+            ? h("div", { class: `alert alert-${kind}`, role: kind === "danger" ? "alert" : "status" }, h("p", { class: "mb-0", text }))
+            : "");
+    }
+
+    function renderRetention(d) {
+        if (!d) return;
+        const last = d.last_cleanup;
+        const origin = d.source === "panel"
+            ? `Cambiada ${d.updated_at ? fullFmt.format(new Date(d.updated_at)) : ""}${d.updated_by ? ` por ${d.updated_by}` : ""}`
+            : "Valor por defecto (FILE_RETENTION_HOURS)";
+        const cleanupFoot = d.cleanup_interval_minutes
+            ? `Corre cada ${d.cleanup_interval_minutes} min`
+            : "Limpieza programada desactivada";
+        $("retention-kpis").replaceChildren(
+            kpiCard({ label: "Retención vigente", iconName: "schedule", value: hoursText(d.hours), foot: h("span", { class: "admin-muted", text: origin }) }),
+            kpiCard({ label: "Máximo permitido", iconName: "vertical_align_top", value: hoursText(d.max_hours), foot: h("span", { class: "admin-muted", text: `Por defecto: ${hoursText(d.default_hours)}` }) }),
+            kpiCard({
+                label: "Última limpieza", iconName: "delete_sweep",
+                value: last ? num(last.expired + last.abandoned) : "—", unit: last ? "borrados" : null,
+                foot: h("span", { class: "admin-muted", text: last
+                    ? `${fullFmt.format(new Date(last.ran_at))} · ${last.errors ? `${last.errors} con error, se reintentan` : cleanupFoot}`
+                    : cleanupFoot }),
+            }),
+        );
+        const input = $("retention-hours");
+        if (input) {
+            input.max = String(d.max_hours);
+            if (document.activeElement !== input) input.value = String(d.hours);
+            $("retention-help").textContent = `Entre 1 y ${d.max_hours} horas (${hoursText(d.max_hours)}).`;
+            $("retention-reset").disabled = d.source !== "panel";
+        }
+    }
+
+    async function loadRetention() {
+        try {
+            renderRetention(await retentionApi("GET"));
+        } catch (err) {
+            retentionFeedback(`No se pudo cargar la retención de archivos (${err.message}).`);
+        }
+    }
+
+    $("retention-form")?.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const input = $("retention-hours");
+        const hours = Number(input.value);
+        if (!Number.isInteger(hours) || hours < 1 || hours > Number(input.max)) {
+            input.classList.add("is-invalid");
+            retentionFeedback(`Escribí un número entero de horas entre 1 y ${input.max}.`);
+            input.focus();
+            return;
+        }
+        try {
+            input.blur();
+            renderRetention(await retentionApi("PUT", { hours }));
+            input.classList.remove("is-invalid");
+            retentionFeedback("");
+            toast(`Los archivos nuevos se van a conservar ${hoursText(hours)}.`);
+        } catch (err) {
+            input.classList.add("is-invalid");
+            retentionFeedback(err.message);
+        }
+    });
+
+    $("retention-reset")?.addEventListener("click", async () => {
+        try {
+            const d = await retentionApi("DELETE");
+            $("retention-hours")?.blur();
+            renderRetention(d);
+            retentionFeedback("");
+            if (d) toast(`Retención restablecida a ${hoursText(d.hours)}.`);
+        } catch (err) {
+            retentionFeedback(err.message);
+        }
+    });
+
+    // -----------------------------------------------------------------------
     // Estado de los servicios (se consulta solo con la pestaña a la vista)
     // -----------------------------------------------------------------------
 
@@ -1456,4 +1557,5 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     schedule();
     syncStatusPolling();
     if (CAN_EDIT && $("members-body")) loadMembers();
+    loadRetention();
 })();

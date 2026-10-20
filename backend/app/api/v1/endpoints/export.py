@@ -19,9 +19,10 @@ from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.core.owner import current_owner
 from app.db import file_event_repository as file_events
+from app.db import analysis_repository
 from app.db import file_repository as files
 from app.schemas.file import FileDownloadResponse, FileInfo, PresignedRequest
-from app.services import adaptation_service, export_service, storage_service
+from app.services import adaptation_service, export_service, retention_service, storage_service
 from app.services.adaptation_service import AdaptationNotFoundError
 from app.services.storage_service import StorageError, new_object_key
 
@@ -45,8 +46,14 @@ _RESPONSES = {
 }
 
 
+def _analysis_expiry(analysis_id: str) -> str | None:
+    """Vencimiento del diagnóstico (ya verificado como vigente y del usuario al armar el documento)."""
+    record = analysis_repository.get(analysis_id)
+    return record["expires_at"] if record else None
+
+
 def _deliver(request: Request, data: bytes, content_type: str, filename: str, delivery: Delivery, owner: str,
-             document: str):
+             document: str, analysis_expires_at: str | None):
     file_events.record("export", format=file_events.file_format(filename), size_bytes=len(data), detail=f"{document}:{delivery}")
     if delivery == "file":
         return StreamingResponse(
@@ -65,7 +72,9 @@ def _deliver(request: Request, data: bytes, content_type: str, filename: str, de
         raise HTTPException(status_code=502, detail="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos.")
     record = files.create(
         user_id=owner, object_key=key, filename=filename, content_type=content_type, size_bytes=len(data),
-        ttl_hours=settings.FILE_TTL_HOURS, kind="export", status="uploaded",
+        # Retención vigente (Issue #64), pero nunca después que su diagnóstico
+        ttl_hours=retention_service.file_retention_hours(), kind="export", status="uploaded",
+        not_after=analysis_expires_at,
     )
     if url.startswith("/"):
         url = f"{str(request.base_url).rstrip('/')}{url}"
@@ -113,7 +122,7 @@ def export_content(
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = export_service.build_filename("material_adaptado", analysis_id, format)
-    return _deliver(request, data, content_type, filename, delivery, owner, "content")
+    return _deliver(request, data, content_type, filename, delivery, owner, "content", _analysis_expiry(analysis_id))
 
 
 @router.get(
@@ -160,4 +169,4 @@ def export_report(
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = export_service.build_filename("informe_accesibilidad", analysis_id, format)
-    return _deliver(request, data, content_type, filename, delivery, owner, "report")
+    return _deliver(request, data, content_type, filename, delivery, owner, "report", _analysis_expiry(analysis_id))

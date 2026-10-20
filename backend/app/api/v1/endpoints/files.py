@@ -35,7 +35,7 @@ from app.schemas.file import (
     ShareCreateRequest,
     ShareInfo,
 )
-from app.services import storage_service
+from app.services import retention_service, storage_service
 from app.services.storage_service import LocalStorage, StorageError, content_disposition, new_object_key
 
 router = APIRouter()
@@ -122,7 +122,7 @@ def create_upload_url(body: FileUploadRequest, request: Request, owner: str = De
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_STORAGE_DOWN)
     record = files.create(
         user_id=owner, object_key=key, filename=body.filename.strip(), content_type=content_type,
-        size_bytes=body.size_bytes, ttl_hours=settings.FILE_TTL_HOURS,
+        size_bytes=body.size_bytes, ttl_hours=retention_service.file_retention_hours(),
     )
     return FileUploadResponse(
         file=_info(record),

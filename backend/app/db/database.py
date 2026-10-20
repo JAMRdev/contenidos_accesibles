@@ -187,6 +187,15 @@ CREATE TABLE IF NOT EXISTS file_events (
 );
 CREATE INDEX IF NOT EXISTS idx_file_events_created_at
     ON file_events(created_at);
+
+-- Configuración editable desde /admin (Issue #64), p. ej. la retención de archivos.
+-- Sin fila, vale el valor por defecto de la variable de entorno.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key                     TEXT PRIMARY KEY,
+    value                   TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
+    updated_by              TEXT
+);
 """
 
 
@@ -194,7 +203,7 @@ _d1_client = None
 _d1_lock = threading.Lock()
 
 # Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
-REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events"}
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events", "app_settings"}
 
 
 def _shared_d1_client():

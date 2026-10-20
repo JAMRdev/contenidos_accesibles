@@ -36,6 +36,7 @@ backend/
 │   │       │   ├── health.py         # Estado del sistema y entorno
 │   │       │   ├── test_ai.py        # Prueba de conectividad con IA
 │   │       │   ├── documents.py      # Extracción de PDF, Word, PowerPoint y texto directo
+│   │       │   ├── settings.py       # Retención de archivos editable por un admin (#64)
 │   │       │   └── analysis.py       # Escáner de accesibilidad con IA
 │   │       ├── router.py             # Versionado y unificación de rutas v1
 │   │       └── uploads.py            # Validación de archivos subidos (.pdf, .docx, .pptx)
@@ -54,7 +55,8 @@ backend/
 │   │   ├── d1_connection.py          # Conexión D1 con la interfaz de sqlite3 (batch atómico por bloque)
 │   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
 │   │   ├── ai_usage_repository.py    # Historial de llamadas a la IA (métricas del panel)
-│   │   └── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
+│   │   ├── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
+│   │   └── settings_repository.py    # Configuración editable desde /admin (tabla app_settings)
 │   ├── schemas/
 │   │   ├── document.py               # Contratos de extracción (ExtractedDocument, TextInputRequest)
 │   │   └── analysis.py               # Contratos de diagnóstico (AccessibilityAnalysisResponse)
@@ -66,6 +68,7 @@ backend/
 │   │   ├── key_rotation_service.py   # Rotación automática y tracking de consumo por key
 │   │   ├── llm_service.py            # Orquestación multi-proveedor de modelos de lenguaje
 │   │   ├── admin_metrics_service.py  # Métricas agregadas del panel (uso de IA, conexiones y producto)
+│   │   ├── retention_service.py      # Retención de archivos configurable y limpieza automática (#64)
 │   │   └── llm/                      # Adaptadores de proveedores (Gemini, OpenAI-compatible)
 │   └── main.py                       # Instanciación de FastAPI, Middlewares y OpenAPI
 ├── docs/
@@ -188,6 +191,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `POST` | `/api/v1/files/{file_id}/shares` | Crea un enlace para compartir el archivo (`/s/{token}`), revocable y con vencimiento (#65) | ✅ Operativo |
 | `GET` | `/api/v1/files/{file_id}/shares` | Enlaces activos del archivo, con cuántas veces se abrieron | ✅ Operativo |
 | `DELETE` | `/api/v1/files/{file_id}/shares/{share_id}` | Revoca un enlace: deja de funcionar al instante | ✅ Operativo |
+| `GET`/`PUT` | `/api/v1/settings/retention` | Retención de archivos vigente y última limpieza; cambiarla para los archivos nuevos (permiso `settings:retention`, rol admin, #64) | ✅ Operativo |
 | `GET` | `/s/{token}` | Enlace compartido (público): `302` a una URL firmada de descarga de minutos; `404` si se revocó o venció | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
@@ -195,6 +199,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET` | `/admin/diagramas/{slug}` | Diagrama de arquitectura dentro del panel. Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
 | `GET` | `/admin/api/metrics?range=24h\|7d\|30d` | Métricas agregadas del panel (JSON, requiere sesión) | ✅ Operativo |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/admin/api/members` | Usuarios de GitHub con acceso al panel y su rol (JSON, solo admins) | ✅ Operativo |
+| `GET`/`PUT`/`DELETE` | `/admin/api/retention` | Retención de archivos y última limpieza (ver: cualquier sesión; cambiar o restablecer: solo admins) | ✅ Operativo |
 | `GET`/`POST` | `/api/v1/test-web/auth/...` | Login de la web de pruebas: configuración, usuario/contraseña, Clerk y sesión actual (token Bearer) | ✅ Operativo |
 
 > `/admin` y `/api/v1/test-web/auth` son internos, no forman parte del contrato de la API — por eso no aparecen en el esquema OpenAPI de `/docs`/`/redoc` (`include_in_schema=False`).
@@ -455,7 +460,9 @@ Para descargar: `GET /api/v1/files/{file_id}/download-url`.
 
 - **Claves**: `users/<usuario>/uploads/<aleatorio>.<ext>` y `users/<usuario>/exports/...`. No son adivinables y tienen prefijo por usuario.
 - **Dueño**: cada archivo es de quien lo subió (`app/core/owner.py`, ver *Roles y permisos de la API*); otro usuario recibe `404`. Mientras la API es anónima (sin `USERS_CLERK_JWT_KEY`) todos son de `anon` y el acceso depende de conocer el `file_id` (UUID aleatorio).
-- **Vencimiento**: cada archivo vence a las `FILE_TTL_HOURS` (24 h). Después ya no se puede consultar ni descargar. Borrarlo del bucket es #64.
+- **Retención (#64)**: cada archivo vence a las horas de retención vigentes al crearlo: `FILE_RETENTION_HOURS` (24 h) o la que configure un admin en `/admin` (pestaña **Uso del producto**) o con `PUT /api/v1/settings/retention` (permiso `settings:retention`), hasta `FILE_RETENTION_MAX_HOURS` (168 h). Cambiarla no altera los archivos que ya existen. Los exportados vencen, como mucho, con su diagnóstico. El valor se guarda en la tabla `app_settings` (migración `0006_app_settings.sql`).
+- **Vencido = inexistente**: un archivo vencido deja de aparecer en la API y sus enlaces dejan de funcionar al instante, aunque todavía no se haya borrado.
+- **Limpieza automática**: cada `FILE_CLEANUP_INTERVAL_MINUTES` (60) el backend borra de R2 y de la base los archivos vencidos, sus enlaces y las subidas que nunca se confirmaron. Si R2 falla con un archivo, se reintenta en la próxima pasada. La última ejecución se ve en `/admin`. Como respaldo, el bucket tiene una regla de lifecycle que borra lo que esté bajo `users/` 8 días después de creado: el máximo permitido (7 días) más uno de margen (`npm run r2:lifecycle`). Si se sube `FILE_RETENTION_MAX_HOURS`, hay que ajustar la regla.
 - **Desarrollo** (`STORAGE_BACKEND=local`, por defecto): los archivos van a `LOCAL_STORAGE_PATH` (`local_storage/`, fuera de Git). Las URLs firmadas (HMAC) apuntan a `/api/v1/files/local/...`, que hace de R2 y solo responde en este modo. El frontend no distingue el modo.
 - **Producción** (`STORAGE_BACKEND=r2`): bucket privado `contenidos-accesibles-archivos` (ENAM) con CORS solo para el frontend y la web de pruebas (`d1-gateway/r2-cors.json`). La pestaña **Estado** de `/admin` lo chequea con un `HEAD` del bucket.
 
@@ -468,6 +475,8 @@ npm run r2:cors     # aplica r2-cors.json (repetir si cambian los orígenes)
 ```
 
 Después, en el dashboard: **R2 → Manage API tokens → Create API token** con permiso **Object Read & Write** solo sobre ese bucket. El *Access Key ID* y el *Secret Access Key* van a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY` en Railway, junto con `R2_ACCOUNT_ID`, `R2_BUCKET` y `STORAGE_BACKEND=r2`.
+
+**Antes de desplegar #64** hay que aplicar la migración `0006_app_settings.sql` en D1 (`npm run migrate:remote`) y la regla de lifecycle (`npm run r2:lifecycle`).
 
 **Antes de desplegar este cambio en producción** hay que aplicar la migración `0002_files.sql` en D1 (`npm run migrate:remote`): con D1, el arranque verifica que estén todas las tablas.
 

@@ -13,6 +13,7 @@ from app.schemas.privacy import (
     PrivacyPolicyResponse,
     StoragePolicy,
 )
+from app.services import retention_service
 from app.services.document_service import MAX_ANALYSIS_WORDS
 
 router = APIRouter()
@@ -35,6 +36,8 @@ def get_privacy_policy() -> PrivacyPolicyResponse:
         else "Almacenamiento local (desarrollo)"
     )
 
+    # Retención vigente de los archivos nuevos (Issue #64): la del panel o FILE_RETENTION_HOURS
+    retention_hours = retention_service.file_retention_hours()
     return PrivacyPolicyResponse(
         external_ai_processing=ExternalAIProcessingPolicy(
             enabled=True,
@@ -55,7 +58,7 @@ def get_privacy_policy() -> PrivacyPolicyResponse:
             local_disk_storage="Cero persistencia en disco local. Todos los documentos se procesan en memoria volátil (RAM).",
             storage_backend=settings.STORAGE_BACKEND,
             storage_provider_name=storage_provider,
-            retention_period_hours=settings.FILE_TTL_HOURS,
+            retention_period_hours=retention_hours,
             auto_deletion_enabled=True,
             object_folders={
                 "uploads": "Archivos originales subidos por el docente",
@@ -65,6 +68,6 @@ def get_privacy_policy() -> PrivacyPolicyResponse:
         ),
         user_rights=(
             "El docente mantiene el control pedagógico total de su material. Los datos se eliminan "
-            f"automáticamente al transcurrir el período de retención de {settings.FILE_TTL_HOURS} horas."
+            f"automáticamente al transcurrir el período de retención de {retention_hours} horas."
         ),
     )

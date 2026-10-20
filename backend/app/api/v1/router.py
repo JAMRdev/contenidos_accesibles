@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     files,
     health,
     privacy,
+    settings,
     test_ai,
 )
 from app.core.teacher_auth import require_permission
@@ -36,3 +37,5 @@ api_router.include_router(
     dependencies=[Depends(require_permission("export:create"))], responses=_AUTH_RESPONSES,
 )
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
+# Configuración editable por un admin (Issue #64): cada ruta exige settings:retention
+api_router.include_router(settings.router, prefix="/settings", tags=["Settings"], responses=_AUTH_RESPONSES)

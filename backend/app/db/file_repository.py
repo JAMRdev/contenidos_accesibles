@@ -15,8 +15,12 @@ def _iso(moment: datetime) -> str:
 
 
 def create(*, user_id: str, object_key: str, filename: str, content_type: str, size_bytes: int,
-           ttl_hours: int, kind: str = "upload", status: str = "pending") -> dict:
+           ttl_hours: int, kind: str = "upload", status: str = "pending", not_after: str | None = None) -> dict:
+    """Registra el archivo. Vence a las ttl_hours, o antes si not_after (ISO UTC) es anterior."""
     now = datetime.now(timezone.utc)
+    expires_at = _iso(now + timedelta(hours=ttl_hours))
+    if not_after:
+        expires_at = min(expires_at, not_after)
     record = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -28,7 +32,7 @@ def create(*, user_id: str, object_key: str, filename: str, content_type: str, s
         "status": status,
         "created_at": _iso(now),
         "uploaded_at": _iso(now) if status == "uploaded" else None,
-        "expires_at": _iso(now + timedelta(hours=ttl_hours)),
+        "expires_at": expires_at,
     }
     with get_connection() as conn:
         conn.execute(
@@ -60,4 +64,22 @@ def mark_uploaded(file_id: str) -> None:
 
 def delete(file_id: str) -> None:
     with get_connection() as conn:
+        conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
+
+
+def list_to_clean(now: str, pending_before: str, limit: int = 200) -> list[dict]:
+    """Archivos vencidos y subidas que nunca se confirmaron (pendientes desde antes de pending_before)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, object_key, status, expires_at FROM files "
+            "WHERE expires_at <= ? OR (status = 'pending' AND created_at < ?) ORDER BY expires_at LIMIT ?",
+            (now, pending_before, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_with_shares(file_id: str) -> None:
+    """Borra el registro del archivo y sus enlaces, en una sola unidad de trabajo."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM file_shares WHERE file_id = ?", (file_id,))
         conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
