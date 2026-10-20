@@ -164,12 +164,14 @@ def test_metricas_de_producto_sin_contenido_del_material(db):
     }
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO analyses VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO analyses (id, source_type, filename, extracted_text, diagnostic_json, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             ("a1", "pdf", "tarea.pdf", "texto SECRETO", json.dumps(diagnostic), now.strftime("%Y-%m-%dT%H:%M:%SZ"), expires),
         )
         for i, status in enumerate(["aceptada", "descartada", "pendiente"]):
             conn.execute(
-                "INSERT INTO adaptation_proposals VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO adaptation_proposals (id, analysis_id, barrier_id, status, proposal_json, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (f"p{i}", "a1", "b1", status, json.dumps({"adaptation_type": "lenguaje_claro", "proposed_text": "SECRETO"}), "x", expires),
             )
 

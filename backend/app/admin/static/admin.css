@@ -294,6 +294,8 @@ body { background: var(--surface-page); color: var(--ink); }
 
 .member-add { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 240px) auto; gap: 1rem; align-items: end; margin-bottom: 1rem; }
 .member-add .form-label-container { margin-bottom: 0.35rem; }
+.retention-form { grid-template-columns: minmax(0, 240px) auto auto; }
+.retention-form .form-text { margin: 0.35rem 0 0; font-size: 0.85rem; }
 .member-add-submit { min-height: 48px; display: inline-flex; align-items: center; gap: 0.35rem; justify-self: start; white-space: nowrap; }
 .member-cell { display: flex; align-items: center; gap: 0.75rem; }
 .member-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }
@@ -328,7 +330,7 @@ body { background: var(--surface-page); color: var(--ink); }
 }
 @media (max-width: 600px) {
     .admin-h1 { font-size: 1.5rem; }
-    .table-filters, .member-add { grid-template-columns: 1fr; }
+    .table-filters, .member-add, .retention-form { grid-template-columns: 1fr; }
     .form-grid-3, .form-grid-4 { grid-template-columns: 1fr; }
     .span-1, .span-2 { grid-column: 1 / -1; }
     .admin-brand-subtitle { display: none; }

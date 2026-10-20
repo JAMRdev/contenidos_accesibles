@@ -99,6 +99,7 @@ async def analyze_sample(
         default=[],
         description=_DISMISSED_DESCRIPTION,
     ),
+    owner: str = Depends(current_owner),
 ):
     """
     ## Escáner de Accesibilidad con IA + Reglas (Texto Pegado)
@@ -127,7 +128,9 @@ async def analyze_sample(
     # Fuera del try: ValidationError es subclase de ValueError y terminaría como 400.
     payload = await _read_sample_payload(request)
     try:
-        response = await analyze_document(document_service.process_text(payload.text), mock=mock, dismissed_findings=dismissed)
+        response = await analyze_document(
+            document_service.process_text(payload.text), mock=mock, owner=owner, dismissed_findings=dismissed,
+        )
         background_tasks.add_task(analysis_repository.delete_expired)
         return response
     except SensitiveDataError as e:
@@ -187,6 +190,7 @@ async def analyze_pdf_document(
             "generar textos alternativos cuando el docente confirma que no contienen datos personales."
         ),
     ),
+    owner: str = Depends(current_owner),
 ):
     """
     ## Escáner Unificado de PDF (Semanas 2 y 3)
@@ -249,6 +253,7 @@ async def analyze_pdf_document(
         doc = await asyncio.to_thread(document_service.process_pdf, bytes(content), filename)
         response = await analyze_document(doc,
             mock=mock,
+            owner=owner,
             dismissed_findings=dismissed,
             confirm_images_without_personal_data=confirm_images_without_personal_data,)
         background_tasks.add_task(analysis_repository.delete_expired)
@@ -305,6 +310,7 @@ async def analyze_file_document(
             "generar textos alternativos cuando el docente confirma que no contienen datos personales."
         ),
     ),
+    owner: str = Depends(current_owner),
 ):
     """
     ## Escáner Unificado de PDF, Word y PowerPoint (Issue #47)
@@ -326,7 +332,9 @@ async def analyze_file_document(
     """
     try:
         content, filename = await read_supported_upload(file)
-        return await _diagnose(content, filename, background_tasks, mock, dismissed, confirm_images_without_personal_data)
+        return await _diagnose(
+            content, filename, background_tasks, mock, dismissed, confirm_images_without_personal_data, owner,
+        )
     finally:
         await file.close()
 
@@ -338,6 +346,7 @@ async def _diagnose(
     mock: bool,
     dismissed: list[str],
     confirm_images_without_personal_data: bool,
+    owner: str,
 ) -> AccessibilityAnalysisResponse:
     """Extracción + reglas + IA de un archivo ya validado (subido por multipart o leído de R2)."""
     try:
@@ -345,6 +354,7 @@ async def _diagnose(
         response = await analyze_document(
             doc,
             mock=mock,
+            owner=owner,
             dismissed_findings=dismissed,
             confirm_images_without_personal_data=confirm_images_without_personal_data,
         )
@@ -412,7 +422,7 @@ async def analyze_stored_file(
     mientras no venza.
     """
     content, filename = await read_stored_file(file_id, owner)
-    return await _diagnose(content, filename, background_tasks, mock, dismissed, confirm_images_without_personal_data)
+    return await _diagnose(content, filename, background_tasks, mock, dismissed, confirm_images_without_personal_data, owner)
 
 
 @router.get(
@@ -420,17 +430,19 @@ async def analyze_stored_file(
     response_model=AccessibilityAnalysisResponse,
     summary="Recuperar un diagnóstico previo por ID",
     response_description="Diagnóstico estructurado previamente guardado",
+    responses={404: {"description": "No existe, venció o es de otro usuario."}},
 )
-def get_analysis_by_id(analysis_id: str):
+def get_analysis_by_id(analysis_id: str, owner: str = Depends(current_owner)):
     """
     ## Recuperación de Diagnóstico por ID (Semana 4 - Issue #26)
 
     Permite consultar un diagnóstico generado previamente sin tener que volver a subir el material
     ni consumir tokens adicionales de IA. Si el diagnóstico ya superó su tiempo de vida (TTL),
     se elimina de la base de datos y se responde con 404 indicando su expiración.
+    El diagnóstico de otro usuario responde 404, igual que uno inexistente (Issue #61).
     """
     record = analysis_repository.get(analysis_id)
-    if not record:
+    if not record or record["user_id"] != owner:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Diagnóstico no encontrado",

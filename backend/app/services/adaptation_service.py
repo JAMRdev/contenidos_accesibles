@@ -129,10 +129,13 @@ def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def load_analysis(analysis_id: str) -> tuple[AccessibilityAnalysisResponse, str]:
-    """Devuelve el diagnóstico vigente y su texto extraído. Uno vencido se borra al consultarlo."""
+def load_analysis(analysis_id: str, *, owner: str) -> tuple[AccessibilityAnalysisResponse, str]:
+    """
+    Devuelve el diagnóstico vigente y su texto extraído. Uno vencido se borra al consultarlo.
+    El de otro usuario responde igual que uno inexistente (Issue #61).
+    """
     record = analysis_repository.get(analysis_id)
-    if not record:
+    if not record or record["user_id"] != owner:
         raise AdaptationNotFoundError("Diagnóstico no encontrado")
     if record["expires_at"] < _now_utc_iso():
         analysis_repository.delete(analysis_id)
@@ -258,14 +261,16 @@ def _mock_output(fragment: str, adaptation_type: AdaptationType) -> AdaptationAI
 # --- Punto de entrada ----------------------------------------------------------
 
 
-async def create_proposal( request: AdaptationRequest, *, mock: bool = False, dismissed_findings: list[str] | None = None) -> AdaptationProposal:
+async def create_proposal(
+    request: AdaptationRequest, *, owner: str, mock: bool = False, dismissed_findings: list[str] | None = None,
+) -> AdaptationProposal:
     # Issue #66: el material del diagnóstico ya pasó por el detector, pero el docente puede
     # escribir un fragmento nuevo. Se revisa antes de buscar el diagnóstico y de llamar a la IA.
     if request.fragment:
         ensure_no_sensitive_data(request.fragment, dismissed_findings or ())
 
     # Base de datos fuera del event loop: con D1 cada consulta es una llamada de red
-    analysis, extracted_text = await asyncio.to_thread(load_analysis, request.analysis_id)
+    analysis, extracted_text = await asyncio.to_thread(load_analysis, request.analysis_id, owner=owner)
     barrier = next((b for b in analysis.barriers if b.id == request.barrier_id), None)
 
     if barrier is None:
@@ -281,7 +286,9 @@ async def create_proposal( request: AdaptationRequest, *, mock: bool = False, di
     # Una propuesta pendiente por barrera: se controla antes de llamar a la IA (no gasta cuota)
     reserved = await _reserve_barrier(request.analysis_id, barrier.id)
     try:
-        return await _generate_and_save(request, barrier, analysis, extracted_text, fragment, warnings, mock=mock)
+        return await _generate_and_save(
+            request, barrier, analysis, extracted_text, fragment, warnings, owner=owner, mock=mock,
+        )
     finally:
         _generating.discard(reserved)
 
@@ -294,6 +301,7 @@ async def _generate_and_save(
     fragment: str,
     warnings: list[str],
     *,
+    owner: str,
     mock: bool,
 ) -> AdaptationProposal:
     if mock:
@@ -357,6 +365,7 @@ async def _generate_and_save(
         proposal_id=proposal.proposal_id,
         analysis_id=proposal.analysis_id,
         barrier_id=proposal.barrier_id,
+        user_id=owner,
         status=proposal.status,
         proposal_json=proposal.model_dump_json(),
         created_at=proposal.created_at,
@@ -365,15 +374,15 @@ async def _generate_and_save(
     return proposal
 
 
-def get_proposal(proposal_id: str) -> AdaptationProposal:
+def get_proposal(proposal_id: str, *, owner: str) -> AdaptationProposal:
     record = adaptation_repository.get(proposal_id)
-    if not record or record["expires_at"] < _now_utc_iso():
+    if not record or record["user_id"] != owner or record["expires_at"] < _now_utc_iso():
         raise AdaptationNotFoundError("Propuesta no encontrada o vencida")
     return AdaptationProposal.model_validate_json(record["proposal_json"])
 
 
-def list_proposals(analysis_id: str) -> list[AdaptationProposal]:
-    load_analysis(analysis_id)  # 404 si el diagnóstico no existe o venció
+def list_proposals(analysis_id: str, *, owner: str) -> list[AdaptationProposal]:
+    load_analysis(analysis_id, owner=owner)  # 404 si el diagnóstico no existe, venció o es de otro usuario
     return [
         AdaptationProposal.model_validate_json(r["proposal_json"])
         for r in adaptation_repository.list_by_analysis(analysis_id)
@@ -386,6 +395,7 @@ def list_proposals(analysis_id: str) -> list[AdaptationProposal]:
 def _apply_transition(
     proposal: AdaptationProposal,
     *,
+    owner: str,
     action: str,
     to_status: str,
     edited_text: str | None,
@@ -408,6 +418,7 @@ def _apply_transition(
             "proposal_id": proposal.proposal_id,
             "analysis_id": proposal.analysis_id,
             "barrier_id": proposal.barrier_id,
+            "user_id": owner,
             "adaptation_type": proposal.adaptation_type,
             "action": action,
             "from_status": proposal.status,
@@ -422,9 +433,9 @@ def _apply_transition(
     return updated
 
 
-def decide(proposal_id: str, request: DecisionRequest) -> AdaptationProposal:
+def decide(proposal_id: str, request: DecisionRequest, *, owner: str) -> AdaptationProposal:
     """Registra la decisión del docente sobre una propuesta pendiente."""
-    proposal = get_proposal(proposal_id)
+    proposal = get_proposal(proposal_id, owner=owner)
     if proposal.status != "pendiente":
         raise ProposalStateError(
             f"La propuesta ya fue {proposal.status}: deshacé esa decisión antes de tomar otra."
@@ -436,6 +447,7 @@ def decide(proposal_id: str, request: DecisionRequest) -> AdaptationProposal:
     }[request.decision]
     return _apply_transition(
         proposal,
+        owner=owner,
         action="decision",
         to_status=request.decision,
         edited_text=final_text if request.decision == "editada" else None,
@@ -443,9 +455,9 @@ def decide(proposal_id: str, request: DecisionRequest) -> AdaptationProposal:
     )
 
 
-def undo(proposal_id: str) -> AdaptationProposal:
+def undo(proposal_id: str, *, owner: str) -> AdaptationProposal:
     """Revierte la decisión vigente: la propuesta vuelve a 'pendiente'."""
-    proposal = get_proposal(proposal_id)
+    proposal = get_proposal(proposal_id, owner=owner)
     if proposal.status == "pendiente":
         raise ProposalStateError("La propuesta está pendiente: no hay ninguna decisión para deshacer.")
     other = adaptation_repository.find_pending(proposal.analysis_id, proposal.barrier_id, exclude_id=proposal.proposal_id)
@@ -453,11 +465,13 @@ def undo(proposal_id: str) -> AdaptationProposal:
         raise PendingProposalError(
             "La barrera ya tiene otra propuesta pendiente: decidí esa antes de deshacer esta.", proposal_id=other,
         )
-    return _apply_transition(proposal, action="deshacer", to_status="pendiente", edited_text=None, final_text=None)
+    return _apply_transition(
+        proposal, owner=owner, action="deshacer", to_status="pendiente", edited_text=None, final_text=None,
+    )
 
 
-def list_decisions(analysis_id: str) -> list[DecisionLogEntry]:
-    load_analysis(analysis_id)  # 404 si el diagnóstico no existe o venció
+def list_decisions(analysis_id: str, *, owner: str) -> list[DecisionLogEntry]:
+    load_analysis(analysis_id, owner=owner)  # 404 si el diagnóstico no existe, venció o es de otro usuario
     return [DecisionLogEntry(**r) for r in adaptation_repository.list_decisions(analysis_id)]
 
 
@@ -529,7 +543,7 @@ def _find_candidate_span(
     return taken
 
 
-def build_adapted_document(analysis_id: str) -> AdaptedDocumentResponse:
+def build_adapted_document(analysis_id: str, *, owner: str) -> AdaptedDocumentResponse:
     """
     Construye la versión final del material aplicando únicamente las adaptaciones aceptadas y editadas (Issue #38).
 
@@ -543,8 +557,8 @@ def build_adapted_document(analysis_id: str) -> AdaptedDocumentResponse:
       La propuesta no elegida se omite y se documenta en warnings.
     - Reemplazo seguro: de derecha a izquierda (índices decrecientes) para no desfasar coordenadas.
     """
-    _analysis, extracted_text = load_analysis(analysis_id)
-    proposals = list_proposals(analysis_id)
+    _analysis, extracted_text = load_analysis(analysis_id, owner=owner)
+    proposals = list_proposals(analysis_id, owner=owner)
 
     warnings: list[str] = []
     used_spans: set[tuple[int, int]] = set()
@@ -736,7 +750,7 @@ def _generate_executive_summary(
     return summary
 
 
-def build_final_report(analysis_id: str) -> FinalReportResponse:
+def build_final_report(analysis_id: str, *, owner: str) -> FinalReportResponse:
     """
     Genera el informe ejecutivo de cierre del proceso de adaptación (Issue #39).
 
@@ -745,15 +759,15 @@ def build_final_report(analysis_id: str) -> FinalReportResponse:
     - barriers_detail: cada barrera del diagnóstico original vinculada con la decisión docente.
     - executive_summary: frases legibles que describen los cambios realizados.
     """
-    analysis, extracted_text = load_analysis(analysis_id)
-    proposals = list_proposals(analysis_id)
+    analysis, extracted_text = load_analysis(analysis_id, owner=owner)
+    proposals = list_proposals(analysis_id, owner=owner)
 
     # ---- Puntaje antes -------------------------------------------------------
     score_before = analysis.estimated_score
     breakdown_before = analysis.score_breakdown  # puede ser None si es muy antiguo
 
     # ---- Texto adaptado y puntaje después (0 tokens, determinístico) ---------
-    adapted = build_adapted_document(analysis_id)
+    adapted = build_adapted_document(analysis_id, owner=owner)
     breakdown_after = _score_after(breakdown_before, adapted.adapted_text)
     score_after = breakdown_after.final_score
 

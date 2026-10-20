@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime, timezone
 
+from app.core.permissions import ANONYMOUS_OWNER
 from app.db.database import get_connection
 
 
@@ -17,6 +18,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "proposal_json": row["proposal_json"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
+        "user_id": row["user_id"],
     }
 
 
@@ -37,7 +39,8 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
                 status                  TEXT NOT NULL DEFAULT 'pendiente',
                 proposal_json           TEXT NOT NULL,
                 created_at              TEXT NOT NULL,
-                expires_at              TEXT NOT NULL
+                expires_at              TEXT NOT NULL,
+                user_id                 TEXT NOT NULL DEFAULT 'anon'
             );
             """
         )
@@ -60,7 +63,8 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
                 to_status               TEXT NOT NULL,
                 edited_text             TEXT,
                 created_at              TEXT NOT NULL,
-                expires_at              TEXT NOT NULL
+                expires_at              TEXT NOT NULL,
+                user_id                 TEXT NOT NULL DEFAULT 'anon'
             );
             """
         )
@@ -70,7 +74,7 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
         _table_initialized = True
 
 
-_COLUMNS = "id, analysis_id, barrier_id, status, proposal_json, created_at, expires_at"
+_COLUMNS = "id, analysis_id, barrier_id, status, proposal_json, created_at, expires_at, user_id"
 
 
 def save(
@@ -81,18 +85,19 @@ def save(
     proposal_json: str,
     created_at: str,
     expires_at: str,
+    user_id: str = ANONYMOUS_OWNER,
 ) -> None:
-    """Guarda o actualiza una propuesta de adaptación."""
+    """Guarda o actualiza una propuesta de adaptación, a nombre del dueño del diagnóstico (Issue #61)."""
     with get_connection() as conn:
         _ensure_table(conn)
         conn.execute(
-            f"INSERT OR REPLACE INTO adaptation_proposals ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (proposal_id, analysis_id, barrier_id, status, proposal_json, created_at, expires_at),
+            f"INSERT OR REPLACE INTO adaptation_proposals ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (proposal_id, analysis_id, barrier_id, status, proposal_json, created_at, expires_at, user_id),
         )
 
 
 def get(proposal_id: str) -> dict | None:
-    """Obtiene una propuesta por ID sin verificar expiración."""
+    """Obtiene una propuesta por ID sin verificar expiración ni dueño."""
     with get_connection() as conn:
         _ensure_table(conn)
         row = conn.execute(
@@ -148,9 +153,9 @@ def transition(
         conn.execute(
             """
             INSERT INTO adaptation_decisions
-                (proposal_id, analysis_id, barrier_id, adaptation_type, action,
+                (proposal_id, analysis_id, barrier_id, user_id, adaptation_type, action,
                  from_status, to_status, edited_text, created_at, expires_at)
-            VALUES (:proposal_id, :analysis_id, :barrier_id, :adaptation_type, :action,
+            VALUES (:proposal_id, :analysis_id, :barrier_id, :user_id, :adaptation_type, :action,
                     :from_status, :to_status, :edited_text, :created_at, :expires_at)
             """,
             log_entry,

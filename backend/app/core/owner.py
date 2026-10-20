@@ -1,15 +1,17 @@
 """
-Dueño de los recursos de un request (archivos de R2, Issue #62).
+Dueño de los recursos de un request (archivos de R2, Issue #62; por usuario desde el Issue #61).
 
-PROVISIONAL hasta el login de docentes (#60): la API todavía es anónima, así que todos los
-archivos quedan a nombre de ANONYMOUS_OWNER (claves users/anon/...). Mientras tanto, el
-acceso a un archivo depende de conocer su file_id (UUID aleatorio, no adivinable).
-
-Con #60, esta función pasa a devolver el id de usuario de Clerk del token validado; los
-endpoints, la tabla files y las claves en R2 no cambian.
+Es el id de usuario de Clerk del token del docente, el de la persona logueada en la web de
+pruebas (test-web_<tipo>_<usuario>) o ANONYMOUS_OWNER mientras la API es anónima (sin
+USERS_CLERK_JWT_KEY). Ver app/core/teacher_auth.py.
 """
-ANONYMOUS_OWNER = "anon"
+from fastapi import Depends
+
+from app.core.permissions import ANONYMOUS_OWNER, Caller
+from app.core.teacher_auth import current_caller
+
+__all__ = ["ANONYMOUS_OWNER", "current_owner"]
 
 
-def current_owner() -> str:
-    return ANONYMOUS_OWNER
+def current_owner(caller: Caller = Depends(current_caller)) -> str:
+    return caller.user_id

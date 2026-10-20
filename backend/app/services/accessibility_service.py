@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
+from app.core.permissions import ANONYMOUS_OWNER
 from app.db import analysis_repository
 from app.schemas.analysis import (
     AccessibilityAnalysisResponse,
@@ -364,6 +365,7 @@ async def analyze_document(
     overrides: dict | None = None,
     mock: bool = False,
     persist: bool = True,
+    owner: str = ANONYMOUS_OWNER,
     dismissed_findings: list[str] | None = None,
     confirm_images_without_personal_data: bool = False,
 ) -> AccessibilityAnalysisResponse:
@@ -373,6 +375,7 @@ async def analyze_document(
     - mock: si es True, simula la IA (sin llamarla); las reglas corren igual.
     - overrides: parámetros del proveedor que pisan los de la conexión (benchmarks).
     - persist: si es True, almacena el diagnóstico y texto extraído en SQLite con TTL.
+    - owner: dueño del diagnóstico guardado (Issue #61, app/core/owner.py).
     - dismissed_findings: ids de hallazgos de datos sensibles que el docente descartó.
     - confirm_images_without_personal_data: el docente confirma que las imágenes de un PDF
       escaneado no tienen datos personales; solo así se envían a la IA multimodal.
@@ -528,6 +531,7 @@ async def analyze_document(
             extracted_text=doc.raw_text,
             diagnostic_json=response.model_dump_json(),
             expires_at=response.expires_at,
+            user_id=owner,
         )
 
     return response

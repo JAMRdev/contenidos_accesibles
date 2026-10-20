@@ -19,7 +19,7 @@ from clerk_backend_api.security.types import TokenVerificationError
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.admin import clerk_auth, session
 from app.core.config import settings
@@ -27,7 +27,7 @@ from app.core.security import verify_same_origin
 from app.db import admin_member_repository as members
 from app.db import ai_usage_repository, file_event_repository
 from app.db import api_key_repository as repo
-from app.services import admin_metrics_service, status_service
+from app.services import admin_metrics_service, retention_service, status_service
 from app.services.llm.providers import PRESETS, presets_as_dicts
 
 PREFIX = "/admin"
@@ -323,6 +323,37 @@ def metrics(
     ai_usage_repository.delete_expired()
     file_event_repository.delete_expired()
     return admin_metrics_service.build_metrics(range_key, tz)
+
+
+class RetentionForm(BaseModel):
+    hours: int = Field(ge=1)
+
+
+@router.get("/api/retention")
+def get_retention(admin: session.Principal = Depends(session.require_admin)):
+    """Retención de archivos vigente y última limpieza (Issue #64)."""
+    return retention_service.retention_info()
+
+
+@router.put("/api/retention")
+def update_retention(
+    body: RetentionForm,
+    admin: session.Principal = Depends(session.require_editor),
+    _origin_ok: None = Depends(verify_same_origin),
+):
+    try:
+        return retention_service.set_file_retention_hours(body.hours, updated_by=admin.subject)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/api/retention")
+def reset_retention(
+    admin: session.Principal = Depends(session.require_editor),
+    _origin_ok: None = Depends(verify_same_origin),
+):
+    """Vuelve al valor por defecto (FILE_RETENTION_HOURS)."""
+    return retention_service.reset_file_retention(updated_by=admin.subject)
 
 
 @router.get("/api/status")

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
+from app.core.owner import current_owner
 from app.core.rate_limit import limit_ai_usage
 from app.db import adaptation_repository
 from app.schemas.adaptation import (
@@ -46,6 +47,7 @@ async def create_adaptation(
             "(Issue #66). Repetir el parámetro por cada id."
         ),
     ),
+    owner: str = Depends(current_owner),
 ):
     """
     ## Adaptaciones con IA (Issue #27)
@@ -77,7 +79,7 @@ async def create_adaptation(
       reenviá el pedido con los `id` descartados en `dismissed`.
     """
     try:
-        proposal = await adaptation_service.create_proposal(payload, mock=mock, dismissed_findings=dismissed)
+        proposal = await adaptation_service.create_proposal(payload, owner=owner, mock=mock, dismissed_findings=dismissed)
         background_tasks.add_task(adaptation_repository.delete_expired)
         return proposal
     except SensitiveDataError as e:
@@ -108,10 +110,11 @@ async def create_adaptation(
 )
 def list_adaptations(
     analysis_id: str = Query(description="ID del diagnóstico cuyas propuestas se quieren listar."),
+    owner: str = Depends(current_owner),
 ):
     """Propuestas generadas para un diagnóstico, de la más antigua a la más reciente."""
     try:
-        return adaptation_service.list_proposals(analysis_id)
+        return adaptation_service.list_proposals(analysis_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -123,13 +126,14 @@ def list_adaptations(
 )
 def list_decisions(
     analysis_id: str = Query(description="ID del diagnóstico cuyo registro de modificaciones se quiere obtener."),
+    owner: str = Depends(current_owner),
 ):
     """
     Historial cronológico de decisiones y deshaceres sobre las propuestas del diagnóstico.
     Cada entrada indica el estado anterior y el nuevo, y el texto del docente cuando editó.
     """
     try:
-        return adaptation_service.list_decisions(analysis_id)
+        return adaptation_service.list_decisions(analysis_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -141,6 +145,7 @@ def list_decisions(
 )
 def get_final_version(
     analysis_id: str = Query(description="ID del diagnóstico cuyo documento adaptado se quiere generar."),
+    owner: str = Depends(current_owner),
 ):
     """
     ## Versión final adaptada (Issue #38)
@@ -155,7 +160,7 @@ def get_final_version(
       reciente, y se documenta en `warnings`.
     """
     try:
-        return adaptation_service.build_adapted_document(analysis_id)
+        return adaptation_service.build_adapted_document(analysis_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -167,6 +172,7 @@ def get_final_version(
 )
 def get_final_report(
     analysis_id: str = Query(description="ID del diagnóstico para el cual se genera el informe de cierre."),
+    owner: str = Depends(current_owner),
 ):
     """
     ## Informe final de adaptación (Issue #39)
@@ -185,7 +191,7 @@ def get_final_report(
       certificación oficial de accesibilidad (WCAG).
     """
     try:
-        return adaptation_service.build_final_report(analysis_id)
+        return adaptation_service.build_final_report(analysis_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -195,9 +201,9 @@ def get_final_report(
     response_model=AdaptationProposal,
     summary="Recuperar una propuesta de adaptación por ID",
 )
-def get_adaptation(proposal_id: str):
+def get_adaptation(proposal_id: str, owner: str = Depends(current_owner)):
     try:
-        return adaptation_service.get_proposal(proposal_id)
+        return adaptation_service.get_proposal(proposal_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -207,7 +213,7 @@ def get_adaptation(proposal_id: str):
     response_model=AdaptationProposal,
     summary="Aceptar, editar o descartar una propuesta",
 )
-def decide_adaptation(proposal_id: str, payload: DecisionRequest):
+def decide_adaptation(proposal_id: str, payload: DecisionRequest, owner: str = Depends(current_owner)):
     """
     ## Revisión docente (Issue #29)
 
@@ -221,7 +227,7 @@ def decide_adaptation(proposal_id: str, payload: DecisionRequest):
     para cambiar de opinión, primero hay que deshacer la decisión.
     """
     try:
-        return adaptation_service.decide(proposal_id, payload)
+        return adaptation_service.decide(proposal_id, payload, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ProposalStateError as e:
@@ -233,13 +239,13 @@ def decide_adaptation(proposal_id: str, payload: DecisionRequest):
     response_model=AdaptationProposal,
     summary="Deshacer la decisión sobre una propuesta",
 )
-def undo_adaptation(proposal_id: str):
+def undo_adaptation(proposal_id: str, owner: str = Depends(current_owner)):
     """
     Revierte la decisión vigente: la propuesta vuelve a `pendiente`. Responde `409` si ya estaba
     pendiente, o si la barrera tiene otra propuesta pendiente (`detail.code = "pending_proposal_exists"`).
     """
     try:
-        return adaptation_service.undo(proposal_id)
+        return adaptation_service.undo(proposal_id, owner=owner)
     except AdaptationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PendingProposalError as e:

@@ -36,6 +36,7 @@ backend/
 │   │       │   ├── health.py         # Estado del sistema y entorno
 │   │       │   ├── test_ai.py        # Prueba de conectividad con IA
 │   │       │   ├── documents.py      # Extracción de PDF, Word, PowerPoint y texto directo
+│   │       │   ├── settings.py       # Retención de archivos editable por un admin (#64)
 │   │       │   └── analysis.py       # Escáner de accesibilidad con IA
 │   │       ├── router.py             # Versionado y unificación de rutas v1
 │   │       └── uploads.py            # Validación de archivos subidos (.pdf, .docx, .pptx)
@@ -43,15 +44,19 @@ backend/
 │   │   ├── config.py                 # Configuración centralizada y tipada (Pydantic Settings)
 │   │   ├── crypto.py                 # Cifrado (Fernet) de las API keys guardadas en la DB
 │   │   ├── docs.py                   # /docs, /redoc y openapi.json detrás de la sesión del panel (fuera de development)
-│   │   ├── rate_limit.py             # Límite de uso de IA por IP y global
-│   │   └── security.py               # Verificación anti-CSRF (Origin) de los POST del panel
+│   │   ├── owner.py                  # Dueño de los recursos del request (usuario de Clerk, web de pruebas o anon)
+│   │   ├── permissions.py            # Roles de la API (docente, admin) y sus permisos
+│   │   ├── rate_limit.py             # Límite de uso de IA por IP, por usuario y global
+│   │   ├── security.py               # Verificación anti-CSRF (Origin) de los POST del panel
+│   │   └── teacher_auth.py           # Login de docentes con Clerk: quién llama, su rol y require_permission
 │   ├── db/
 │   │   ├── database.py               # Conexión a SQLite (local) o D1 (producción) + esquema
 │   │   ├── d1_client.py              # Cliente del Worker pasarela de Cloudflare D1
 │   │   ├── d1_connection.py          # Conexión D1 con la interfaz de sqlite3 (batch atómico por bloque)
 │   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
 │   │   ├── ai_usage_repository.py    # Historial de llamadas a la IA (métricas del panel)
-│   │   └── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
+│   │   ├── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
+│   │   └── settings_repository.py    # Configuración editable desde /admin (tabla app_settings)
 │   ├── schemas/
 │   │   ├── document.py               # Contratos de extracción (ExtractedDocument, TextInputRequest)
 │   │   └── analysis.py               # Contratos de diagnóstico (AccessibilityAnalysisResponse)
@@ -63,6 +68,7 @@ backend/
 │   │   ├── key_rotation_service.py   # Rotación automática y tracking de consumo por key
 │   │   ├── llm_service.py            # Orquestación multi-proveedor de modelos de lenguaje
 │   │   ├── admin_metrics_service.py  # Métricas agregadas del panel (uso de IA, conexiones y producto)
+│   │   ├── retention_service.py      # Retención de archivos configurable y limpieza automática (#64)
 │   │   └── llm/                      # Adaptadores de proveedores (Gemini, OpenAI-compatible)
 │   └── main.py                       # Instanciación de FastAPI, Middlewares y OpenAPI
 ├── docs/
@@ -185,6 +191,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `POST` | `/api/v1/files/{file_id}/shares` | Crea un enlace para compartir el archivo (`/s/{token}`), revocable y con vencimiento (#65) | ✅ Operativo |
 | `GET` | `/api/v1/files/{file_id}/shares` | Enlaces activos del archivo, con cuántas veces se abrieron | ✅ Operativo |
 | `DELETE` | `/api/v1/files/{file_id}/shares/{share_id}` | Revoca un enlace: deja de funcionar al instante | ✅ Operativo |
+| `GET`/`PUT` | `/api/v1/settings/retention` | Retención de archivos vigente y última limpieza; cambiarla para los archivos nuevos (permiso `settings:retention`, rol admin, #64) | ✅ Operativo |
 | `GET` | `/s/{token}` | Enlace compartido (público): `302` a una URL firmada de descarga de minutos; `404` si se revocó o venció | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
@@ -192,6 +199,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET` | `/admin/diagramas/{slug}` | Diagrama de arquitectura dentro del panel. Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
 | `GET` | `/admin/api/metrics?range=24h\|7d\|30d` | Métricas agregadas del panel (JSON, requiere sesión) | ✅ Operativo |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/admin/api/members` | Usuarios de GitHub con acceso al panel y su rol (JSON, solo admins) | ✅ Operativo |
+| `GET`/`PUT`/`DELETE` | `/admin/api/retention` | Retención de archivos y última limpieza (ver: cualquier sesión; cambiar o restablecer: solo admins) | ✅ Operativo |
 | `GET`/`POST` | `/api/v1/test-web/auth/...` | Login de la web de pruebas: configuración, usuario/contraseña, Clerk y sesión actual (token Bearer) | ✅ Operativo |
 
 > `/admin` y `/api/v1/test-web/auth` son internos, no forman parte del contrato de la API — por eso no aparecen en el esquema OpenAPI de `/docs`/`/redoc` (`include_in_schema=False`).
@@ -325,9 +333,19 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 #### Login de docentes (Issue #60)
 
 - Los docentes inician sesión en el Frontend con **Clerk** (Google o Microsoft), en una aplicación de Clerk **distinta** de la del panel. El Frontend manda el token de sesión en cada request: `Authorization: Bearer <token>`.
-- Con `USERS_CLERK_JWT_KEY` configurada, `/analysis/*` y `/adaptations/*` exigen ese token, **también con `?mock=true`**. Sin token, o con uno vencido, de otro origen o inválido, responden `401` con el header `WWW-Authenticate: Bearer`. `/health` sigue público.
+- Con `USERS_CLERK_JWT_KEY` configurada, `/analysis/*`, `/adaptations/*`, `/export/*`, `/files/*` y `POST /documents/files/{file_id}` exigen ese token, **también con `?mock=true`**. Sin token, o con uno vencido, de otro origen o inválido, responden `401` con el header `WWW-Authenticate: Bearer`. `/health` sigue público.
 - El token se valida sin llamadas de red con la clave pública y solo si fue emitido para un origen de `BACKEND_CORS_ORIGINS` (protección CSRF).
 - Sin `USERS_CLERK_JWT_KEY` la API sigue anónima: así funciona en local y hasta que el Frontend mande el token. La web de pruebas sigue usando su propio login.
+
+#### Roles y permisos de la API (Issue #61)
+
+- Roles: **docente** (analiza, adapta, sube, exporta y comparte sus propios archivos) y **admin** (además configura la retención de archivos y administra usuarios).
+- El rol se guarda en `publicMetadata.role` del usuario en Clerk y viaja en el token de sesión como claim `role`. Para eso, en la aplicación de Clerk de docentes, **Sessions → Customize session token** tiene que incluir `{"role": "{{user.public_metadata.role}}"}`. Sin claim, o con un valor desconocido, el rol es `docente`: es el rol por defecto al registrarse.
+- Los permisos se derivan del rol en `app/core/permissions.py` (`analysis:create`, `adaptations:manage`, `files:manage`, `files:share`, `export:create`, `settings:retention`, `users:manage`). Sin el permiso, la API responde `403`.
+- Los diagnósticos, las propuestas, las decisiones y los archivos quedan a nombre de quien los crea (columna `user_id`): el id de usuario de Clerk, `test-web_<tipo>_<usuario>` desde la web de pruebas (con el rol de la API según el del panel: admin → admin, solo lectura → docente) o `anon` mientras la API es anónima.
+- Un docente solo accede a lo suyo: el diagnóstico, la propuesta, el informe o el archivo de otro usuario responde `404`, igual que uno inexistente.
+- **Antes de desplegar este cambio en producción** hay que aplicar la migración `0005_user_id.sql` en D1 (`cd d1-gateway && npm run migrate:remote`): con D1, el arranque verifica que esté la columna `user_id`. En SQLite local la columna se agrega sola al iniciar; lo previo queda a nombre de `anon`.
+- El panel `/admin` mantiene sus propios roles (admin y solo lectura) y su login; no depende de los roles de docentes.
 
 ### Rate limit de IA
 
@@ -337,6 +355,8 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 | :--- | :--- | :--- |
 | `AI_RATE_LIMIT_PER_IP_MINUTE` | `5` | Por IP, último minuto |
 | `AI_RATE_LIMIT_PER_IP_DAY` | `50` | Por IP, últimas 24 h |
+| `AI_RATE_LIMIT_PER_USER_MINUTE` | `5` | Por usuario autenticado (token de docente o web de pruebas), último minuto |
+| `AI_RATE_LIMIT_PER_USER_DAY` | `50` | Por usuario autenticado, últimas 24 h |
 | `AI_RATE_LIMIT_GLOBAL_MINUTE` | `20` | Todas las IP, último minuto |
 | `AI_RATE_LIMIT_GLOBAL_DAY` | `500` | Todas las IP, últimas 24 h |
 
@@ -439,8 +459,10 @@ Para descargar: `GET /api/v1/files/{file_id}/download-url`.
 - Cada subida, exportación, descarga y enlace queda en `file_events` (migración `0004_file_events.sql`) para las métricas del panel. Registrar un evento nunca hace fallar la operación. Las exportaciones (`/export/content` y `/export/report`) con `delivery=link` guardan el archivo generado y devuelven la misma estructura; sin ese parámetro siguen devolviendo el archivo, hasta que el frontend pase a usar enlaces.
 
 - **Claves**: `users/<usuario>/uploads/<aleatorio>.<ext>` y `users/<usuario>/exports/...`. No son adivinables y tienen prefijo por usuario.
-- **Dueño provisional**: hasta el login de docentes (#60), todos los archivos son del usuario `anon` (`app/core/owner.py`) y el acceso depende de conocer el `file_id` (UUID aleatorio). Con #60 solo cambia `current_owner()`; los endpoints, la tabla y las claves no cambian.
-- **Vencimiento**: cada archivo vence a las `FILE_TTL_HOURS` (24 h). Después ya no se puede consultar ni descargar. Borrarlo del bucket es #64.
+- **Dueño**: cada archivo es de quien lo subió (`app/core/owner.py`, ver *Roles y permisos de la API*); otro usuario recibe `404`. Mientras la API es anónima (sin `USERS_CLERK_JWT_KEY`) todos son de `anon` y el acceso depende de conocer el `file_id` (UUID aleatorio).
+- **Retención (#64)**: cada archivo vence a las horas de retención vigentes al crearlo: `FILE_RETENTION_HOURS` (24 h) o la que configure un admin en `/admin` (pestaña **Uso del producto**) o con `PUT /api/v1/settings/retention` (permiso `settings:retention`), hasta `FILE_RETENTION_MAX_HOURS` (168 h). Cambiarla no altera los archivos que ya existen. Los exportados vencen, como mucho, con su diagnóstico. El valor se guarda en la tabla `app_settings` (migración `0006_app_settings.sql`).
+- **Vencido = inexistente**: un archivo vencido deja de aparecer en la API y sus enlaces dejan de funcionar al instante, aunque todavía no se haya borrado.
+- **Limpieza automática**: cada `FILE_CLEANUP_INTERVAL_MINUTES` (60) el backend borra de R2 y de la base los archivos vencidos, sus enlaces y las subidas que nunca se confirmaron. Si R2 falla con un archivo, se reintenta en la próxima pasada. La última ejecución se ve en `/admin`. Como respaldo, el bucket tiene una regla de lifecycle que borra lo que esté bajo `users/` 8 días después de creado: el máximo permitido (7 días) más uno de margen (`npm run r2:lifecycle`). Si se sube `FILE_RETENTION_MAX_HOURS`, hay que ajustar la regla.
 - **Desarrollo** (`STORAGE_BACKEND=local`, por defecto): los archivos van a `LOCAL_STORAGE_PATH` (`local_storage/`, fuera de Git). Las URLs firmadas (HMAC) apuntan a `/api/v1/files/local/...`, que hace de R2 y solo responde en este modo. El frontend no distingue el modo.
 - **Producción** (`STORAGE_BACKEND=r2`): bucket privado `contenidos-accesibles-archivos` (ENAM) con CORS solo para el frontend y la web de pruebas (`d1-gateway/r2-cors.json`). La pestaña **Estado** de `/admin` lo chequea con un `HEAD` del bucket.
 
@@ -453,6 +475,8 @@ npm run r2:cors     # aplica r2-cors.json (repetir si cambian los orígenes)
 ```
 
 Después, en el dashboard: **R2 → Manage API tokens → Create API token** con permiso **Object Read & Write** solo sobre ese bucket. El *Access Key ID* y el *Secret Access Key* van a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY` en Railway, junto con `R2_ACCOUNT_ID`, `R2_BUCKET` y `STORAGE_BACKEND=r2`.
+
+**Antes de desplegar #64** hay que aplicar la migración `0006_app_settings.sql` en D1 (`npm run migrate:remote`) y la regla de lifecycle (`npm run r2:lifecycle`).
 
 **Antes de desplegar este cambio en producción** hay que aplicar la migración `0002_files.sql` en D1 (`npm run migrate:remote`): con D1, el arranque verifica que estén todas las tablas.
 

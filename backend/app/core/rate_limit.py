@@ -1,11 +1,12 @@
 """
 Rate limit en memoria para los endpoints que consumen IA real.
 
-El repo es público y la API no tiene autenticación: sin este límite, cualquiera
-podría agotar la cuota diaria de los proveedores llamando en loop. Se aplican
-ventanas deslizantes de 1 minuto y 24 horas, por IP y globales:
+El repo es público y la API puede usarse sin login (sin USERS_CLERK_JWT_KEY): sin este
+límite, cualquiera podría agotar la cuota diaria de los proveedores llamando en loop. Se
+aplican ventanas deslizantes de 1 minuto y 24 horas, por IP, por usuario y globales:
 
 - Por IP: reparte la cuota entre quienes usan la API.
+- Por usuario autenticado (Issue #61): un docente no agota la cuota cambiando de IP.
 - Global: protege la cuota aunque se falsee la IP (detrás del proxy de Railway
   la IP sale de X-Forwarded-For, que el cliente puede manipular).
 
@@ -96,6 +97,20 @@ async def limit_ai_usage(request: Request) -> None:
             wait,
         )
 
+    # Quién llama ya está resuelto si el router exige permisos (app/core/teacher_auth.py)
+    caller = getattr(request.state, "caller", None)
+    user_key = f"user:{caller.user_id}" if caller is not None and caller.authenticated else None
+    if user_key:
+        wait = _retry_after(
+            user_key, settings.AI_RATE_LIMIT_PER_USER_MINUTE, settings.AI_RATE_LIMIT_PER_USER_DAY, now
+        )
+        if wait is not None:
+            raise _reject(
+                f"Alcanzaste tu límite de solicitudes de IA. Probá de nuevo en "
+                f"{max(1, math.ceil(wait))} s (o usá ?mock=true para probar sin IA).",
+                wait,
+            )
+
     wait = _retry_after(
         _GLOBAL_KEY, settings.AI_RATE_LIMIT_GLOBAL_MINUTE, settings.AI_RATE_LIMIT_GLOBAL_DAY, now
     )
@@ -106,8 +121,9 @@ async def limit_ai_usage(request: Request) -> None:
             wait,
         )
 
-    for key in (ip, _GLOBAL_KEY):
-        _hits.setdefault(key, deque()).append(now)
+    for key in (ip, user_key, _GLOBAL_KEY):
+        if key:
+            _hits.setdefault(key, deque()).append(now)
 
 
 async def limit_share_access(request: Request) -> None:

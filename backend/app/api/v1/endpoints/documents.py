@@ -2,6 +2,7 @@ import asyncio
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from app.api.v1.uploads import read_stored_file, read_supported_upload
 from app.core.owner import current_owner
+from app.core.teacher_auth import require_permission
 from app.schemas.document import ExtractedDocument, TextInputRequest
 from app.services.document_service import document_service
 
@@ -164,6 +165,7 @@ async def upload_document(
 @router.post(
     "/files/{file_id}",
     response_model=ExtractedDocument,
+    dependencies=[Depends(require_permission("files:manage"))],
     summary="Extraer el contenido de un archivo subido al almacenamiento, por su file_id",
     response_description="Contenido textual, estructura, métricas e imágenes del documento",
     responses={

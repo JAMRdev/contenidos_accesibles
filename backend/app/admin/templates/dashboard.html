@@ -196,6 +196,33 @@
 
         <div class="admin-section-head">
             <div>
+                <h2 class="admin-h2">Retención de archivos</h2>
+                <p class="admin-muted admin-section-lead">
+                    Cuánto se conservan los archivos subidos y exportados. Un cambio aplica a los archivos nuevos:
+                    los que ya existen mantienen su vencimiento. Al vencer, la limpieza automática los borra del almacenamiento.
+                </p>
+            </div>
+        </div>
+        <div class="kpi-grid" id="retention-kpis"></div>
+        {% if admin.can_edit %}
+        <form class="member-add retention-form" id="retention-form" novalidate>
+            <div class="form-group">
+                <div class="form-label-container"><label class="form-label" for="retention-hours">Retención (horas)</label></div>
+                <input class="form-control" id="retention-hours" type="number" min="1" step="1" required inputmode="numeric" aria-describedby="retention-help">
+                <p class="form-text admin-muted" id="retention-help"></p>
+            </div>
+            <button type="submit" class="btn btn-primary member-add-submit">
+                <span class="material-symbols-rounded" aria-hidden="true">save</span> Guardar
+            </button>
+            <button type="button" class="btn btn-outline-secondary member-add-submit" id="retention-reset">
+                <span class="material-symbols-rounded" aria-hidden="true">restart_alt</span> Volver al valor por defecto
+            </button>
+        </form>
+        {% endif %}
+        <div id="retention-feedback" aria-live="polite"></div>
+
+        <div class="admin-section-head">
+            <div>
                 <h2 class="admin-h2">Archivos y enlaces compartidos</h2>
                 <p class="admin-muted admin-section-lead">
                     Según el período elegido arriba. Se registra cada subida, exportación, descarga y enlace

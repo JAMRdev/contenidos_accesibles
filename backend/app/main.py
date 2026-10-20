@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -17,7 +18,7 @@ from app.core.docs import setup_protected_docs
 from app.admin import clerk_auth, test_web_auth
 from app.db import admin_member_repository, ai_usage_repository, analysis_repository
 from app.db.database import init_db
-from app.services import key_rotation_service
+from app.services import key_rotation_service, retention_service
 
 # En development, Swagger/ReDoc/openapi.json quedan abiertos (rutas por defecto
 # de FastAPI). En staging/production se desactivan y se registran de nuevo
@@ -40,7 +41,13 @@ async def lifespan(app: FastAPI):
             name="clerk-sync-env-admin",
             daemon=True,
         ).start()
+    # Limpieza de archivos vencidos (Issue #64): una sola réplica, así que alcanza con una tarea en el proceso
+    cleanup = None
+    if settings.FILE_CLEANUP_INTERVAL_MINUTES > 0:
+        cleanup = asyncio.create_task(retention_service.cleanup_loop(settings.FILE_CLEANUP_INTERVAL_MINUTES))
     yield
+    if cleanup:
+        cleanup.cancel()
 
 
 app = FastAPI(

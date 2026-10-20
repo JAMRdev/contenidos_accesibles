@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime, timezone
 
+from app.core.permissions import ANONYMOUS_OWNER
 from app.db.database import get_connection
 
 
@@ -17,6 +18,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "diagnostic_json": row["diagnostic_json"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
+        "user_id": row["user_id"],
     }
 
 
@@ -37,7 +39,8 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
                 extracted_text          TEXT NOT NULL,
                 diagnostic_json         TEXT NOT NULL,
                 created_at              TEXT NOT NULL,
-                expires_at              TEXT NOT NULL
+                expires_at              TEXT NOT NULL,
+                user_id                 TEXT NOT NULL DEFAULT 'anon'
             );
             """
         )
@@ -53,8 +56,9 @@ def save(
     diagnostic_json: str,
     expires_at: str,
     created_at: str | None = None,
+    user_id: str = ANONYMOUS_OWNER,
 ) -> None:
-    """Guarda o actualiza un diagnóstico de accesibilidad en SQLite."""
+    """Guarda o actualiza un diagnóstico de accesibilidad, a nombre de su dueño (Issue #61)."""
     if created_at is None:
         created_at = _now_utc_iso()
 
@@ -63,8 +67,8 @@ def save(
         conn.execute(
             """
             INSERT OR REPLACE INTO analyses
-                (id, source_type, filename, extracted_text, diagnostic_json, created_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, source_type, filename, extracted_text, diagnostic_json, created_at, expires_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analysis_id,
@@ -74,17 +78,18 @@ def save(
                 diagnostic_json,
                 created_at,
                 expires_at,
+                user_id,
             ),
         )
 
 
 def get(analysis_id: str) -> dict | None:
-    """Obtiene un diagnóstico por su ID único sin verificar expiración."""
+    """Obtiene un diagnóstico por su ID único sin verificar expiración ni dueño."""
     with get_connection() as conn:
         _ensure_table(conn)
         row = conn.execute(
             """
-            SELECT id, source_type, filename, extracted_text, diagnostic_json, created_at, expires_at
+            SELECT id, source_type, filename, extracted_text, diagnostic_json, created_at, expires_at, user_id
             FROM analyses
             WHERE id = ?
             """,

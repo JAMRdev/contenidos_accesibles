@@ -1,5 +1,5 @@
 """
-Login de docentes con Clerk (Issue #60).
+Login de docentes con Clerk (Issue #60) y quién hace cada request, con su rol (Issue #61).
 
 El Frontend inicia sesión con Clerk (Google o Microsoft) y manda el token de sesión en cada
 request (`Authorization: Bearer <token>`). Esta dependencia lo valida sin llamadas de red, con
@@ -9,10 +9,15 @@ en app/admin/clerk_auth.py:
 - Solo se aceptan tokens de sesión (los de máquina no aplican).
 - El token tiene que haber sido emitido para uno de los orígenes del Frontend (authorized_parties
   = orígenes de CORS): un token robado no sirve desde otro sitio.
+- El rol sale del claim `role` (publicMetadata.role en la plantilla del token de sesión de Clerk).
 
-Sin USERS_CLERK_JWT_KEY no se exige nada (local y hasta que el Frontend esté listo). Las llamadas de la
-web de pruebas ya llegan validadas por su propio login (app/admin/test_web_auth.py) y pasan.
+Sin USERS_CLERK_JWT_KEY no se exige nada (local y hasta que el Frontend esté listo): quien llama es
+el usuario anónimo, con rol docente. Las llamadas de la web de pruebas ya llegan validadas por su
+propio login (app/admin/test_web_auth.py): sus recursos quedan a nombre de esa persona y su rol
+de la API sale del rol del panel (admin -> admin, solo lectura -> docente).
 """
+import re
+
 from clerk_backend_api.security.types import (
     TokenType,
     TokenVerificationError,
@@ -20,9 +25,10 @@ from clerk_backend_api.security.types import (
     VerifyTokenOptions,
 )
 from clerk_backend_api.security.verifytoken import get_token_type, verify_token
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 
 from app.core.config import settings
+from app.core.permissions import ADMIN, ANONYMOUS_OWNER, DOCENTE, Caller, role_from_claim
 
 
 def _unauthorized(detail: str) -> HTTPException:
@@ -40,12 +46,25 @@ def _bearer_token(request: Request) -> str | None:
     return token.strip()
 
 
-def require_teacher(request: Request) -> None:
-    """Dependencia: 401 si el login de docentes está activo y el request no trae un token válido."""
+def owner_for_test_web(kind: str, username: str) -> str:
+    """Dueño de los recursos creados desde la web de pruebas: test-web_<tipo>_<usuario>.
+
+    En minúsculas (GitHub no distingue mayúsculas) y solo con caracteres seguros, porque va en
+    las claves de R2 (users/<dueño>/...). No choca con los ids de Clerk, que empiezan con "user_".
+    """
+    return f"test-web_{kind}_{re.sub(r'[^a-z0-9-]', '_', username.lower())}"
+
+
+def _resolve_caller(request: Request) -> Caller:
+    principal = getattr(request.state, "test_web_principal", None)
+    if principal is not None:
+        return Caller(
+            owner_for_test_web(principal.kind, principal.username),
+            ADMIN if principal.can_edit else DOCENTE,
+            authenticated=True,
+        )
     if not settings.teacher_auth_enabled:
-        return
-    if getattr(request.state, "test_web_principal", None) is not None:
-        return
+        return Caller(ANONYMOUS_OWNER)
 
     token = _bearer_token(request)
     if token is None:
@@ -59,6 +78,30 @@ def require_teacher(request: Request) -> None:
         )
     except TokenVerificationError:
         raise _unauthorized("La sesión no es válida o venció. Volvé a iniciar sesión.")
+    return Caller(claims["sub"], role_from_claim(claims.get("role")), authenticated=True)
 
-    # Id de usuario de Clerk, para cuando los recursos pasen a ser por docente (#61, app/core/owner.py)
-    request.state.teacher_user_id = claims["sub"]
+
+def current_caller(request: Request) -> Caller:
+    """Dependencia: quién llama. 401 si el login de docentes está activo y no hay un token válido.
+
+    Queda en request.state.caller para el rate limit por usuario (app/core/rate_limit.py).
+    """
+    caller = getattr(request.state, "caller", None)
+    if caller is None:
+        caller = _resolve_caller(request)
+        request.state.caller = caller
+    return caller
+
+
+def require_permission(permission: str):
+    """Dependencia: 401 sin sesión válida (si el login está activo) y 403 si el rol no tiene el permiso."""
+
+    def dependency(caller: Caller = Depends(current_caller)) -> Caller:
+        if not caller.can(permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tu usuario no tiene permiso para esta acción.",
+            )
+        return caller
+
+    return dependency

@@ -3,7 +3,7 @@ from functools import lru_cache
 from typing import Annotated, Literal, Union
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -88,10 +88,15 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str | None = None
     R2_SECRET_ACCESS_KEY: SecretStr | None = None
     R2_BUCKET: str | None = None
-    # Vigencia de las URLs firmadas de subida y descarga, y de los archivos (la limpieza es #64)
+    # Vigencia de las URLs firmadas de subida y descarga
     FILE_UPLOAD_URL_TTL_S: int = Field(default=300, ge=30, le=3600)
     FILE_DOWNLOAD_URL_TTL_S: int = Field(default=300, ge=30, le=3600)
-    FILE_TTL_HOURS: int = Field(default=24, ge=1)
+    # Retención de los archivos (Issue #64): valor por defecto, que un admin puede cambiar desde
+    # /admin hasta FILE_RETENTION_MAX_HOURS. También se acepta el nombre anterior, FILE_TTL_HOURS.
+    FILE_RETENTION_HOURS: int = Field(default=24, ge=1, validation_alias=AliasChoices("FILE_RETENTION_HOURS", "FILE_TTL_HOURS"))
+    FILE_RETENTION_MAX_HOURS: int = Field(default=168, ge=1)
+    # Cada cuántos minutos se borran de R2 y de la base los archivos vencidos (0 = sin limpieza programada)
+    FILE_CLEANUP_INTERVAL_MINUTES: int = Field(default=60, ge=0)
     # Enlaces para compartir (Issue #65): /s/{token} redirige a una URL firmada de pocos minutos.
     # Rate limit en memoria por IP y global (0 desactiva ese límite).
     SHARE_RATE_LIMIT_PER_IP_MINUTE: int = Field(default=30, ge=0)
@@ -134,6 +139,15 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"DATABASE_BACKEND=d1 requiere {' y '.join(missing)}.")
+        return self
+
+    @model_validator(mode="after")
+    def check_file_retention(self) -> "Settings":
+        """Fail-Fast: la retención por defecto no puede superar el máximo permitido."""
+        if self.FILE_RETENTION_HOURS > self.FILE_RETENTION_MAX_HOURS:
+            raise ValueError(
+                f"FILE_RETENTION_HOURS ({self.FILE_RETENTION_HOURS}) supera FILE_RETENTION_MAX_HOURS ({self.FILE_RETENTION_MAX_HOURS})."
+            )
         return self
 
     @model_validator(mode="after")
@@ -193,6 +207,9 @@ class Settings(BaseSettings):
     # 0 desactiva ese límite. El global protege la cuota aunque se falsee la IP.
     AI_RATE_LIMIT_PER_IP_MINUTE: int = Field(default=5, ge=0)
     AI_RATE_LIMIT_PER_IP_DAY: int = Field(default=50, ge=0)
+    # Por usuario autenticado (docente con token o persona logueada en la web de pruebas, Issue #61)
+    AI_RATE_LIMIT_PER_USER_MINUTE: int = Field(default=5, ge=0)
+    AI_RATE_LIMIT_PER_USER_DAY: int = Field(default=50, ge=0)
     AI_RATE_LIMIT_GLOBAL_MINUTE: int = Field(default=20, ge=0)
     AI_RATE_LIMIT_GLOBAL_DAY: int = Field(default=500, ge=0)
 

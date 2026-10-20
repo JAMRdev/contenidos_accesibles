@@ -32,7 +32,7 @@ def test_get_privacy_policy_success(client):
     storage = data["storage_policy"]
     assert "disco local" in storage["local_disk_storage"].lower()
     assert storage["storage_backend"] == settings.STORAGE_BACKEND
-    assert storage["retention_period_hours"] == settings.FILE_TTL_HOURS
+    assert storage["retention_period_hours"] == settings.FILE_RETENTION_HOURS
     assert storage["auto_deletion_enabled"] is True
 
     # Carpetas de almacenamiento segregadas
@@ -44,7 +44,7 @@ def test_get_privacy_policy_success(client):
 
     # Derechos docentes
     assert "user_rights" in data
-    assert str(settings.FILE_TTL_HOURS) in data["user_rights"]
+    assert str(settings.FILE_RETENTION_HOURS) in data["user_rights"]
 
 
 def test_privacy_policy_public_access(client, monkeypatch):
