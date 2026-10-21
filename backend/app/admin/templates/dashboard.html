@@ -66,6 +66,9 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="tab-producto" data-bs-toggle="tab" data-bs-target="#panel-producto" type="button" role="tab" aria-controls="panel-producto" aria-selected="false">Uso del producto</button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-uso-usuarios" data-bs-toggle="tab" data-bs-target="#panel-uso-usuarios" type="button" role="tab" aria-controls="panel-uso-usuarios" aria-selected="false">Uso por usuario</button>
+        </li>
         {% if admin.can_edit %}
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="tab-usuarios" data-bs-toggle="tab" data-bs-target="#panel-usuarios" type="button" role="tab" aria-controls="panel-usuarios" aria-selected="false">Usuarios</button>
@@ -257,6 +260,140 @@
                 </thead>
                 <tbody id="shares-body"></tbody>
             </table>
+        </div>
+    </section>
+
+    <!-- Uso por usuario (Issue #104) -->
+    <section class="tab-pane" id="panel-uso-usuarios" role="tabpanel" aria-labelledby="tab-uso-usuarios" tabindex="0">
+        <h2 class="visually-hidden">Uso por usuario</h2>
+        <p class="admin-note">
+            <span class="material-symbols-rounded" aria-hidden="true">history</span>
+            Historial permanente de cada usuario de la API: no vence con los diagnósticos ni con los archivos.
+            Se registra qué hizo, con qué formato y cuántos tokens usó, nunca el material, las propuestas ni los nombres de archivo.
+        </p>
+        <div class="kpi-grid" id="users-kpis"></div>
+        <div class="chart-grid">
+            <div class="chart-card chart-wide" id="chart-users-activity"></div>
+            <div class="chart-card" id="chart-users-rank-actions"></div>
+            <div class="chart-card" id="chart-users-rank-tokens"></div>
+        </div>
+
+        <div class="admin-section-head">
+            <div>
+                <h2 class="admin-h2">Usuarios</h2>
+                <p class="admin-muted admin-section-lead">
+                    Docentes del Frontend (Clerk), personas de la web de pruebas y el usuario anónimo mientras la API no exige login.
+                    Las cifras son del período elegido arriba; el total histórico está en el detalle.
+                </p>
+            </div>
+        </div>
+        <div class="table-filters">
+            <div class="form-group">
+                <div class="form-label-container">
+                    <label class="form-label" for="users-search">Buscar</label>
+                </div>
+                <div class="search-field">
+                    <span class="material-symbols-rounded" aria-hidden="true">search</span>
+                    <input class="form-control" type="search" id="users-search" placeholder="Nombre, email o id">
+                </div>
+            </div>
+            {{ select("users-source", "Origen", [("", "Todos los orígenes"), ("frontend", "Frontend"), ("test_web", "Pruebas"), ("anon", "Anónimo")]) }}
+            {{ select("users-activity", "Actividad", [("", "Todos"), ("active", "Con actividad en el período")]) }}
+        </div>
+        <div class="table-card">
+            <table class="table table-borderless admin-table users-table">
+                <caption class="visually-hidden">Usuarios de la API y su uso en el período</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">
+                            <span class="th-title">Usuario</span>
+                            <span class="th-subtitle">Email o id</span>
+                        </th>
+                        <th scope="col">
+                            <span class="th-title">Origen</span>
+                            <span class="th-subtitle">Rol</span>
+                        </th>
+                        <th scope="col">
+                            <span class="th-title">Último uso</span>
+                            <span class="th-subtitle">Primer uso</span>
+                        </th>
+                        <th scope="col" class="num">Diagnósticos</th>
+                        <th scope="col" class="num">Propuestas</th>
+                        <th scope="col" class="num">
+                            <span class="th-title">Decisiones</span>
+                            <span class="th-subtitle">Acept. · edit. · desc.</span>
+                        </th>
+                        <th scope="col" class="num">
+                            <span class="th-title">Archivos</span>
+                            <span class="th-subtitle">Subidos · export. · enlaces</span>
+                        </th>
+                        <th scope="col" class="num">Tokens</th>
+                        <th scope="col" class="num">429</th>
+                        <th scope="col" class="col-actions"><span class="visually-hidden">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody id="users-body">
+                    <tr><td colspan="10" class="admin-muted">Cargando…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="user-detail" id="user-detail" hidden tabindex="-1" aria-live="polite">
+            <div class="admin-section-head">
+                <div>
+                    <h2 class="admin-h2" id="user-detail-title">Detalle del usuario</h2>
+                    <p class="admin-muted admin-section-lead" id="user-detail-lead"></p>
+                </div>
+                <button type="button" class="btn btn-outline-secondary" id="user-detail-close">
+                    <span class="material-symbols-rounded" aria-hidden="true">close</span> Cerrar detalle
+                </button>
+            </div>
+            <div class="kpi-grid" id="user-detail-kpis"></div>
+            <div class="chart-grid">
+                <div class="chart-card chart-wide" id="chart-user-activity"></div>
+                <div class="chart-card" id="chart-user-formats"></div>
+                <div class="chart-card" id="chart-user-adaptations"></div>
+            </div>
+            <div class="admin-section-head">
+                <div>
+                    <h3 class="admin-h2">Modelos de IA en el período</h3>
+                </div>
+            </div>
+            <div class="table-card">
+                <table class="table table-borderless admin-table">
+                    <caption class="visually-hidden">Llamadas a la IA del usuario por modelo</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Proveedor / Modelo</th>
+                            <th scope="col" class="num">Llamadas</th>
+                            <th scope="col" class="num">Con error</th>
+                            <th scope="col" class="num">Tokens</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-detail-models"></tbody>
+                </table>
+            </div>
+            <div class="admin-section-head">
+                <div>
+                    <h3 class="admin-h2">Últimas acciones</h3>
+                    <p class="admin-muted admin-section-lead">Las 50 más recientes, de cualquier período. Solo metadatos.</p>
+                </div>
+            </div>
+            <div class="table-card">
+                <table class="table table-borderless admin-table">
+                    <caption class="visually-hidden">Últimas acciones del usuario</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Fecha</th>
+                            <th scope="col">Acción</th>
+                            <th scope="col">Detalle</th>
+                            <th scope="col">Proveedor / Modelo</th>
+                            <th scope="col" class="num">Tokens</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-detail-recent"></tbody>
+                </table>
+            </div>
         </div>
     </section>
 

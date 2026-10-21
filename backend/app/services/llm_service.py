@@ -9,6 +9,7 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from app.db import ai_usage_repository
+from app.db import user_activity_repository as user_activity
 from app.services import key_rotation_service
 from app.services.key_rotation_service import AllKeysExhaustedError
 from app.services.llm.base import (
@@ -79,6 +80,16 @@ def _log_event(
         )
     except Exception:
         logger.exception("No se pudo registrar el uso de la conexión '%s'", conn.label)
+    # A nombre de quien hace el request (Issue #104): sin la conexión ni la key, que son del panel
+    user_activity.record_for_caller(
+        "ai_call",
+        format=kind,
+        detail=outcome,
+        provider=conn.provider,
+        model=conn.model,
+        latency_ms=int((time.perf_counter() - started) * 1000),
+        tokens=usage.total_tokens if usage else 0,
+    )
 
 
 def _log_failure(conn: AIConnection, kind: str, started: float) -> None:

@@ -196,6 +196,56 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at              TEXT NOT NULL,
     updated_by              TEXT
 );
+
+-- Historial de uso por usuario para las estadísticas de /admin (Issue #104). Una fila por acción,
+-- con metadatos y nunca el material, los textos propuestos ni nombres de archivo. Es permanente:
+-- no tiene claves foráneas ni vence con los diagnósticos o los archivos, y ninguna limpieza lo borra.
+CREATE TABLE IF NOT EXISTS user_activity (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at              TEXT NOT NULL,
+    -- id de Clerk, test-web_<tipo>_<usuario> o 'anon' (Issue #61)
+    user_id                 TEXT NOT NULL,
+    -- analysis, proposal, decision, upload, upload_rejected, export, download, share_created,
+    -- share_opened, share_revoked, ai_call o rate_limited
+    action                  TEXT NOT NULL,
+    -- origen del diagnóstico (text, pdf, docx, pptx), extensión del archivo o tipo de llamada a la IA
+    format                  TEXT,
+    -- decisión (aceptada, editada, descartada, deshacer), exportación ('<content|report>:<file|link>'),
+    -- enlace (upload, export), resultado de la IA (ok, rate_limited, ...) o límite superado (ip, user, global)
+    detail                  TEXT,
+    adaptation_type         TEXT,
+    -- 1 = ?mock=true (sin IA real)
+    mock                    INTEGER NOT NULL DEFAULT 0,
+    size_bytes              INTEGER,
+    score                   INTEGER,
+    barriers                INTEGER,
+    provider                TEXT,
+    model                   TEXT,
+    latency_ms              INTEGER,
+    -- solo en ai_call: así la suma por usuario no cuenta dos veces los tokens
+    tokens                  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_user_activity_created_at
+    ON user_activity(created_at);
+CREATE INDEX IF NOT EXISTS idx_user_activity_user_created
+    ON user_activity(user_id, created_at);
+
+-- Usuarios de la API (Issue #104): primer y último uso y rol. El nombre y el email de los
+-- usuarios de Clerk se cachean desde su API (profile_fetched_at), no se consultan en cada request.
+CREATE TABLE IF NOT EXISTS api_users (
+    user_id                 TEXT PRIMARY KEY,
+    -- frontend (Clerk), test_web o anon
+    source                  TEXT NOT NULL,
+    role                    TEXT NOT NULL,
+    name                    TEXT,
+    email                   TEXT,
+    avatar_url              TEXT,
+    first_seen_at           TEXT NOT NULL,
+    last_seen_at            TEXT NOT NULL,
+    profile_fetched_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_users_last_seen
+    ON api_users(last_seen_at);
 """
 
 
@@ -203,7 +253,7 @@ _d1_client = None
 _d1_lock = threading.Lock()
 
 # Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
-REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events", "app_settings"}
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events", "app_settings", "user_activity", "api_users"}
 
 
 def _shared_d1_client():

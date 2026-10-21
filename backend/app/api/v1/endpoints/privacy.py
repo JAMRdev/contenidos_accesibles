@@ -12,6 +12,7 @@ from app.schemas.privacy import (
     ExternalAIProcessingPolicy,
     PrivacyPolicyResponse,
     StoragePolicy,
+    UsageStatisticsPolicy,
 )
 from app.services import retention_service
 from app.services.document_service import MAX_ANALYSIS_WORDS
@@ -26,7 +27,8 @@ router = APIRouter()
     description=(
         "Devuelve las condiciones de privacidad activas en el backend: proveedor y modelo de IA en uso, "
         "qué datos se envían a la IA externa, filtros de datos personales (PII), garantía de no persistencia "
-        "en disco local y política de retención en almacenamiento temporal (Cloudflare R2 o local)."
+        "en disco local, política de retención en almacenamiento temporal (Cloudflare R2 o local) e historial "
+        "de uso por usuario (permanente y sin contenido del material, Issue #104)."
     ),
 )
 def get_privacy_policy() -> PrivacyPolicyResponse:
@@ -66,8 +68,29 @@ def get_privacy_policy() -> PrivacyPolicyResponse:
                 "adapted": "Versiones adaptadas generadas",
             },
         ),
+        # Historial de uso por usuario (Issue #104): permanente, sin contenido
+        usage_statistics=UsageStatisticsPolicy(
+            enabled=True,
+            retention="Indefinida: el historial de uso no vence ni se borra con los materiales.",
+            deleted_with_materials=False,
+            recorded_data=[
+                "Usuario (id de la cuenta), fecha y tipo de cada acción: diagnóstico, propuesta, decisión, "
+                "subida, exportación, descarga, enlace compartido, llamada a la IA y límite de uso alcanzado",
+                "Formato del material o del archivo (texto, PDF, Word, PowerPoint, Markdown) y su tamaño",
+                "Puntaje y cantidad de barreras del diagnóstico, tipo de adaptación y decisión del docente",
+                "Proveedor y modelo de IA, latencia y tokens consumidos",
+                "Nombre y email de la cuenta, primer y último uso, y rol",
+            ],
+            never_recorded=[
+                "El texto o el contenido del material",
+                "Las propuestas de adaptación, los textos editados ni las respuestas de la IA",
+                "Los nombres de los archivos",
+            ],
+            visible_to="Solo el equipo con acceso al panel de administración.",
+        ),
         user_rights=(
             "El docente mantiene el control pedagógico total de su material. Los datos se eliminan "
-            f"automáticamente al transcurrir el período de retención de {retention_hours} horas."
+            f"automáticamente al transcurrir el período de retención de {retention_hours} horas. "
+            "El historial de uso (sin contenido del material) se conserva para las estadísticas del servicio."
         ),
     )

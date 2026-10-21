@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from app.db import adaptation_repository, analysis_repository
+from app.db import user_activity_repository as user_activity
 from app.schemas.adaptation import (
     AdaptationAIOutput,
     AdaptationMetadata,
@@ -371,6 +372,17 @@ async def _generate_and_save(
         created_at=proposal.created_at,
         expires_at=proposal.expires_at,
     )
+    await asyncio.to_thread(
+        user_activity.record,
+        "proposal",
+        owner,
+        format=analysis.metadata.source_type,
+        adaptation_type=proposal.adaptation_type,
+        mock=mock,
+        provider=metadata.provider,
+        model=metadata.model,
+        latency_ms=metadata.latency_ms,
+    )
     return proposal
 
 
@@ -430,6 +442,11 @@ def _apply_transition(
     )
     if not applied:
         raise ProposalStateError("La propuesta cambió de estado mientras se procesaba la decisión: volvé a consultarla.")
+    # Sin el texto editado: al historial solo va qué se decidió y sobre qué tipo de adaptación
+    user_activity.record(
+        "decision", owner, detail="deshacer" if action == "deshacer" else to_status,
+        adaptation_type=proposal.adaptation_type,
+    )
     return updated
 
 

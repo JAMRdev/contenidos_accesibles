@@ -56,7 +56,8 @@ backend/
 │   │   ├── api_key_repository.py     # CRUD de conexiones de IA y contadores de uso
 │   │   ├── ai_usage_repository.py    # Historial de llamadas a la IA (métricas del panel)
 │   │   ├── admin_member_repository.py # Usuarios de GitHub con acceso al panel y su rol
-│   │   └── settings_repository.py    # Configuración editable desde /admin (tabla app_settings)
+│   │   ├── settings_repository.py    # Configuración editable desde /admin (tabla app_settings)
+│   │   └── user_activity_repository.py # Historial permanente de uso por usuario y usuarios de la API (#104)
 │   ├── schemas/
 │   │   ├── document.py               # Contratos de extracción (ExtractedDocument, TextInputRequest)
 │   │   └── analysis.py               # Contratos de diagnóstico (AccessibilityAnalysisResponse)
@@ -123,11 +124,12 @@ Para evitar caídas de servicio cuando se agota la capa gratuita de los proveedo
 
 - **Ver métricas de uso** de la IA por período (24 h, 7 y 30 días): llamadas, tokens, latencia p95 y errores, tokens por proveedor y llamadas por resultado. También uso del producto: diagnósticos, puntajes, barreras y decisiones del docente.
 - **Ver la actividad de archivos y enlaces compartidos** del período (pestaña Uso del producto, #98): subidas, exportaciones, descargas, enlaces creados y abiertos, volumen subido, archivos por formato, enlaces por estado y exportaciones por forma de entrega. Sale de `file_events`, un registro con la fecha, el tipo de evento, el formato y el tamaño, nunca el nombre ni el contenido del archivo. Se conserva `AI_USAGE_RETENTION_DAYS` (30 días). Los gráficos tienen leyenda, tooltip, navegación con teclado y vista de tabla, con colores validados para daltonismo.
+- **Ver quién usa la herramienta y cuánto** (pestaña **Uso por usuario**, #104): usuarios activos y nuevos, acciones por origen (Frontend, web de pruebas o anónimo), rankings de los más activos y de los que más tokens consumen, y una tabla con cada usuario (nombre o id, origen, rol, primer y último uso, diagnósticos, propuestas, decisiones, archivos, tokens y respuestas 429). El detalle de un usuario muestra sus totales históricos, la actividad por hora o día, los formatos que usa, sus adaptaciones y decisiones, los modelos de IA y sus últimas 50 acciones. Sale de `user_activity` (una fila por acción, con metadatos y nunca el material, los textos propuestos ni nombres de archivo) y de `api_users`. **Este historial es permanente**: no vence con los diagnósticos ni con los archivos y ninguna limpieza lo borra. El nombre y el email de los docentes se leen de la API de Clerk con `USERS_CLERK_SECRET_KEY`, en segundo plano y cacheados 7 días, nunca en los requests de la API. Lo ven admin y solo lectura.
 - **Visualizar el consumo en tiempo real** por conexión: requests y tokens usados vs. sus umbrales — **RPM** (requests/minuto), **TPM** (tokens/minuto), **RPD** (requests/día) y **TPD** (tokens/día).
 - **Cargar y priorizar múltiples conexiones de IA**, cada una con sus propios umbrales configurables.
 - **Rotación automática**: cuando la key activa se acerca a cualquiera de sus umbrales o recibe un error de cuota (`429`/`503`), el backend cambia automáticamente a la siguiente conexión disponible.
 - **Administrar el acceso**: qué usuarios de GitHub entran y con qué rol.
-- **Ver el estado de los servicios** (pestaña **Estado**): API, base de datos, Worker de D1, conexiones de IA, Clerk, web de pruebas y frontend, más las URLs del proyecto.
+- **Ver el estado de los servicios** (pestaña **Estado**): API, base de datos, Worker de D1, conexiones de IA, Clerk (panel y docentes), web de pruebas y frontend, más las URLs del proyecto.
 
 **Pestaña Estado.** Es una página de estado liviana (`app/services/status_service.py`, `GET /admin/api/status`):
 
@@ -475,6 +477,8 @@ npm run r2:cors     # aplica r2-cors.json (repetir si cambian los orígenes)
 ```
 
 Después, en el dashboard: **R2 → Manage API tokens → Create API token** con permiso **Object Read & Write** solo sobre ese bucket. El *Access Key ID* y el *Secret Access Key* van a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY` en Railway, junto con `R2_ACCOUNT_ID`, `R2_BUCKET` y `STORAGE_BACKEND=r2`.
+
+**Antes de desplegar #104** hay que aplicar la migración `0007_user_activity.sql` en D1 (`npm run migrate:remote`): crea `user_activity` y `api_users` y pasa al historial los diagnósticos, propuestas, decisiones y archivos que todavía no vencieron.
 
 **Antes de desplegar #64** hay que aplicar la migración `0006_app_settings.sql` en D1 (`npm run migrate:remote`) y la regla de lifecycle (`npm run r2:lifecycle`).
 

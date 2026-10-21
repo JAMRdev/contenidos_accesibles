@@ -17,6 +17,7 @@ propio login (app/admin/test_web_auth.py): sus recursos quedan a nombre de esa p
 de la API sale del rol del panel (admin -> admin, solo lectura -> docente).
 """
 import re
+from contextvars import ContextVar
 
 from clerk_backend_api.security.types import (
     TokenType,
@@ -29,6 +30,8 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.core.config import settings
 from app.core.permissions import ADMIN, ANONYMOUS_OWNER, DOCENTE, Caller, role_from_claim
+
+_caller: ContextVar[Caller | None] = ContextVar("caller", default=None)
 
 
 def _unauthorized(detail: str) -> HTTPException:
@@ -81,16 +84,25 @@ def _resolve_caller(request: Request) -> Caller:
     return Caller(claims["sub"], role_from_claim(claims.get("role")), authenticated=True)
 
 
-def current_caller(request: Request) -> Caller:
+async def current_caller(request: Request) -> Caller:
     """Dependencia: quién llama. 401 si el login de docentes está activo y no hay un token válido.
 
-    Queda en request.state.caller para el rate limit por usuario (app/core/rate_limit.py).
+    Queda en request.state.caller para el rate limit por usuario (app/core/rate_limit.py) y en el
+    contexto del request (caller_in_context) para el historial de uso (Issue #104): así la llamada
+    a la IA queda a nombre del usuario sin pasarlo por todos los servicios. Es async para que el
+    valor del contexto llegue al endpoint (una dependencia sync corre en otro hilo y lo perdería).
     """
     caller = getattr(request.state, "caller", None)
     if caller is None:
         caller = _resolve_caller(request)
         request.state.caller = caller
+    _caller.set(caller)
     return caller
+
+
+def caller_in_context() -> Caller | None:
+    """Quién hace el request en curso; None fuera de un request de la API (p. ej. el panel)."""
+    return _caller.get()
 
 
 def require_permission(permission: str):

@@ -72,7 +72,8 @@ def _discard(record: dict, detail: str) -> HTTPException:
     except StorageError:
         pass  # queda para la limpieza por vencimiento (#64)
     files.delete(record["id"])
-    file_events.record("upload_rejected", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"])
+    file_events.record("upload_rejected", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"],
+                       user_id=record["user_id"])
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
 
 
@@ -172,7 +173,8 @@ def complete_upload(file_id: str, owner: str = Depends(current_owner)):
         raise _discard(record, e.detail)
 
     files.mark_uploaded(record["id"])
-    file_events.record("upload", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"])
+    file_events.record("upload", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"],
+                       user_id=owner)
     return _info(files.get_for_user(record["id"], owner))
 
 
@@ -201,7 +203,7 @@ def create_download_url(file_id: str, request: Request, owner: str = Depends(cur
     except StorageError:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_STORAGE_DOWN)
     file_events.record("download", format=file_events.file_format(record["filename"]), size_bytes=record["size_bytes"],
-                       detail=record["kind"])
+                       detail=record["kind"], user_id=owner)
     return FileDownloadResponse(
         file=_info(record),
         download=PresignedRequest(url=_absolute(request, url), method="GET", headers={}, expires_in_seconds=ttl),
@@ -253,7 +255,7 @@ def create_share(file_id: str, request: Request, body: ShareCreateRequest | None
         wanted = (datetime.now(timezone.utc) + timedelta(hours=body.expires_in_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
         expires_at = min(wanted, expires_at)
     token, share = shares.create(file_id=record["id"], created_by=owner, expires_at=expires_at)
-    file_events.record("share_created", format=file_events.file_format(record["filename"]), detail=record["kind"])
+    file_events.record("share_created", format=file_events.file_format(record["filename"]), detail=record["kind"], user_id=owner)
     return ShareCreated(**_share_info(share), url=f"{str(request.base_url).rstrip('/')}/s/{token}")
 
 
@@ -282,7 +284,7 @@ def revoke_share(file_id: str, share_id: str, owner: str = Depends(current_owner
     record = _owned_or_404(file_id, owner)
     if not shares.revoke(file_id, share_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enlace no encontrado o ya revocado.")
-    file_events.record("share_revoked", format=file_events.file_format(record["filename"]), detail=record["kind"])
+    file_events.record("share_revoked", format=file_events.file_format(record["filename"]), detail=record["kind"], user_id=owner)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

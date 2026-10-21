@@ -32,6 +32,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.vercel.app/")
     monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["https://app.vercel.app", "http://localhost:5173"])
     monkeypatch.setattr(settings, "ADMIN_CLERK_PUBLISHABLE_KEY", None)
+    monkeypatch.setattr(settings, "USERS_CLERK_SECRET_KEY", None)
     routes: dict[str, httpx.Response | Exception] = {
         "gw.example.workers.dev": httpx.Response(200, json={"ok": True}),
         "pruebas.onrender.com": httpx.Response(200, text="ok"),
@@ -71,12 +72,12 @@ def test_todo_en_orden(env):
     _connection()
     data = _status()
     s = _by_id(data)
-    assert [x["id"] for x in data["services"]] == ["api", "database", "d1-gateway", "storage", "ai", "clerk", "test-web", "frontend"]
+    assert [x["id"] for x in data["services"]] == ["api", "database", "d1-gateway", "storage", "ai", "clerk", "clerk-users", "test-web", "frontend"]
     assert {k: s[k]["state"] for k in s} == {
         "api": "ok", "database": "ok", "d1-gateway": "ok", "storage": "ok", "ai": "ok",
-        "clerk": "unconfigured", "test-web": "ok", "frontend": "ok",
+        "clerk": "unconfigured", "clerk-users": "unconfigured", "test-web": "ok", "frontend": "ok",
     }
-    assert data["overall"] == "ok" and data["counts"]["unconfigured"] == 1
+    assert data["overall"] == "ok" and data["counts"]["unconfigured"] == 2
     assert s["test-web"]["platform"] == "Render" and s["frontend"]["platform"] == "Vercel"
     assert s["frontend"]["url"] == "https://app.vercel.app"  # localhost no se chequea
     assert {"label": "En uso", "value": "Groq · modelo-x"} in s["ai"]["facts"]
@@ -118,6 +119,25 @@ def test_sin_configurar_no_cuenta_para_el_estado_general(env, monkeypatch):
     monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["http://localhost:5173"])
     s = _by_id(_status())
     assert s["d1-gateway"]["state"] == s["test-web"]["state"] == s["frontend"]["state"] == "unconfigured"
+
+
+def test_login_de_docentes_con_la_api_de_clerk(env, monkeypatch):
+    """Issue #104: el panel lee nombre y email de los docentes con USERS_CLERK_SECRET_KEY."""
+    routes, calls = env
+    assert "USERS_CLERK_SECRET_KEY" in _by_id(_status())["clerk-users"]["detail"]
+
+    monkeypatch.setattr(settings, "USERS_CLERK_SECRET_KEY", SecretStr("sk_test_docentes"))
+    routes["api.clerk.com"] = httpx.Response(200, json={"keys": []})
+    status_service._cache = None
+    ok = _by_id(_status())["clerk-users"]
+    assert ok["state"] == "ok" and ok["url"] == status_service.CLERK_API_URL
+    assert any(f["label"] == "Login exigido" for f in ok["facts"])
+
+    routes["api.clerk.com"] = httpx.Response(401)
+    status_service._cache = None
+    bad = _by_id(_status())["clerk-users"]
+    assert bad["state"] == "degraded" and "USERS_CLERK_SECRET_KEY" in bad["detail"]
+    assert "sk_test_docentes" not in str(bad)
 
 
 def test_un_chequeo_que_explota_no_tira_la_seccion(env, monkeypatch):

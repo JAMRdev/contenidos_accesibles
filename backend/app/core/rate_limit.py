@@ -15,6 +15,7 @@ memoria: alcanza con una sola réplica (railway.json) y se reinicia con el
 proceso. La dependencia es async, así que corre en el event loop y no necesita
 locks.
 """
+import asyncio
 import math
 import time
 from collections import deque
@@ -22,6 +23,8 @@ from collections import deque
 from fastapi import HTTPException, Request, status
 
 from app.core.config import settings
+from app.core.permissions import ANONYMOUS_OWNER
+from app.db import user_activity_repository as user_activity
 
 _MINUTE = 60
 _DAY = 24 * 60 * 60
@@ -71,6 +74,12 @@ def _reject(detail: str, wait: float) -> HTTPException:
     )
 
 
+async def _log_rejection(caller, scope: str) -> None:
+    """Cada 429 queda en el historial del usuario (Issue #104), con el límite que superó."""
+    user_id = caller.user_id if caller is not None else ANONYMOUS_OWNER
+    await asyncio.to_thread(user_activity.record, "rate_limited", user_id, detail=scope)
+
+
 async def limit_ai_usage(request: Request) -> None:
     """Dependencia para los endpoints de IA: responde 429 con Retry-After al superar el límite."""
     if request.query_params.get("mock", "").lower() in _TRUTHY:
@@ -86,25 +95,27 @@ async def limit_ai_usage(request: Request) -> None:
 
     now = _now()
     ip = request.client.host if request.client else "desconocida"
+    # Quién llama ya está resuelto si el router exige permisos (app/core/teacher_auth.py)
+    caller = getattr(request.state, "caller", None)
 
     wait = _retry_after(
         ip, settings.AI_RATE_LIMIT_PER_IP_MINUTE, settings.AI_RATE_LIMIT_PER_IP_DAY, now
     )
     if wait is not None:
+        await _log_rejection(caller, "ip")
         raise _reject(
             f"Demasiadas solicitudes de IA desde esta IP. Probá de nuevo en "
             f"{max(1, math.ceil(wait))} s (o usá ?mock=true para probar sin IA).",
             wait,
         )
 
-    # Quién llama ya está resuelto si el router exige permisos (app/core/teacher_auth.py)
-    caller = getattr(request.state, "caller", None)
     user_key = f"user:{caller.user_id}" if caller is not None and caller.authenticated else None
     if user_key:
         wait = _retry_after(
             user_key, settings.AI_RATE_LIMIT_PER_USER_MINUTE, settings.AI_RATE_LIMIT_PER_USER_DAY, now
         )
         if wait is not None:
+            await _log_rejection(caller, "user")
             raise _reject(
                 f"Alcanzaste tu límite de solicitudes de IA. Probá de nuevo en "
                 f"{max(1, math.ceil(wait))} s (o usá ?mock=true para probar sin IA).",
@@ -115,6 +126,7 @@ async def limit_ai_usage(request: Request) -> None:
         _GLOBAL_KEY, settings.AI_RATE_LIMIT_GLOBAL_MINUTE, settings.AI_RATE_LIMIT_GLOBAL_DAY, now
     )
     if wait is not None:
+        await _log_rejection(caller, "global")
         raise _reject(
             f"El servicio alcanzó su límite de uso de IA. Probá de nuevo en "
             f"{max(1, math.ceil(wait))} s (o usá ?mock=true para probar sin IA).",

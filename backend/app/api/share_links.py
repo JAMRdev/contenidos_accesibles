@@ -55,7 +55,7 @@ async def open_shared_link(token: str, request: Request):
         raise HTTPException(status_code=502, detail="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos.")
     await asyncio.to_thread(shares.record_access, share["share_id"])
     await asyncio.to_thread(file_events.record, "share_opened", format=file_events.file_format(share["filename"]),
-                            detail=share["kind"])
+                            detail=share["kind"], user_id=share["user_id"])
     if url.startswith("/"):  # almacenamiento local (desarrollo): ruta del propio backend
         url = f"{str(request.base_url).rstrip('/')}{url}"
     return RedirectResponse(url, status_code=302, headers=_NO_STORE)

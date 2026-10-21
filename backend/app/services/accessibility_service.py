@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import settings
 from app.core.permissions import ANONYMOUS_OWNER
 from app.db import analysis_repository
+from app.db import user_activity_repository as user_activity
 from app.schemas.analysis import (
     AccessibilityAnalysisResponse,
     AccessibilityDiagnostic,
@@ -532,6 +533,19 @@ async def analyze_document(
             diagnostic_json=response.model_dump_json(),
             expires_at=response.expires_at,
             user_id=owner,
+        )
+        # Historial permanente del usuario (Issue #104): solo metadatos, nunca el material
+        await asyncio.to_thread(
+            user_activity.record,
+            "analysis",
+            owner,
+            format=doc.source_type,
+            mock=mock,
+            score=response.estimated_score,
+            barriers=len(response.barriers),
+            provider=response.metadata.provider,
+            model=response.metadata.model,
+            latency_ms=response.metadata.latency_ms,
         )
 
     return response

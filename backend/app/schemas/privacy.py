@@ -27,9 +27,23 @@ class StoragePolicy(BaseModel):
     object_folders: dict[str, str] = Field(description="Carpetas de almacenamiento utilizadas para segregar contenidos.")
 
 
+class UsageStatisticsPolicy(BaseModel):
+    """Historial de uso por usuario para las estadísticas del panel de administración (Issue #104)."""
+
+    enabled: bool = Field(description="Indica si se registra el historial de uso por usuario.")
+    retention: str = Field(description="Cuánto se conserva el historial.")
+    deleted_with_materials: bool = Field(
+        description="Indica si el historial se borra junto con los diagnósticos y archivos al vencer (false: se conserva)."
+    )
+    recorded_data: list[str] = Field(description="Qué se registra de cada acción.")
+    never_recorded: list[str] = Field(description="Qué nunca se registra.")
+    visible_to: str = Field(description="Quién puede ver el historial.")
+
+
 class PrivacyPolicyResponse(BaseModel):
     """Respuesta con la política de privacidad activa para visualización en Frontend."""
 
     external_ai_processing: ExternalAIProcessingPolicy
     storage_policy: StoragePolicy
+    usage_statistics: UsageStatisticsPolicy
     user_rights: str = Field(description="Declaración de derechos y control docente sobre sus materiales.")
