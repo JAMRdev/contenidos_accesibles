@@ -339,3 +339,10 @@ body { background: var(--surface-page); color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
     .fade, .modal.fade .modal-dialog, .admin-caret, .admin-card-link { transition: none !important; }
 }
+
+/* Uso por usuario (Issue #104) */
+.users-table td .btn { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+.users-table td.num .cell-sub { text-align: right; }
+.admin-table tr.is-selected td { background: var(--surface-soft); }
+.user-detail { margin-top: 2rem; padding-top: 0.5rem; border-top: 1px solid var(--line); }
+.user-detail:focus { outline: none; }

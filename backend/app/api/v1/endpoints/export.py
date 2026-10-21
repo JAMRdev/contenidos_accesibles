@@ -54,7 +54,8 @@ def _analysis_expiry(analysis_id: str) -> str | None:
 
 def _deliver(request: Request, data: bytes, content_type: str, filename: str, delivery: Delivery, owner: str,
              document: str, analysis_expires_at: str | None):
-    file_events.record("export", format=file_events.file_format(filename), size_bytes=len(data), detail=f"{document}:{delivery}")
+    file_events.record("export", format=file_events.file_format(filename), size_bytes=len(data), detail=f"{document}:{delivery}",
+                       user_id=owner)
     if delivery == "file":
         return StreamingResponse(
             io.BytesIO(data),

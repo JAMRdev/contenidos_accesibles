@@ -1028,6 +1028,260 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     }
 
     // -----------------------------------------------------------------------
+    // Uso por usuario (Issue #104)
+    // -----------------------------------------------------------------------
+
+    const USER_SOURCE = { frontend: "Frontend", test_web: "Web de pruebas", anon: "Anónimo" };
+    const USER_ROLE = { docente: "Docente", admin: "Admin" };
+    const ACTION_LABEL = {
+        analysis: "Diagnóstico", proposal: "Propuesta", decision: "Decisión", upload: "Subida",
+        upload_rejected: "Subida rechazada", export: "Exportación", download: "Descarga", share_created: "Enlace creado",
+        share_opened: "Enlace abierto", share_revoked: "Enlace revocado", ai_call: "Llamada a la IA", rate_limited: "Límite de uso (429)",
+    };
+    const RATE_SCOPE = { ip: "por IP", user: "por usuario", global: "global" };
+    const userState = { selected: null, detail: null };
+
+    const userName = (u) => u.name || u.email || u.user_id;
+    const userSourceText = (u) => (u.source === "test_web" && u.login ? `${USER_SOURCE.test_web} (${u.login === "github" ? "GitHub" : u.login})` : USER_SOURCE[u.source] || u.source);
+    const sumDecisions = (dec) => dec.aceptada + dec.editada + dec.descartada;
+
+    function userAvatar(u) {
+        return u.avatar_url
+            ? h("img", { class: "member-avatar", src: u.avatar_url, alt: "", width: "36", height: "36", referrerpolicy: "no-referrer" })
+            : h("span", { class: "member-avatar member-avatar-empty", "aria-hidden": "true" }, icon(u.source === "anon" ? "person_off" : "person"));
+    }
+
+    function rankingChart(id, title, subtitle, rows, fmt, color, emptyText) {
+        chartCard($(id), {
+            title, subtitle,
+            svg: rows.length ? hBars({
+                rows: rows.map((r) => ({ label: r.name || r.user_id, values: [r.value] })),
+                series: [{ label: title, color }], fmt, ariaLabel: title, width: widthOf(id),
+            }) : null,
+            table: rows.length ? { headers: ["Usuario", title], rows: rows.map((r) => [r.name || r.user_id, fmt(r.value)]) } : null,
+            empty: rows.length ? null : { icon: "leaderboard", text: emptyText },
+        });
+    }
+
+    function renderUsers(d) {
+        const u = d.users;
+        if (!u) return;
+        const k = u.kpis;
+        $("users-kpis").replaceChildren(
+            kpiCard({ label: "Usuarios activos", iconName: "group", value: num(k.active_users.value), foot: delta(k.active_users.value, k.active_users.previous, false), spark: sparkline(k.active_users.spark, C.s1) }),
+            kpiCard({ label: "Usuarios nuevos", iconName: "person_add", value: num(k.new_users.value), foot: h("span", { class: "kpi-delta", text: `${num(k.total_users)} usuario${k.total_users === 1 ? "" : "s"} en total` }) }),
+            kpiCard({ label: "Acciones", iconName: "touch_app", value: num(k.actions.value), foot: delta(k.actions.value, k.actions.previous, false), spark: sparkline(k.actions.spark, C.s2) }),
+            kpiCard({ label: "Tokens de IA", iconName: "token", value: compact(k.tokens.value), foot: delta(k.tokens.value, k.tokens.previous, false), spark: sparkline(k.tokens.spark, C.s3) }),
+            kpiCard({ label: "Respuestas 429", iconName: "block", value: num(k.rate_limited.value), foot: delta(k.rate_limited.value, k.rate_limited.previous, true) }),
+        );
+
+        const rangeName = { "24h": "últimas 24 h", "7d": "últimos 7 días", "30d": "últimos 30 días" }[d.range];
+        const labels = d.buckets.map((b) => bucketLabel(b, d.unit));
+        const longLabels = d.buckets.map((b) => bucketLabel(b, d.unit, true));
+        const srcSeries = [
+            { label: USER_SOURCE.frontend, color: C.s1, values: u.activity.actions_by_source.frontend },
+            { label: USER_SOURCE.test_web, color: C.s2, values: u.activity.actions_by_source.test_web },
+            { label: USER_SOURCE.anon, color: C.neutral, values: u.activity.actions_by_source.anon },
+        ];
+        const anyAction = srcSeries.some((sr) => sr.values.some((v) => v > 0));
+        chartCard($("chart-users-activity"), {
+            title: "Acciones por origen",
+            subtitle: `${d.unit === "hour" ? "Por hora" : "Por día"}. Diagnósticos, propuestas, decisiones, archivos y enlaces.`,
+            legend: srcSeries,
+            svg: anyAction ? stackedColumns({ labels, longLabels, series: srcSeries, fmt: num, ariaLabel: `Acciones por origen, ${rangeName}`, width: widthOf("chart-users-activity") }) : null,
+            table: anyAction ? {
+                headers: ["Período", ...srcSeries.map((sr) => sr.label), "Usuarios activos"],
+                rows: longLabels.map((l, i) => [l, ...srcSeries.map((sr) => num(sr.values[i])), num(u.activity.active_users[i])]),
+            } : null,
+            empty: anyAction ? null : { icon: "group", text: "Nadie usó la herramienta en este período." },
+        });
+        rankingChart("chart-users-rank-actions", "Más activos", "Acciones en el período.", u.rankings.actions, num, C.s1, "Sin acciones en este período.");
+        rankingChart("chart-users-rank-tokens", "Más tokens de IA", "Tokens consumidos en el período.", u.rankings.tokens, compact, C.s3, "Sin consumo de IA en este período.");
+
+        renderUsersTable(u.users);
+        renderUserDetail(userState.detail);
+    }
+
+    function renderUsersTable(users) {
+        const q = $("users-search").value.trim().toLowerCase();
+        const source = $("users-source").value;
+        const onlyActive = $("users-activity").value === "active";
+        const rows = users.filter((u) => (!source || u.source === source)
+            && (!onlyActive || u.range.actions > 0 || u.range.ai_calls > 0 || u.range.rate_limited > 0)
+            && (!q || [u.name, u.email, u.user_id].some((v) => v && v.toLowerCase().includes(q))));
+        const body = $("users-body");
+        if (!rows.length) {
+            body.replaceChildren(h("tr", {}, h("td", { colspan: "10", class: "admin-muted", text: users.length ? "Ningún usuario coincide con el filtro." : "Todavía nadie usó la API." })));
+            return;
+        }
+        body.replaceChildren(...rows.map((u) => {
+            const r = u.range;
+            return h("tr", { class: userState.selected === u.user_id ? "is-selected" : null },
+                h("td", {}, h("div", { class: "member-cell" }, userAvatar(u),
+                    h("div", {}, h("span", { class: "cell-title", text: userName(u) }),
+                        h("span", { class: "cell-sub", text: u.email || u.user_id })))),
+                h("td", {}, h("span", { class: "badge badge-s-default badge-sm", text: userSourceText(u) }),
+                    h("span", { class: "cell-sub", text: USER_ROLE[u.role] || "—" })),
+                h("td", {}, h("span", { class: "cell-title", text: u.last_seen_at ? fullFmt.format(new Date(u.last_seen_at)) : "—" }),
+                    h("span", { class: "cell-sub", text: u.first_seen_at ? `Desde ${dayFmt.format(new Date(u.first_seen_at))}` : "" })),
+                h("td", { class: "num" }, h("strong", { text: num(r.analyses) }), r.mock_analyses ? h("span", { class: "cell-sub", text: `${num(r.mock_analyses)} mock` }) : null),
+                h("td", { class: "num", text: num(r.proposals) }),
+                h("td", { class: "num", title: `Aceptadas ${r.decisions.aceptada}, editadas ${r.decisions.editada}, descartadas ${r.decisions.descartada}` },
+                    `${num(r.decisions.aceptada)} · ${num(r.decisions.editada)} · ${num(r.decisions.descartada)}`),
+                h("td", { class: "num" }, `${num(r.uploads)} · ${num(r.exports)} · ${num(r.shares_created)}`),
+                h("td", { class: "num" }, h("strong", { text: compact(r.tokens) })),
+                h("td", { class: "num", text: num(r.rate_limited) }),
+                h("td", {}, h("button", {
+                    type: "button", class: "btn btn-sm btn-outline-secondary", "aria-label": `Ver el detalle de ${userName(u)}`,
+                    onclick: () => loadUserDetail(u.user_id, true),
+                }, icon("query_stats"), "Detalle")),
+            );
+        }));
+    }
+
+    async function loadUserDetail(userId, focus) {
+        userState.selected = userId;
+        try {
+            const tz = new Date().getTimezoneOffset();
+            const r = await fetch(api(`/api/users/${encodeURIComponent(userId)}?range=${state.range}&tz=${tz}`), { headers: { Accept: "application/json" } });
+            if (r.status === 401) return goToLogin();
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            userState.detail = await r.json();
+        } catch (err) {
+            toast(`No se pudo cargar el detalle del usuario (${err.message}).`);
+            return;
+        }
+        const panel = $("user-detail");
+        panel.hidden = false;
+        renderUserDetail(userState.detail);
+        if (state.data) renderUsersTable(state.data.users.users);
+        if (focus) { panel.scrollIntoView({ behavior: "smooth", block: "start" }); panel.focus({ preventScroll: true }); }
+    }
+
+    function renderUserDetail(d) {
+        if (!d || $("user-detail").hidden) return;
+        const u = d.user;
+        const all = u.all_time;
+        const r = u.range;
+        $("user-detail-title").textContent = userName(u);
+        $("user-detail-lead").textContent = [userSourceText(u), USER_ROLE[u.role], u.email, u.user_id,
+            u.first_seen_at ? `primer uso ${fullFmt.format(new Date(u.first_seen_at))}` : null].filter(Boolean).join(" · ");
+        const decided = sumDecisions(all.decisions);
+        $("user-detail-kpis").replaceChildren(
+            kpiCard({ label: "Diagnósticos (histórico)", iconName: "fact_check", value: num(all.analyses), foot: h("span", { class: "kpi-delta", text: `${num(r.analyses)} en el período · ${num(all.mock_analyses)} en modo mock` }) }),
+            kpiCard({ label: "Propuestas (histórico)", iconName: "auto_fix_high", value: num(all.proposals), foot: h("span", { class: "kpi-delta", text: `${num(r.proposals)} en el período` }) }),
+            kpiCard({ label: "Decisiones (histórico)", iconName: "rule", value: num(decided),
+                foot: h("span", { class: "kpi-delta", text: `${num(all.decisions.aceptada)} aceptadas · ${num(all.decisions.editada)} editadas · ${num(all.decisions.descartada)} descartadas` }) }),
+            kpiCard({ label: "Archivos (histórico)", iconName: "folder", value: num(all.uploads + all.exports),
+                foot: h("span", { class: "kpi-delta", text: `${num(all.uploads)} subidos · ${num(all.exports)} exportados · ${num(all.shares_created)} enlaces (${num(all.share_opens)} aperturas)` }) }),
+            kpiCard({ label: "Tokens de IA (histórico)", iconName: "token", value: compact(all.tokens),
+                foot: h("span", { class: "kpi-delta", text: `${compact(r.tokens)} en el período · ${num(all.ai_calls)} llamadas · ${num(all.rate_limited)} respuestas 429` }) }),
+        );
+
+        const labels = d.buckets.map((b) => bucketLabel(b, d.unit));
+        const longLabels = d.buckets.map((b) => bucketLabel(b, d.unit, true));
+        const series = [
+            { label: "Diagnósticos", color: C.s1, values: d.activity.analyses },
+            { label: "Propuestas", color: C.s2, values: d.activity.proposals },
+            { label: "Decisiones", color: C.s3, values: d.activity.decisions },
+            { label: "Archivos y enlaces", color: C.s4, values: d.activity.files },
+        ];
+        const any = series.some((sr) => sr.values.some((v) => v > 0));
+        chartCard($("chart-user-activity"), {
+            title: "Actividad en el período",
+            subtitle: d.unit === "hour" ? "Por hora." : "Por día.",
+            legend: series,
+            svg: any ? stackedColumns({ labels, longLabels, series, fmt: num, ariaLabel: `Actividad de ${userName(u)}`, width: widthOf("chart-user-activity") }) : null,
+            table: any ? {
+                headers: ["Período", ...series.map((sr) => sr.label), "Tokens"],
+                rows: longLabels.map((l, i) => [l, ...series.map((sr) => num(sr.values[i])), num(d.tokens[i])]),
+            } : null,
+            empty: any ? null : { icon: "event_busy", text: "Sin actividad en este período." },
+        });
+
+        const fmtSeries = [{ label: "Diagnosticados", color: C.s1 }, { label: "Subidos", color: C.s2 }, { label: "Exportados", color: C.s3 }];
+        const formats = [...new Set([...Object.keys(d.formats.analysis), ...Object.keys(d.formats.upload), ...Object.keys(d.formats.export)])];
+        const fmtRows = formats.map((f) => ({
+            label: LABELS.source[f] || LABELS.format[f] || f,
+            values: [d.formats.analysis[f] || 0, d.formats.upload[f] || 0, d.formats.export[f] || 0],
+        }));
+        chartCard($("chart-user-formats"), {
+            title: "Formatos que usa",
+            subtitle: "Material diagnosticado, archivos subidos y exportados en el período.",
+            legend: fmtSeries,
+            svg: fmtRows.length ? hBars({ rows: fmtRows, series: fmtSeries, fmt: num, ariaLabel: "Formatos que usa el usuario", width: widthOf("chart-user-formats") }) : null,
+            table: fmtRows.length ? { headers: ["Formato", ...fmtSeries.map((sr) => sr.label)], rows: fmtRows.map((row) => [row.label, ...row.values.map(num)]) } : null,
+            empty: fmtRows.length ? null : { icon: "draft", text: "Sin material ni archivos en este período." },
+        });
+
+        const decSeries = [
+            { key: "aceptada", label: LABELS.decision.aceptada, color: C.good },
+            { key: "editada", label: LABELS.decision.editada, color: C.s1 },
+            { key: "descartada", label: LABELS.decision.descartada, color: C.critical },
+        ];
+        const adRows = Object.entries(d.adaptations).map(([type, c]) => ({
+            label: LABELS.adaptation[type] || type, proposals: c.propuestas || 0, values: decSeries.map((sr) => c[sr.key] || 0),
+        }));
+        chartCard($("chart-user-adaptations"), {
+            title: "Adaptaciones y decisiones",
+            subtitle: "Decisiones por tipo de adaptación en el período.",
+            legend: decSeries,
+            svg: adRows.length ? hBars({
+                rows: adRows, series: decSeries, fmt: num,
+                endLabel: (total, row) => `${num(total)} de ${num(row.proposals)} propuesta${row.proposals === 1 ? "" : "s"}`,
+                ariaLabel: "Decisiones por tipo de adaptación", width: widthOf("chart-user-adaptations"),
+            }) : null,
+            table: adRows.length ? {
+                headers: ["Tipo", "Propuestas", ...decSeries.map((sr) => sr.label)],
+                rows: adRows.map((row) => [row.label, num(row.proposals), ...row.values.map(num)]),
+            } : null,
+            empty: adRows.length ? null : { icon: "auto_fix_high", text: "Sin propuestas ni decisiones en este período." },
+        });
+
+        $("user-detail-models").replaceChildren(...(d.models.length ? d.models.map((m) => h("tr", {},
+            h("td", {}, h("span", { class: "cell-title", text: providerLabel(m.provider) }), h("code", { text: m.model })),
+            h("td", { class: "num", text: num(m.calls) }),
+            h("td", { class: "num", text: num(m.errors) }),
+            h("td", { class: "num" }, h("strong", { text: num(m.tokens) })),
+        )) : [h("tr", {}, h("td", { colspan: "4", class: "admin-muted", text: "Sin llamadas a la IA en este período." }))]));
+
+        $("user-detail-recent").replaceChildren(...(d.recent.length ? d.recent.map((a) => h("tr", {},
+            h("td", { text: fullFmt.format(new Date(a.created_at)) }),
+            h("td", {}, h("span", { class: "cell-title", text: ACTION_LABEL[a.action] || a.action }), a.mock ? h("span", { class: "badge badge-s-default badge-sm", text: "mock" }) : null),
+            h("td", { class: "admin-muted", text: activityDetail(a) }),
+            h("td", {}, a.provider ? [h("span", { class: "cell-title", text: providerLabel(a.provider) }), a.model ? h("code", { text: a.model }) : null] : "—"),
+            h("td", { class: "num", text: a.tokens ? num(a.tokens) : "—" }),
+        )) : [h("tr", {}, h("td", { colspan: "5", class: "admin-muted", text: "Sin acciones registradas." }))]));
+    }
+
+    function activityDetail(a) {
+        const parts = [];
+        if (a.format) parts.push(LABELS.source[a.format] || LABELS.format[a.format] || a.format);
+        if (a.adaptation_type) parts.push(LABELS.adaptation[a.adaptation_type] || a.adaptation_type);
+        if (a.action === "decision") parts.push(a.detail === "deshacer" ? "Deshizo la decisión" : LABELS.decision[a.detail] || a.detail);
+        else if (a.action === "rate_limited") parts.push(`Límite ${RATE_SCOPE[a.detail] || a.detail}`);
+        else if (a.action === "ai_call") parts.push(a.detail === "ok" ? "Correcta" : `Error: ${a.detail}`);
+        else if (a.action === "export" && a.detail) {
+            const [doc, delivery] = a.detail.split(":");
+            parts.push(`${LABELS.exportDocument[doc] || doc} · ${delivery === "link" ? "con enlace" : "descarga directa"}`);
+        } else if (a.detail) parts.push(LABELS.fileKind[a.detail] || a.detail);
+        if (a.score !== null && a.score !== undefined) parts.push(`Puntaje ${a.score}`);
+        if (a.barriers !== null && a.barriers !== undefined) parts.push(`${num(a.barriers)} barrera${a.barriers === 1 ? "" : "s"}`);
+        if (a.size_bytes) parts.push(`${bytesValue(a.size_bytes)} ${bytesUnit(a.size_bytes)}`);
+        if (a.latency_ms) parts.push(ms(a.latency_ms));
+        return parts.join(" · ") || "—";
+    }
+
+    $("users-search").addEventListener("input", () => state.data && renderUsersTable(state.data.users.users));
+    $("users-source").addEventListener("change", () => state.data && renderUsersTable(state.data.users.users));
+    $("users-activity").addEventListener("change", () => state.data && renderUsersTable(state.data.users.users));
+    $("user-detail-close").addEventListener("click", () => {
+        $("user-detail").hidden = true;
+        userState.selected = null;
+        if (state.data) renderUsersTable(state.data.users.users);
+    });
+
+    // -----------------------------------------------------------------------
     // Modales de conexión
     // -----------------------------------------------------------------------
 
@@ -1483,6 +1737,7 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         renderConnections(d);
         renderProduct(d);
         renderFiles(d);
+        renderUsers(d);
         $("updated-at").textContent = `Actualizado a las ${hourFmt.format(new Date())}`;
     }
 
@@ -1498,6 +1753,8 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             state.data = await r.json();
             render();
+            // El detalle abierto sigue el período y la actualización automática
+            if (userState.selected) loadUserDetail(userState.selected, false);
         } catch (err) {
             $("updated-at").textContent = `No se pudieron cargar las métricas (${err.message}).`;
         }
@@ -1536,8 +1793,8 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     let resizeTimer = null;
     window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
 
-    // Abre la pestaña indicada en el hash (#conexiones, #producto, #estado, #diagramas) y lo mantiene al navegar
-    const hashTab = { "#conexiones": "tab-conexiones", "#nueva-conexion": "tab-conexiones", "#producto": "tab-producto", "#usuarios": "tab-usuarios", "#estado": "tab-estado", "#diagramas": "tab-diagramas" }[location.hash];
+    // Abre la pestaña indicada en el hash (#conexiones, #producto, #uso-usuarios, #estado, #diagramas) y lo mantiene al navegar
+    const hashTab = { "#conexiones": "tab-conexiones", "#nueva-conexion": "tab-conexiones", "#producto": "tab-producto", "#uso-usuarios": "tab-uso-usuarios", "#usuarios": "tab-usuarios", "#estado": "tab-estado", "#diagramas": "tab-diagramas" }[location.hash];
     if (hashTab && $(hashTab)) bootstrap.Tab.getOrCreateInstance($(hashTab)).show();
     // Enlace directo para abrir el alta de una conexión
     if (location.hash === "#nueva-conexion" && CAN_EDIT) openConnectionModal(null);
@@ -1549,7 +1806,7 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
     }));
 
     window.addEventListener("hashchange", () => {
-        const tab = { "#conexiones": "tab-conexiones", "#producto": "tab-producto", "#usuarios": "tab-usuarios", "#estado": "tab-estado", "#diagramas": "tab-diagramas", "": "tab-resumen" }[location.hash];
+        const tab = { "#conexiones": "tab-conexiones", "#producto": "tab-producto", "#uso-usuarios": "tab-uso-usuarios", "#usuarios": "tab-usuarios", "#estado": "tab-estado", "#diagramas": "tab-diagramas", "": "tab-resumen" }[location.hash];
         if (tab && $(tab)) bootstrap.Tab.getOrCreateInstance($(tab)).show();
     });
 

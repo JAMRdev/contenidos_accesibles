@@ -71,11 +71,12 @@ def _by_latency(latency_ms: int, detail: str, **kwargs) -> Check:
     return Check("ok", detail, latency_ms, **kwargs)
 
 
-async def _http_check(client: httpx.AsyncClient, url: str, *, expect_json_ok: bool = False) -> Check:
+async def _http_check(client: httpx.AsyncClient, url: str, *, expect_json_ok: bool = False,
+                      headers: dict[str, str] | None = None) -> Check:
     """GET a una URL pública: caído si no responde o devuelve 5xx; con problemas si devuelve 4xx."""
     start = time.perf_counter()
     try:
-        response = await client.get(url)
+        response = await client.get(url, headers=headers)
     except httpx.TimeoutException:
         return Check("down", f"No respondió en {TIMEOUT_S:g} s", url=url)
     except httpx.HTTPError as e:
@@ -192,6 +193,23 @@ async def check_clerk(client: httpx.AsyncClient) -> Check:
     return await _http_check(client, f"https://{domain}/.well-known/jwks.json")
 
 
+CLERK_API_URL = "https://api.clerk.com/v1/jwks"
+
+
+async def check_clerk_users(client: httpx.AsyncClient) -> Check:
+    """API de Clerk de la aplicación de docentes: de ahí salen el nombre y el email del panel (Issue #104)."""
+    login = ("Login exigido", "Sí" if settings.teacher_auth_enabled else "No: la API es anónima (sin USERS_CLERK_JWT_KEY)")
+    if settings.USERS_CLERK_SECRET_KEY is None or not settings.USERS_CLERK_SECRET_KEY.get_secret_value():
+        return Check("unconfigured", "Sin USERS_CLERK_SECRET_KEY: el panel muestra el id de los docentes, sin nombre ni email",
+                     facts=[login])
+    secret = settings.USERS_CLERK_SECRET_KEY.get_secret_value()
+    check = await _http_check(client, CLERK_API_URL, headers={"Authorization": f"Bearer {secret}"})
+    if check.state == "degraded" and check.detail.endswith(("401", "403")):
+        check.detail = f"{check.detail}: revisá USERS_CLERK_SECRET_KEY"
+    check.facts.append(login)
+    return check
+
+
 async def check_test_web(client: httpx.AsyncClient) -> Check:
     if not settings.TEST_WEB_URL:
         return Check("unconfigured", "Sin TEST_WEB_URL")
@@ -245,6 +263,9 @@ def _registry() -> list[Service]:
         Service("ai", "Conexiones de IA", "Proveedores de IA",
                 "Según el estado de rotación del backend; no gasta cuota.", check_ai),
         Service("clerk", "Login con Clerk", "Clerk", "Login del panel y de /docs con GitHub.", check_clerk),
+        Service("clerk-users", "Login de docentes", "Clerk",
+                "Cuentas de los docentes (Google o Microsoft): nombre y email de las estadísticas por usuario.",
+                check_clerk_users),
         Service("test-web", "Web de pruebas", _platform(settings.TEST_WEB_URL),
                 "Web estática para probar la API.", check_test_web),
         Service("frontend", "Frontend", _platform(next(iter(frontend_origins()), None)),

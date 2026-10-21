@@ -10,13 +10,14 @@ zona de usuarios. Los POST además verifican el origen (verify_same_origin).
 """
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
 from typing import Literal
 
 from clerk_backend_api.security.types import TokenVerificationError
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -27,7 +28,13 @@ from app.core.security import verify_same_origin
 from app.db import admin_member_repository as members
 from app.db import ai_usage_repository, file_event_repository
 from app.db import api_key_repository as repo
-from app.services import admin_metrics_service, retention_service, status_service
+from app.services import (
+    admin_metrics_service,
+    retention_service,
+    status_service,
+    user_metrics_service,
+    user_profile_service,
+)
 from app.services.llm.providers import PRESETS, presets_as_dicts
 
 PREFIX = "/admin"
@@ -312,17 +319,47 @@ def static_file(name: str):
 # Datos y acciones (JSON / formularios)
 # ---------------------------------------------------------------------------
 
-@router.get("/api/metrics")
-def metrics(
-    range_key: str = Query("24h", alias="range"),
-    tz: int = Query(0, ge=-14 * 60, le=14 * 60, description="Minutos de getTimezoneOffset() del navegador."),
-    admin: session.Principal = Depends(session.require_admin),
-):
+_TZ = Query(0, ge=-14 * 60, le=14 * 60, description="Minutos de getTimezoneOffset() del navegador.")
+
+
+def _valid_range(range_key: str) -> None:
     if range_key not in admin_metrics_service.RANGES:
         raise HTTPException(status_code=400, detail="Rango inválido. Opciones: 24h, 7d, 30d.")
+
+
+@router.get("/api/metrics")
+def metrics(
+    background_tasks: BackgroundTasks,
+    range_key: str = Query("24h", alias="range"),
+    tz: int = _TZ,
+    admin: session.Principal = Depends(session.require_admin),
+):
+    _valid_range(range_key)
     ai_usage_repository.delete_expired()
     file_event_repository.delete_expired()
-    return admin_metrics_service.build_metrics(range_key, tz)
+    # El historial por usuario (Issue #104) no se borra: no depende de la retención de los eventos
+    now = datetime.now(timezone.utc)
+    # Nombre y email de los docentes nuevos, después de responder (la próxima carga ya los muestra)
+    background_tasks.add_task(user_profile_service.refresh_stale_profiles)
+    return {
+        **admin_metrics_service.build_metrics(range_key, tz, now=now),
+        "users": user_metrics_service.build_users(range_key, tz, now=now),
+    }
+
+
+@router.get("/api/users/{user_id}")
+def user_detail(
+    user_id: str,
+    range_key: str = Query("24h", alias="range"),
+    tz: int = _TZ,
+    admin: session.Principal = Depends(session.require_admin),
+):
+    """Detalle de uso de un usuario de la API (Issue #104): actividad, formatos y últimas acciones."""
+    _valid_range(range_key)
+    detail = user_metrics_service.build_user_detail(user_id, range_key, tz)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    return detail
 
 
 class RetentionForm(BaseModel):

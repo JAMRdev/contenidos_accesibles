@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
+from app.db import user_activity_repository as user_activity
 from app.db.database import get_connection
 
 EVENTS = ("upload", "upload_rejected", "export", "download", "share_created", "share_opened", "share_revoked")
@@ -26,7 +27,8 @@ def file_format(filename: str | None) -> str | None:
 
 
 def record(event: str, *, format: str | None = None, size_bytes: int | None = None, detail: str | None = None,
-           created_at: datetime | None = None) -> None:
+           user_id: str | None = None, created_at: datetime | None = None) -> None:
+    """Registra el evento; con user_id (dueño del archivo) también va a su historial permanente (Issue #104)."""
     if event not in EVENTS:
         raise ValueError(f"Evento inválido: {event!r}")
     try:
@@ -37,6 +39,8 @@ def record(event: str, *, format: str | None = None, size_bytes: int | None = No
             )
     except Exception:  # noqa: BLE001 - una métrica no puede romper la subida, el enlace ni la descarga
         logger.warning("No se pudo registrar el evento de archivo %s", event, exc_info=True)
+    if user_id is not None:
+        user_activity.record(event, user_id, format=format, size_bytes=size_bytes, detail=detail, created_at=created_at)
 
 
 def delete_expired(retention_days: int | None = None) -> int:
