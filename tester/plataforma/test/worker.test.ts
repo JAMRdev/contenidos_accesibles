@@ -2,6 +2,7 @@ import { createExecutionContext, createScheduledController, env, SELF, waitOnExe
 import { describe, expect, it } from "vitest";
 import { catalogo } from "../src/worker/catalogo";
 import worker from "../src/worker/index";
+import { api, instalarClerk, usuarioClerk } from "./clerk-simulado";
 
 describe("GET /health", () => {
     it("responde ok con D1 y R2 accesibles y sin Cron todavía", async () => {
@@ -35,8 +36,11 @@ describe("GET /health", () => {
 });
 
 describe("rutas de la API", () => {
-    it("una ruta desconocida de /api devuelve 404 en JSON", async () => {
-        const res = await SELF.fetch("https://qa.test/api/nada");
+    it("una ruta desconocida de /api pide sesión y, con sesión, devuelve 404 en JSON", async () => {
+        instalarClerk();
+        usuarioClerk("user_admin", { github: "admin-fijo" });
+        expect((await api(null, "/api/nada")).status).toBe(401);
+        const res = await api("user_admin", "/api/nada");
         expect(res.status).toBe(404);
         expect(await res.json()).toEqual({ error: "No existe ese endpoint." });
     });

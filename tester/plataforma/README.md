@@ -24,7 +24,27 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | Ruta | Login | Qué hace |
 | :--- | :--- | :--- |
 | `GET /health` | No | `{ ok, version, d1, r2, ultima_cron, casos }`. 200 si responden D1 y R2; 503 si no. Lo consulta la pestaña **Estado** de `/admin` (`QA_PLATFORM_URL`). |
-| `/api/*` | Sí (#126) | API de la plataforma (#127 en adelante). Hoy cualquier ruta devuelve 404. |
+| `GET /api/config` | No | Publishable key de Clerk para la web. |
+| `GET /api/me` | Cualquier rol | Cuenta de GitHub, rol y permisos (`escribir`, `administrar`). |
+| `GET/POST /api/miembros`, `PATCH/DELETE /api/miembros/:github` | Admin | Miembros y su rol (`{ github, rol }`, `{ rol?, habilitado? }`). |
+| `GET /api/auditoria?limite=&antes=` | Admin | Registro de auditoría, lo más reciente primero. |
+
+Toda la API, menos `/api/config`, exige `Authorization: Bearer <token de sesión de Clerk>`: sin token o con uno inválido responde **401**; con una cuenta sin rol, **403**. Cada usuario tiene un límite de 120 requests por minuto (**429** con `Retry-After`).
+
+### Login y roles
+
+- **Login:** la web usa la **misma instancia de Clerk que `/admin`** (botón de GitHub). El Worker valida el token de sesión sin llamadas de red con la clave pública (`CLERK_JWT_KEY`), y solo si lo emitió esa instancia (`iss`) para la web de QA (`azp` = origen de la plataforma o uno de `ORIGENES_EXTRA`).
+- **Quién es:** el usuario de GitHub sale de la API de Clerk (cuenta de GitHub verificada por OAuth) y se guarda una hora en `qa_users`. No pasa por Railway: si el backend está caído, el login sigue andando.
+- **Roles:**
+
+  | Rol | Puede |
+  | :--- | :--- |
+  | Solo lectura (`viewer`) | Ver sesiones, resultados, bugs y evidencias (por ejemplo, abrir los enlaces de los issues) |
+  | QA (`qa`) | Además, crear sesiones, registrar resultados, subir evidencias, comentar, cambiar estados y publicar |
+  | Admin (`admin`) | Además, administrar miembros, ver la auditoría y borrar evidencias |
+
+- **Cómo se asigna un rol:** los usuarios de `QA_ADMINS` (`wrangler.toml`, los mismos admins del panel) son admin siempre. El resto lo agrega un admin desde la sección **Miembros** de la web (o `POST /api/miembros`). Los miembros viven en el D1 de QA, no en el backend: el acceso a `/admin` y el acceso a QA son independientes.
+- **Auditoría:** los cambios de miembros y los accesos denegados quedan en `qa_audit` (quién, qué y cuándo).
 
 ### Catálogo de casos
 
@@ -43,6 +63,13 @@ npm run migrate:local   # crea el D1 simulado en .wrangler/
 npm run dev             # build de la web + Worker en http://127.0.0.1:8788
 ```
 
+Para el login, creá `.dev.vars` (no se versiona) antes de `npm run dev`:
+
+```ini
+CLERK_SECRET_KEY=sk_test_...          # ADMIN_CLERK_SECRET_KEY del .env del backend
+ORIGENES_EXTRA=http://localhost:5173  # para npm run dev:web
+```
+
 - `npm run dev:web` levanta Vite con recarga en caliente (puerto 5173) y manda `/api` y `/health` al Worker de `npm run dev`.
 - Para probar el Cron en local: `curl "http://127.0.0.1:8788/cdn-cgi/handler/scheduled?cron=*/10+*+*+*+*"`.
 - En local, D1 y R2 son simulados (Miniflare): no hace falta cuenta de Cloudflare.
@@ -58,12 +85,14 @@ Los tests del Worker corren con `@cloudflare/vitest-plugin` sobre D1 y R2 simula
 
 ## Secretos
 
-Ninguno todavía. Los agregan sus issues y se cargan con `wrangler secret put <NOMBRE>` (en local, en `.dev.vars`, que no se versiona):
+Se cargan con `wrangler secret put <NOMBRE>` (en local, en `.dev.vars`, que no se versiona). Nunca llegan al navegador.
 
 | Secreto | Issue | Para qué |
 | :--- | :--- | :--- |
-| `CLERK_SECRET_KEY` | #126 | Login con la instancia de Clerk de `/admin` |
+| `CLERK_SECRET_KEY` | #126 | Leer en la API de Clerk la cuenta de GitHub de quien inicia sesión (`ADMIN_CLERK_SECRET_KEY` del backend) |
 | `GITHUB_TOKEN` | #130 | Publicar issues y sincronizar su estado |
+
+Las variables públicas (`CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_KEY`, `QA_ADMINS`) están en `[vars]` de `wrangler.toml`.
 
 ## Deploy
 

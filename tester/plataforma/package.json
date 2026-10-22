@@ -20,7 +20,10 @@
     "r2:create": "wrangler r2 bucket create innovalab-qa-evidencias --location enam"
   },
   "dependencies": {
+    "@clerk/localizations": "4.22.0",
+    "@clerk/react": "6.17.6",
     "hono": "4.13.13",
+    "jose": "6.2.12",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5"

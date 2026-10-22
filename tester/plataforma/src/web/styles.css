@@ -6,6 +6,8 @@
     --border: #d5dae1;
     --ok: #1a7f37;
     --bad: #b42318;
+    --accent: #0b57d0;
+    --on-accent: #ffffff;
     color-scheme: light;
 }
 
@@ -18,6 +20,8 @@
         --border: #2c333d;
         --ok: #4ac26b;
         --bad: #f97066;
+        --accent: #8ab4f8;
+        --on-accent: #0f1216;
         color-scheme: dark;
     }
 }
@@ -84,4 +88,121 @@ h2 {
 .bad {
     color: var(--bad);
     font-weight: 600;
+}
+
+.small {
+    font-size: 0.875rem;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.login {
+    display: flex;
+    justify-content: center;
+    padding: 24px 0;
+}
+
+.card + .card {
+    margin-top: 16px;
+}
+
+button,
+input,
+select {
+    font: inherit;
+    color: inherit;
+}
+
+button {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+
+button.danger {
+    background: transparent;
+    border-color: var(--bad);
+    color: var(--bad);
+}
+
+input,
+select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.inline-form label {
+    display: grid;
+    gap: 4px;
+    font-size: 0.875rem;
+    color: var(--muted);
+}
+
+.notice {
+    margin: 0 0 12px;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    text-align: left;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+th {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+tr.is-disabled td {
+    opacity: 0.6;
+}
+
+.check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
