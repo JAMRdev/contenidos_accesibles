@@ -21,8 +21,6 @@ export type Yo = {
     permisos: { escribir: boolean; administrar: boolean };
 };
 
-export const ROL_TEXTO: Record<Rol, string> = { viewer: "Solo lectura", qa: "QA", admin: "Admin" };
-
 export function useApi() {
     const { getToken } = useAuth();
     return useCallback(

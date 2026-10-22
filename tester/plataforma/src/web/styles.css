@@ -1,208 +1,197 @@
+/* Plataforma de QA: los mismos ajustes sobre Obelisco V2 que el panel /admin del backend.
+   Las reglas compartidas están copiadas de backend/app/admin/static/admin.css (mismos nombres de
+   clase y tokens): si cambian allá, actualizarlas acá. No se cargan desde el backend para que la
+   plataforma se vea bien aunque Railway esté caído. Al final, lo propio de la plataforma. */
 :root {
-    --bg: #f6f7f9;
     --surface: #ffffff;
-    --text: #1b1f24;
-    --muted: #5a6370;
-    --border: #d5dae1;
-    --ok: #1a7f37;
-    --bad: #b42318;
-    --accent: #0b57d0;
-    --on-accent: #ffffff;
-    color-scheme: light;
+    --surface-page: #f6f8fa;
+    --surface-soft: #eef3f8;
+    --ink: #08202f;
+    --ink-2: #3c4b55;
+    --ink-muted: #5f6b73;
+    --line: #e2e6ea;
+    --grid: #edf0f2;
+    --focus: #00769a;
+
+    --series-1: #00769a;
+    --neutral: #b8b8b8;
+
+    --status-good: #007e3e;
+    --status-warning: #e88700;
+    --status-critical: #ad0b1e;
+
+    --radius-card: 12px;
+    --container: 1480px;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #0f1216;
-        --surface: #171b21;
-        --text: #e6e9ee;
-        --muted: #a2abb8;
-        --border: #2c333d;
-        --ok: #4ac26b;
-        --bad: #f97066;
-        --accent: #8ab4f8;
-        --on-accent: #0f1216;
-        color-scheme: dark;
-    }
+body { background: var(--surface-page); color: var(--ink); }
+.material-symbols-rounded { font-size: 1.25em; vertical-align: -0.22em; line-height: 1; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.admin-container { width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: clamp(16px, 3vw, 40px); }
+
+.skip-to-main-content-link { position: absolute; left: 1rem; top: -100px; z-index: 2000; background: var(--ink); color: #ffffff; padding: 0.5rem 1rem; border-radius: 8px; }
+.skip-to-main-content-link:focus { top: 1rem; }
+
+/* ------------------------------------------------------------------------
+   Encabezado
+   ------------------------------------------------------------------------ */
+.admin-header { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1020; }
+.admin-header-inner { display: flex; align-items: center; gap: 1.5rem; min-height: 72px; }
+.admin-brand { display: flex; align-items: center; gap: 0.75rem; text-decoration: none; color: var(--ink); flex: none; }
+.admin-brand:hover { color: var(--ink); }
+.admin-brand-icon { font-size: 2rem; color: #ffffff; background: var(--series-1); border-radius: 12px; padding: 0.35rem; }
+.admin-brand-title { display: block; font-weight: 700; font-size: 1.0625rem; line-height: 1.2; }
+.admin-brand-subtitle { display: block; font-size: 0.8125rem; color: var(--ink-muted); }
+
+.admin-nav { flex: 1; min-width: 0; }
+.admin-nav ul { display: flex; gap: 0.25rem; list-style: none; margin: 0; padding: 0; overflow-x: auto; scrollbar-width: none; }
+.admin-nav ul::-webkit-scrollbar { display: none; }
+
+.admin-nav-link { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.75rem; border-radius: 8px; border: 0; background: transparent; color: var(--ink-2); font: inherit; font-weight: 600; font-size: 0.9375rem; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.admin-nav-link:hover { background: var(--surface-soft); color: var(--ink); }
+.admin-nav-link.is-active { background: var(--surface-soft); color: var(--series-1); box-shadow: inset 0 -3px 0 var(--series-1); }
+.admin-nav-link .material-symbols-rounded { font-size: 1.25rem; }
+
+.admin-user-menu { flex: none; margin-left: auto; position: relative; }
+.admin-user-button .admin-caret { font-size: 1.1rem; transition: transform 0.15s; }
+.admin-user-button[aria-expanded="true"] .admin-caret { transform: rotate(180deg); }
+.admin-user-dropdown { min-width: 260px; padding: 0.5rem; border-radius: var(--radius-card); border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(8, 32, 47, 0.14); }
+.admin-user-info { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.5rem 0.75rem 0.75rem; border-bottom: 1px solid var(--line); margin-bottom: 0.4rem; }
+.admin-user-name { font-weight: 700; }
+.admin-user-env { font-size: 0.8125rem; color: var(--ink-muted); display: inline-flex; gap: 0.3rem; align-items: center; }
+.admin-logout { display: flex; align-items: center; gap: 0.5rem; border-radius: 8px; padding: 0.6rem 0.75rem; font-weight: 600; color: var(--status-critical); }
+.admin-logout:hover, .admin-logout:focus { background: #fde8ea; color: var(--status-critical); }
+
+/* ------------------------------------------------------------------------
+   Título y textos
+   ------------------------------------------------------------------------ */
+.admin-main { padding-block: 2rem 4rem; }
+.admin-title-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.admin-h1 { font-size: 2rem; font-weight: 700; margin: 0; }
+.admin-h2 { font-size: 1.375rem; font-weight: 700; margin: 0 0 0.25rem; }
+.admin-lead { margin: 0.25rem 0 0; color: var(--ink-2); font-size: 1.125rem; }
+.admin-muted { color: var(--ink-muted); }
+.admin-note { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--ink-muted); font-size: 0.875rem; margin: 1rem 0; }
+.admin-section-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin: 2rem 0 1rem; }
+.admin-section-head:first-child { margin-top: 0; }
+.admin-section-lead { margin: 0; max-width: 72ch; }
+
+/* ------------------------------------------------------------------------
+   Tablas
+   ------------------------------------------------------------------------ */
+.table-card { overflow-x: auto; overflow-y: hidden; border-radius: 16px; }
+.admin-table { margin: 0; width: 100%; min-width: 1080px; border-spacing: 0; background: var(--surface); }
+.admin-table td, .admin-table th { vertical-align: middle; }
+.admin-table .cell-title { font-weight: 600; display: block; }
+.admin-table .cell-sub { font-size: 0.8125rem; color: var(--ink-muted); display: block; }
+.admin-table tr.is-disabled td { color: var(--ink-muted); }
+.admin-table .col-actions { width: 104px; }
+.admin-table tbody tr + tr td { border-top: 1px solid var(--line); }
+.row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; }
+.btn-icon-only { padding: 0.4rem 0.5rem; line-height: 1; }
+
+/* Estados con ícono + texto */
+.status { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; font-size: 0.8125rem; border-radius: 999px; padding: 0.2rem 0.6rem; white-space: nowrap; border: 1px solid transparent; }
+.status-active { background: #e3f5ea; color: #00642f; border-color: #b9e4c9; }
+.status-standby { background: #eef2f5; color: #3c4b55; border-color: #d8dee3; }
+.status-near-limit { background: #fff3e0; color: #814800; border-color: #ffd9a6; }
+.status-exhausted { background: #fde8ea; color: #ad0b1e; border-color: #f6c3c9; }
+.status-disabled { background: #f3f3f3; color: #565656; border-color: #e2e2e2; }
+.admin-table .switch { margin: 0; }
+
+/* Tarjetas de estado */
+.status-overall { margin-bottom: 1rem; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+.status-card { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--neutral); border-radius: var(--radius-card); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.status-card.is-ok { border-left-color: var(--status-good); }
+.status-card.is-degraded { border-left-color: var(--status-warning); }
+.status-card.is-down { border-left-color: var(--status-critical); }
+.status-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+.status-card-title { font-size: 1.0625rem; font-weight: 700; margin: 0; }
+.status-card-head .cell-sub { font-size: 0.8125rem; color: var(--ink-muted); }
+.status-card-detail { margin: 0; font-weight: 600; color: var(--ink-2); overflow-wrap: anywhere; }
+.status-card-desc { margin: 0; font-size: 0.875rem; }
+.status-facts { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.75rem; margin: 0; font-size: 0.875rem; }
+.status-facts dt { color: var(--ink-muted); font-weight: 600; }
+.status-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------------
+   Login
+   ------------------------------------------------------------------------ */
+.admin-login-page { min-height: 100vh; background: radial-gradient(1200px 600px at 10% -10%, #e3f1f6 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #f3e6d6 0%, transparent 55%), var(--surface-page); }
+.admin-login-page .admin-main { display: grid; place-items: center; min-height: 100vh; padding-block: 2rem; }
+.login-wrap { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 1.5rem; }
+.login-brand { display: flex; align-items: center; gap: 0.75rem; justify-content: center; }
+.login-card { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 2rem; box-shadow: 0 20px 48px rgba(8, 32, 47, 0.1); }
+.login-title { font-size: 1.75rem; font-weight: 700; margin: 0; }
+.login-lead { color: var(--ink-2); margin: 0.35rem 0 1.25rem; }
+.login-note { display: flex; gap: 0.4rem; align-items: flex-start; font-size: 0.8125rem; color: var(--ink-muted); margin: 1rem 0 0; }
+
+.clerk-slot { display: flex; justify-content: center; min-height: 120px; margin: 0.5rem 0 1rem; }
+.clerk-loading { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-muted); font-size: 0.9375rem; }
+.clerk-root, .clerk-card { width: 100%; box-shadow: none !important; }
+.login-wrap:has(.clerk-slot) { max-width: 480px; }
+
+/* ------------------------------------------------------------------------
+   Roles y miembros
+   ------------------------------------------------------------------------ */
+.admin-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.role-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; font-size: 0.8125rem; border-radius: 999px; padding: 0.2rem 0.6rem; border: 1px solid transparent; width: fit-content; white-space: nowrap; }
+.role-admin { background: #e3f1f6; color: #00566f; border-color: #b7dbe7; }
+.role-viewer { background: #f1ecf8; color: #5b2a86; border-color: #ddd0ee; }
+.admin-user-info .role-badge { margin-top: 0.35rem; }
+
+.member-add { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 240px) auto; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+.member-add .form-label-container { margin-bottom: 0.35rem; }
+.member-add-submit { min-height: 48px; display: inline-flex; align-items: center; gap: 0.35rem; justify-self: start; white-space: nowrap; }
+.member-cell { display: flex; align-items: center; gap: 0.75rem; }
+.member-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }
+.member-avatar-empty { display: grid; place-items: center; background: var(--surface-soft); color: var(--ink-muted); }
+.members-table a.cell-title { color: var(--ink); text-decoration: none; }
+.members-table a.cell-title:hover { text-decoration: underline; }
+.me-badge { margin-left: 0.4rem; }
+.members-table .row-actions .btn { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+.members-table .col-actions { width: 280px; }
+.members-table .row-actions .small { max-width: 220px; text-align: right; }
+.members-table { min-width: 900px; }
+
+.search-field { position: relative; }
+.search-field > .material-symbols-rounded { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--ink-muted); pointer-events: none; }
+.search-field .form-control { padding-left: 2.75rem; }
+
+/* ------------------------------------------------------------------------
+   Responsivo y movimiento reducido
+   ------------------------------------------------------------------------ */
+@media (max-width: 991.98px) {
+    .admin-header-inner { flex-wrap: wrap; gap: 0.5rem 1rem; padding-block: 0.75rem; }
+    .admin-nav { order: 3; flex-basis: 100%; }
+}
+@media (max-width: 600px) {
+    .admin-h1 { font-size: 1.5rem; }
+    .member-add { grid-template-columns: 1fr; }
+    .admin-brand-subtitle { display: none; }
+    .login-card { padding: 1.5rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .admin-caret { transition: none !important; }
 }
 
-* {
-    box-sizing: border-box;
-}
+/* ========================================================================
+   Propio de la plataforma de QA
+   ======================================================================== */
 
-body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
+/* Rol QA (el panel solo tiene admin y solo lectura): verde azulado de la paleta de Obelisco */
+.role-qa { background: #e0f2f1; color: #00695f; border-color: #b2dfdb; }
 
-.page {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 24px 16px 48px;
-}
+/* Selector nativo con el mismo aspecto que .form-control de Obelisco (el panel usa un desplegable
+   de Bootstrap con JS; acá alcanza con el <select> nativo, que además es más accesible) */
+.qa-select { width: 100%; min-height: 48px; padding: 0.75rem 2.5rem 0.75rem 1rem; background-color: var(--surface); border: 0; outline: 0.125rem solid #08202f; border-radius: 9999px; font: inherit; color: var(--ink); }
+.qa-select:focus-visible { outline: 0.1875rem solid var(--focus); }
+.qa-select-sm { min-height: 36px; padding-block: 0.35rem; font-size: 0.9375rem; width: auto; }
 
-h1 {
-    margin: 0;
-    font-size: 1.75rem;
-}
+/* Menú de usuario sin el JS de Bootstrap: React lo abre y lo cierra */
+.admin-user-dropdown.show { display: block; position: absolute; right: 0; top: calc(100% + 0.25rem); }
 
-h2 {
-    margin: 0 0 12px;
-    font-size: 1.125rem;
-}
-
-.muted {
-    margin: 4px 0 24px;
-    color: var(--muted);
-}
-
-.card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-}
-
-.facts {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 8px 16px;
-    margin: 0;
-}
-
-.facts dt {
-    color: var(--muted);
-}
-
-.facts dd {
-    margin: 0;
-}
-
-.ok {
-    color: var(--ok);
-    font-weight: 600;
-}
-
-.bad {
-    color: var(--bad);
-    font-weight: 600;
-}
-
-.small {
-    font-size: 0.875rem;
-}
-
-.visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-}
-
-.topbar {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.login {
-    display: flex;
-    justify-content: center;
-    padding: 24px 0;
-}
-
-.card + .card {
-    margin-top: 16px;
-}
-
-button,
-input,
-select {
-    font: inherit;
-    color: inherit;
-}
-
-button {
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
-    border-radius: 6px;
-    padding: 6px 14px;
-    cursor: pointer;
-}
-
-button.danger {
-    background: transparent;
-    border-color: var(--bad);
-    color: var(--bad);
-}
-
-input,
-select {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
-}
-
-:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-}
-
-.inline-form {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 12px;
-    margin-bottom: 12px;
-}
-
-.inline-form label {
-    display: grid;
-    gap: 4px;
-    font-size: 0.875rem;
-    color: var(--muted);
-}
-
-.notice {
-    margin: 0 0 12px;
-}
-
-.table-wrap {
-    overflow-x: auto;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-th,
-td {
-    text-align: left;
-    padding: 8px;
-    border-top: 1px solid var(--border);
-    vertical-align: middle;
-}
-
-th {
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 0.875rem;
-}
-
-tr.is-disabled td {
-    opacity: 0.6;
-}
-
-.check {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
+/* Aviso flotante (mismo lugar que el toast del panel) */
+.qa-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1090; }

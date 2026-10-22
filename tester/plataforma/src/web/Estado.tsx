@@ -1,5 +1,6 @@
-// Estado del Worker (GET /health, sin login).
+// Estado de la plataforma (GET /health, sin login), con las tarjetas de la pestaña Estado del panel.
 import { useEffect, useState } from "react";
+import { Alerta, Icon } from "./ui";
 
 type Health = {
     ok: boolean;
@@ -12,9 +13,33 @@ type Health = {
 
 type State = { kind: "loading" } | { kind: "ready"; health: Health } | { kind: "error"; message: string };
 
-function formatDate(iso: string | null): string {
-    if (!iso) return "Todavía no corrió";
-    return new Date(iso).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+const ESTADO = {
+    ok: { icon: "check_circle", label: "Operativo", css: "active" },
+    down: { icon: "error", label: "Caído", css: "exhausted" },
+    pendiente: { icon: "do_not_disturb_on", label: "Sin datos", css: "disabled" },
+} as const;
+
+const fecha = new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short" });
+
+function Tarjeta(props: { titulo: string; plataforma: string; estado: keyof typeof ESTADO; detalle: string; descripcion: string }) {
+    const st = ESTADO[props.estado];
+    const clase = props.estado === "pendiente" ? "" : ` is-${props.estado}`;
+    return (
+        <article className={`status-card${clase}`}>
+            <div className="status-card-head">
+                <div>
+                    <h3 className="status-card-title">{props.titulo}</h3>
+                    <span className="cell-sub">{props.plataforma}</span>
+                </div>
+                <span className={`status status-${st.css}`}>
+                    <Icon name={st.icon} />
+                    {st.label}
+                </span>
+            </div>
+            <p className="status-card-detail">{props.detalle}</p>
+            <p className="status-card-desc admin-muted">{props.descripcion}</p>
+        </article>
+    );
 }
 
 export function Estado() {
@@ -27,27 +52,55 @@ export function Estado() {
     }, []);
 
     return (
-        <section className="card" aria-labelledby="estado" aria-busy={state.kind === "loading"}>
-            <h2 id="estado">Estado</h2>
-            {state.kind === "loading" && <p>Consultando…</p>}
-            {state.kind === "error" && <p role="alert">{state.message}</p>}
+        <section aria-labelledby="estado" aria-busy={state.kind === "loading"}>
+            <div className="admin-section-head">
+                <div>
+                    <h2 className="admin-h2" id="estado">
+                        Estado de la plataforma
+                    </h2>
+                    <p className="admin-muted admin-section-lead">Servicios propios de QA en Cloudflare, separados del backend de Railway.</p>
+                </div>
+            </div>
+            {state.kind === "loading" && <p className="admin-muted">Consultando…</p>}
+            {state.kind === "error" && <Alerta tipo="danger">{state.message}</Alerta>}
             {state.kind === "ready" && (
-                <dl className="facts">
-                    <dt>General</dt>
-                    <dd className={state.health.ok ? "ok" : "bad"}>{state.health.ok ? "En línea" : "Con problemas"}</dd>
-                    <dt>Base de datos (D1)</dt>
-                    <dd>{state.health.d1}</dd>
-                    <dt>Evidencias (R2)</dt>
-                    <dd>{state.health.r2}</dd>
-                    <dt>Casos en el catálogo</dt>
-                    <dd>{state.health.casos}</dd>
-                    <dt>Última sincronización</dt>
-                    <dd>{formatDate(state.health.ultima_cron)}</dd>
-                    <dt>Versión</dt>
-                    <dd>
-                        <code>{state.health.version}</code>
-                    </dd>
-                </dl>
+                <>
+                    <div className="status-overall">
+                        <Alerta tipo={state.health.ok ? "success" : "danger"}>
+                            {state.health.ok ? "La plataforma funciona." : "La plataforma tiene problemas: revisá las tarjetas."}
+                        </Alerta>
+                    </div>
+                    <div className="status-grid">
+                        <Tarjeta
+                            titulo="Base de datos"
+                            plataforma="Cloudflare D1"
+                            estado={state.health.d1 === "ok" ? "ok" : "down"}
+                            detalle={state.health.d1 === "ok" ? "Consulta de prueba OK" : `Falló (${state.health.d1})`}
+                            descripcion="Sesiones, resultados, bugs, miembros y auditoría."
+                        />
+                        <Tarjeta
+                            titulo="Evidencias"
+                            plataforma="Cloudflare R2"
+                            estado={state.health.r2 === "ok" ? "ok" : "down"}
+                            detalle={state.health.r2 === "ok" ? "Bucket accesible" : `Falló (${state.health.r2})`}
+                            descripcion="Capturas, videos y archivos de los resultados. Sin borrado automático."
+                        />
+                        <Tarjeta
+                            titulo="Catálogo de casos"
+                            plataforma="tester/casos"
+                            estado="ok"
+                            detalle={`${state.health.casos} casos`}
+                            descripcion={`Empaquetado en el deploy · versión ${state.health.version}.`}
+                        />
+                        <Tarjeta
+                            titulo="Sincronización con GitHub"
+                            plataforma="Cron Trigger cada 10 min"
+                            estado={state.health.ultima_cron ? "ok" : "pendiente"}
+                            detalle={state.health.ultima_cron ? `Última corrida: ${fecha.format(new Date(state.health.ultima_cron))}` : "Todavía no corrió"}
+                            descripcion="Trae los cambios de estado de los bugs publicados."
+                        />
+                    </div>
+                </>
             )}
         </section>
     );

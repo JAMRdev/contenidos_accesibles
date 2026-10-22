@@ -9,9 +9,11 @@ const root = createRoot(document.getElementById("root")!);
 
 function Fallo({ mensaje }: { mensaje: string }) {
     return (
-        <main className="page">
-            <h1>Plataforma de QA</h1>
-            <p role="alert">{mensaje}</p>
+        <main className="admin-container admin-main">
+            <h1 className="admin-h1">Plataforma de QA</h1>
+            <div className="alert alert-danger mt-3" role="alert">
+                <p className="mb-0">{mensaje}</p>
+            </div>
         </main>
     );
 }
