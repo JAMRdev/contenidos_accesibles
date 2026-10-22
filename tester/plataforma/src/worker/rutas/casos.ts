@@ -1,6 +1,7 @@
 // Catálogo de casos (cualquier rol).
 //
 // - GET /api/casos?seccion=&etiqueta=&q=&destructivo=&mock=&ia_real=
+// - GET /api/casos/secciones  → secciones del catálogo (para los filtros)
 // - GET /api/casos/:id  → el caso, su historial en todas las sesiones y sus bugs
 import { Hono } from "hono";
 import type { AppEnv } from "../auth";
@@ -21,6 +22,8 @@ casos.get("/", (c) => {
     });
     return c.json({ secciones: catalogo.secciones, total: lista.length, casos: lista });
 });
+
+casos.get("/secciones", (c) => c.json({ secciones: catalogo.secciones }));
 
 casos.get("/:id", async (c) => {
     const caso = buscarCaso(c.req.param("id"));

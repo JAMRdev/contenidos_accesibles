@@ -140,4 +140,9 @@ describe("catálogo", () => {
         expect(destructivos.casos.length).toBeGreaterThan(0);
         expect(destructivos.casos.every((c) => c.destructivo)).toBe(true);
     });
+
+    it("lista las secciones para los filtros", async () => {
+        const { secciones } = await (await api("user_viewer", "/api/casos/secciones")).json<{ secciones: { seccion: string }[] }>();
+        expect(secciones.map((s) => s.seccion)).toEqual(catalogo.secciones.map((s) => s.seccion));
+    });
 });

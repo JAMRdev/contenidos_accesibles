@@ -77,6 +77,33 @@ body { background: var(--surface-page); color: var(--ink); }
 .admin-section-head:first-child { margin-top: 0; }
 .admin-section-lead { margin: 0; max-width: 72ch; }
 
+.admin-breadcrumb { margin-bottom: 1rem; }
+
+/* ------------------------------------------------------------------------
+   Indicadores
+   ------------------------------------------------------------------------ */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 1.25rem; display: flex; flex-direction: column; gap: 0.25rem; min-height: 9.5rem; }
+.kpi-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9375rem; color: var(--ink-2); font-weight: 600; }
+.kpi-value { font-size: 2.25rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi-unit { font-size: 1rem; font-weight: 600; color: var(--ink-muted); margin-left: 0.15rem; }
+.kpi-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 0.75rem; margin-top: auto; }
+.kpi-delta { font-size: 0.8125rem; font-weight: 600; color: var(--ink-2); display: inline-flex; align-items: flex-start; gap: 0.2rem; }
+
+/* ------------------------------------------------------------------------
+   Filtros y formularios
+   ------------------------------------------------------------------------ */
+.table-filters { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 280px); gap: 1rem; margin-bottom: 1rem; align-items: start; }
+.table-filters .form-label-container { margin-bottom: 0.35rem; }
+.form-section { border: 0; padding: 0; margin: 0 0 1.5rem; min-width: 0; }
+.form-section-title { display: flex; align-items: center; gap: 0.45rem; font-size: 1rem; font-weight: 700; color: var(--ink); margin-bottom: 0.75rem; float: none; width: auto; }
+.form-section-title .material-symbols-rounded { color: var(--series-1); }
+.form-grid { display: grid; gap: 0.25rem 1.25rem; align-items: start; }
+.form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.span-2 { grid-column: span 2; }
+.span-3 { grid-column: 1 / -1; }
+.form-control.is-invalid { border-color: var(--status-critical); }
+
 /* ------------------------------------------------------------------------
    Tablas
    ------------------------------------------------------------------------ */
@@ -166,10 +193,13 @@ body { background: var(--surface-page); color: var(--ink); }
 @media (max-width: 991.98px) {
     .admin-header-inner { flex-wrap: wrap; gap: 0.5rem 1rem; padding-block: 0.75rem; }
     .admin-nav { order: 3; flex-basis: 100%; }
+    .form-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .span-2 { grid-column: 1 / -1; }
 }
 @media (max-width: 600px) {
     .admin-h1 { font-size: 1.5rem; }
-    .member-add { grid-template-columns: 1fr; }
+    .table-filters, .member-add { grid-template-columns: 1fr; }
+    .form-grid-3 { grid-template-columns: 1fr; }
     .admin-brand-subtitle { display: none; }
     .login-card { padding: 1.5rem; }
 }
@@ -190,8 +220,53 @@ body { background: var(--surface-page); color: var(--ink); }
 .qa-select:focus-visible { outline: 0.1875rem solid var(--focus); }
 .qa-select-sm { min-height: 36px; padding-block: 0.35rem; font-size: 0.9375rem; width: auto; }
 
+/* Enlaces del menú de usuario: mismo formato que "Cerrar sesión", en el color del texto */
+.admin-menu-link { display: flex; align-items: center; gap: 0.5rem; border-radius: 8px; padding: 0.6rem 0.75rem; font-weight: 600; color: var(--ink-2); }
+.admin-menu-link:hover, .admin-menu-link:focus { background: var(--surface-soft); color: var(--ink); }
+
 /* Menú de usuario sin el JS de Bootstrap: React lo abre y lo cierra */
 .admin-user-dropdown.show { display: block; position: absolute; right: 0; top: calc(100% + 0.25rem); }
 
 /* Aviso flotante (mismo lugar que el toast del panel) */
 .qa-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1090; }
+
+/* Tarjeta genérica, igual que .chart-card del panel */
+.qa-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 1.25rem; min-width: 0; }
+.qa-card + .qa-card { margin-top: 1rem; }
+.qa-card-title { font-size: 1.125rem; font-weight: 700; margin: 0 0 0.75rem; }
+
+/* Filtros de cuatro o cinco campos (búsqueda + selectores) */
+.qa-filters { grid-template-columns: minmax(0, 2fr) repeat(auto-fit, minmax(160px, 1fr)); }
+
+/* Barra de avance de una sesión: segmentos con los colores de estado del panel */
+.qa-progress { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--grid); min-width: 140px; }
+.qa-progress span { display: block; height: 100%; }
+.qa-progress .paso { background: var(--status-good); }
+.qa-progress .fallo { background: var(--status-critical); }
+.qa-progress .bloqueado { background: var(--status-warning); }
+.qa-progress .omitido { background: var(--neutral); }
+
+/* Marcas de un caso (mock, IA real, destructivo) */
+.qa-flags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+
+/* Fila expandida con el detalle de un caso */
+.qa-detail-row > td { background: var(--surface-page); }
+.qa-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; padding: 0.75rem 0.25rem; }
+.qa-detail h3 { font-size: 0.9375rem; font-weight: 700; margin: 0 0 0.35rem; }
+.qa-detail ol, .qa-detail ul { margin: 0 0 0.75rem; padding-left: 1.25rem; }
+.qa-detail p { margin: 0 0 0.75rem; }
+textarea.form-control { border-radius: 16px; min-height: 96px; resize: vertical; }
+
+/* Comentarios e historial */
+.qa-timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.qa-timeline li { border-left: 3px solid var(--line); padding: 0.1rem 0 0.1rem 0.75rem; }
+.qa-timeline .meta { font-size: 0.8125rem; color: var(--ink-muted); display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: center; }
+.qa-timeline p { margin: 0.2rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.qa-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.qa-two-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.qa-pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+
+@media (max-width: 991.98px) {
+    .qa-detail, .qa-two-cols { grid-template-columns: 1fr; }
+}

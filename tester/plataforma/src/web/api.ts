@@ -1,6 +1,6 @@
 // Cliente de la API del Worker: agrega el token de sesión de Clerk y convierte los errores en ApiError.
 import { useAuth } from "@clerk/react";
-import { useCallback } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 export class ApiError extends Error {
     constructor(
@@ -36,4 +36,40 @@ export function useApi() {
         },
         [getToken],
     );
+}
+
+type Datos<T> = { datos: T | null; error: string | null; cargando: boolean; recargar: () => void; setDatos: (d: T) => void };
+
+/** GET a la API que se repite cuando cambia la ruta; `recargar` lo vuelve a pedir. */
+export function useDatos<T>(ruta: string | null): Datos<T> {
+    const api = useApi();
+    const [estado, setEstado] = useState<{ datos: T | null; error: string | null; cargando: boolean }>({ datos: null, error: null, cargando: true });
+    const [vuelta, setVuelta] = useState(0);
+
+    useEffect(() => {
+        if (!ruta) return;
+        let vigente = true;
+        setEstado((e) => ({ ...e, cargando: true }));
+        api<T>(ruta)
+            .then((datos) => vigente && setEstado({ datos, error: null, cargando: false }))
+            .catch((e: Error) => vigente && setEstado((s) => ({ ...s, error: e.message, cargando: false })));
+        return () => {
+            vigente = false;
+        };
+    }, [api, ruta, vuelta]);
+
+    return {
+        ...estado,
+        recargar: useCallback(() => setVuelta((v) => v + 1), []),
+        setDatos: useCallback((datos: T) => setEstado({ datos, error: null, cargando: false }), []),
+    };
+}
+
+// Quién está usando la web (lo carga App al entrar)
+export const YoContext = createContext<Yo | null>(null);
+
+export function useYo(): Yo {
+    const yo = useContext(YoContext);
+    if (!yo) throw new Error("useYo fuera de YoContext");
+    return yo;
 }

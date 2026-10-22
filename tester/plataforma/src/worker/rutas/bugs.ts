@@ -1,6 +1,7 @@
 // Bugs encontrados en los casos, su estado y sus comentarios.
 //
 // - GET   /api/bugs?estado=&caso=&seccion=&entorno=&severidad=&autor=&sesion=&desde=&hasta=&q=&antes=&limite=
+// - GET   /api/bugs/resumen   → cuántos bugs hay en cada estado
 // - POST  /api/bugs  { caso_id, sesion_id?, titulo, descripcion?, severidad? }   (qa) → borrador
 // - GET   /api/bugs/:id   → el bug, su historial de estados y sus comentarios
 // - PATCH /api/bugs/:id   { estado?, titulo?, descripcion?, severidad? }          (qa)
@@ -122,6 +123,13 @@ bugs.get("/", async (c) => {
         bugs: pagina.map((b) => bugJson(b, buscarCaso(b.case_id))),
         siguiente: results.length > limite ? pagina.at(-1)!.id : null,
     });
+});
+
+bugs.get("/resumen", async (c) => {
+    const { results } = await c.env.DB.prepare("SELECT status, COUNT(*) AS n FROM qa_bugs GROUP BY status").all<{ status: EstadoBug; n: number }>();
+    const porEstado = Object.fromEntries(ESTADOS_BUG.map((e) => [e, 0])) as Record<EstadoBug, number>;
+    for (const r of results) porEstado[r.status] = r.n;
+    return c.json({ por_estado: porEstado });
 });
 
 bugs.post("/", requiereRol("qa"), async (c) => {

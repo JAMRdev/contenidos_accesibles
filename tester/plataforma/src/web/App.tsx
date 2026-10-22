@@ -1,11 +1,16 @@
 // Web de QA: login con Clerk (la misma instancia que /admin) y, con sesión, lo que permite el rol.
-// Mismo diseño que el panel /admin (Obelisco V2). Las pantallas de sesiones, casos y bugs llegan con #131.
+// Mismo diseño que el panel /admin (Obelisco V2).
 import { ClerkLoaded, ClerkLoading, Show, SignIn, useClerk } from "@clerk/react";
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, useApi, type Yo } from "./api";
+import { ApiError, useApi, YoContext, type Yo } from "./api";
 import { Encabezado } from "./Encabezado";
-import { Estado } from "./Estado";
 import { Miembros } from "./Miembros";
+import { BugDetallePagina, Bugs } from "./paginas/Bugs";
+import { CasoDetalle, Casos } from "./paginas/Casos";
+import { Inicio } from "./paginas/Inicio";
+import { SesionDetalle } from "./paginas/SesionDetalle";
+import { Sesiones } from "./paginas/Sesiones";
+import { Link, RutaProvider, useRuta } from "./ruta";
 import { Alerta, Icon, Marca, ToastProvider } from "./ui";
 
 // Misma apariencia que el login de /admin (backend/app/admin/static/admin.js)
@@ -69,9 +74,25 @@ function SinAcceso({ titulo, mensaje }: { titulo: string; mensaje: string }) {
     );
 }
 
+// Qué página muestra cada ruta (la navegación está en Encabezado)
+function Pagina({ yo }: { yo: Yo }) {
+    const { path } = useRuta();
+    const [, raiz, id] = path.split("/");
+    if (raiz === "" || raiz === undefined) return <Inicio />;
+    if (raiz === "sesiones") return id ? <SesionDetalle key={id} id={id} /> : <Sesiones />;
+    if (raiz === "bugs") return id ? <BugDetallePagina key={id} id={id} /> : <Bugs />;
+    if (raiz === "casos") return id ? <CasoDetalle key={id} id={decodeURIComponent(id)} /> : <Casos />;
+    if (raiz === "miembros" && yo.permisos.administrar) return <Miembros yo={yo.github} />;
+    return (
+        <Alerta tipo="warning">
+            No existe esta página. <Link href="/">Volver al inicio</Link>.
+        </Alerta>
+    );
+}
+
 type Sesion = { kind: "cargando" } | { kind: "lista"; yo: Yo } | { kind: "sin-acceso" | "error"; mensaje: string };
 
-function Inicio() {
+function Plataforma() {
     const api = useApi();
     const [sesion, setSesion] = useState<Sesion>({ kind: "cargando" });
 
@@ -92,21 +113,14 @@ function Inicio() {
             </a>
             <Encabezado yo={yo} />
             <main id="main" className="admin-container admin-main">
-                <div className="admin-title-row">
-                    <div>
-                        <h1 className="admin-h1">Plataforma de QA</h1>
-                        <p className="admin-lead">Rondas de prueba del backend, evidencias y bugs publicados en GitHub.</p>
-                    </div>
-                </div>
                 {!yo ? (
                     <p className="admin-muted" aria-busy="true">
                         Cargando tu acceso…
                     </p>
                 ) : (
-                    <>
-                        <Estado />
-                        {yo.permisos.administrar && <Miembros yo={yo.github} />}
-                    </>
+                    <YoContext.Provider value={yo}>
+                        <Pagina yo={yo} />
+                    </YoContext.Provider>
                 )}
             </main>
         </>
@@ -116,12 +130,14 @@ function Inicio() {
 export function App() {
     return (
         <ToastProvider>
-            <Show when="signed-out">
-                <Login />
-            </Show>
-            <Show when="signed-in">
-                <Inicio />
-            </Show>
+            <RutaProvider>
+                <Show when="signed-out">
+                    <Login />
+                </Show>
+                <Show when="signed-in">
+                    <Plataforma />
+                </Show>
+            </RutaProvider>
         </ToastProvider>
     );
 }

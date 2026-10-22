@@ -67,6 +67,16 @@ describe("crear y consultar bugs", () => {
     });
 });
 
+describe("resumen", () => {
+    it("cuenta los bugs por estado (todos los estados, aunque estén en cero)", async () => {
+        const a = await crearBug({ caso_id: "QA-4.3-01" });
+        await crearBug({ caso_id: "QA-4.3-02" });
+        await api("user_qa", `/api/bugs/${a.id}`, { method: "PATCH", ...body({ estado: "descartado" }) });
+        const { por_estado } = await (await api("user_viewer", "/api/bugs/resumen")).json<{ por_estado: Record<string, number> }>();
+        expect(por_estado).toEqual({ borrador: 1, abierto: 0, en_curso: 0, resuelto: 0, verificado: 0, reabierto: 0, descartado: 1 });
+    });
+});
+
 describe("estado de un bug", () => {
     it("sin issue solo pasa entre borrador y descartado", async () => {
         const bug = await crearBug({ caso_id: "QA-4.3-01" });
