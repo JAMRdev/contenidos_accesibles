@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useApi, useDatos, useYo } from "../api";
 import { Comentarios } from "../Comentarios";
 import { Evidencias } from "../Evidencias";
-import { PosiblesDuplicados, ReporteBug, VistaPreviaIssue } from "../Reporte";
+import { PosiblesDuplicados, PublicarBug, ReporteBug, VistaPreviaIssue } from "../Reporte";
 import { Link, useFiltros } from "../ruta";
 import type { Bug, BugDetalle, Entorno, EstadoBug, Seccion, Severidad } from "../tipos";
 import { Alerta, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
@@ -170,14 +170,7 @@ export function BugDetallePagina({ id }: { id: string }) {
                 </div>
             </div>
             {error && <Alerta tipo="danger">{error}</Alerta>}
-            {!b.issue && b.estado === "borrador" && (
-                <div className="alert alert-info" role="status">
-                    <p className="mb-0">
-                        <strong>Este bug todavía no está en GitHub.</strong> Por ahora queda como borrador en la plataforma: el botón para publicarlo como issue
-                        (con la etiqueta <code>[QA - Issue]</code>) llega con #130.
-                    </p>
-                </div>
-            )}
+            <PublicarBug bug={b} alPublicar={bug.recargar} />
 
             <div className="qa-two-cols">
                 <div>
@@ -213,7 +206,7 @@ export function BugDetallePagina({ id }: { id: string }) {
                                 <dd>{fecha(b.sincronizado_en)}</dd>
                             </dl>
                         ) : (
-                            <p className="admin-muted mb-0">Todavía no se publicó. La publicación en GitHub llega con #130.</p>
+                            <p className="admin-muted mb-0">Todavía no se publicó.</p>
                         )}
                     </section>
 

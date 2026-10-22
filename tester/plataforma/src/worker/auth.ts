@@ -46,6 +46,16 @@ export const requiereSesion = createMiddleware<AppEnv>(async (c, next) => {
     await next();
 });
 
+/** Límite propio para publicar en GitHub (cada publicación hace varias llamadas a GitHub). */
+export const limitePublicar = createMiddleware<AppEnv>(async (c, next) => {
+    const { success } = await c.env.LIMITE_PUBLICAR.limit({ key: c.get("usuario").github.toLowerCase() });
+    if (!success) {
+        c.header("Retry-After", "60");
+        return c.json({ error: "Publicaste muchas veces seguidas. Esperá un minuto y probá de nuevo." }, 429);
+    }
+    await next();
+});
+
 const DESCRIPCION: Record<Rol, string> = { viewer: "solo lectura", qa: "QA", admin: "admin" };
 
 export function requiereRol(minimo: Rol) {

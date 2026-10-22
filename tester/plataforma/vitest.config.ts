@@ -17,12 +17,16 @@ export default defineConfig(async () => {
             cloudflareTest({
                 wrangler: { configPath: "./wrangler.toml" },
                 miniflare: {
+                    // Pisan wrangler.toml y también .dev.vars: los tests nunca usan secretos ni repos reales
                     bindings: {
                         TEST_MIGRATIONS: migrations,
                         TEST_CLERK_PRIVATE_KEY: privateKey,
                         CLERK_JWT_KEY: publicKey,
                         CLERK_SECRET_KEY: "sk_test_prueba",
                         QA_ADMINS: "admin-fijo",
+                        ORIGENES_EXTRA: "",
+                        GITHUB_REPO: "e18-innovalab/contenidos_accesibles",
+                        GITHUB_TOKEN: "",
                     },
                 },
             }),

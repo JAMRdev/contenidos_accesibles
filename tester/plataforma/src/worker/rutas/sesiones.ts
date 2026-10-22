@@ -8,11 +8,14 @@
 // - POST   /api/sesiones/:id/reabrir                                   (admin)
 // - PUT    /api/sesiones/:id/resultados/:caso   { estado, notas? }     (qa, sesión abierta)
 // - DELETE /api/sesiones/:id/resultados/:caso   → vuelve a pendiente   (qa, sesión abierta)
+// - GET    /api/sesiones/:id/publicacion         → qué se va a crear o comentar en GitHub (#130)
+// - POST   /api/sesiones/:id/publicar            → publica la sesión en GitHub (qa, #130)
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import type { Caso } from "../../catalogo/esquema.ts";
 import { auditar } from "../auditoria";
-import { requiereRol, type AppEnv } from "../auth";
+import { limitePublicar, requiereRol, type AppEnv } from "../auth";
+import { planDeSesion, publicarSesion } from "../publicar";
 import { aplica, buscarCaso, catalogo, ENTORNOS, filtrarCasos, type Entorno } from "../catalogo";
 import type { Env } from "../env";
 import { consultaBooleana, consultaLista, error, Filtros, idDe, leerBody, limiteDe, textoOpcional } from "../validar";
@@ -196,6 +199,12 @@ async function cambiarEstado(c: Context<AppEnv>, estado: "abierta" | "cerrada") 
     await auditar(c.env, yo, estado === "cerrada" ? "sesion.cerrar" : "sesion.reabrir", { id: s.id });
     return c.json(sesionJson(actualizada!));
 }
+
+sesiones.get("/:id/publicacion", async (c) => c.json(await planDeSesion(c.env, idDe(c.req.param("id"), "Sesión"))));
+
+sesiones.post("/:id/publicar", requiereRol("qa"), limitePublicar, async (c) =>
+    c.json(await publicarSesion(c.env, idDe(c.req.param("id"), "Sesión"), c.get("usuario").github, new URL(c.req.url).origin)),
+);
 
 sesiones.post("/:id/cerrar", requiereRol("qa"), (c) => cambiarEstado(c, "cerrada"));
 sesiones.post("/:id/reabrir", requiereRol("admin"), (c) => cambiarEstado(c, "abierta"));

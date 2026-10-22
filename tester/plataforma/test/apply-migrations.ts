@@ -7,7 +7,7 @@ await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 
 // Hijas antes que padres (claves foráneas)
 const TABLAS = [
-    "qa_evidence", "qa_comments", "qa_bug_history", "qa_bugs", "qa_results", "qa_sessions",
+    "qa_publications", "qa_evidence", "qa_comments", "qa_bug_history", "qa_bugs", "qa_results", "qa_sessions",
     "qa_meta", "qa_members", "qa_users", "qa_audit",
 ];
 

@@ -31,6 +31,9 @@ export function instalarClerk() {
     llamadasAClerk.length = 0;
     llamadasAGithub.length = 0;
     github = () => Response.json({ message: "sin simular" }, { status: 500 });
+    // Los límites por usuario se prueban aparte (auth.test.ts): acá no tienen que cortar los tests
+    vi.spyOn(env.LIMITE_API, "limit").mockResolvedValue({ success: true });
+    vi.spyOn(env.LIMITE_PUBLICAR, "limit").mockResolvedValue({ success: true });
     const real = globalThis.fetch;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
         const url = new URL(input instanceof Request ? input.url : String(input));

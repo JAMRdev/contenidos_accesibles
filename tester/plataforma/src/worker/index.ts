@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { listarAuditoria } from "./auditoria";
 import { requiereRol, requiereSesion, type AppEnv } from "./auth";
+import { GithubError } from "./github";
 import { health } from "./health";
 import { LAST_CRON_KEY, setMeta } from "./meta";
 import { alcanza } from "./roles";
@@ -63,6 +64,8 @@ app.notFound((c) =>
 app.onError((err, c) => {
     // Errores esperados (validación, no encontrado, conflicto): su mensaje es apto para mostrar
     if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
+    // GitHub caído o rechazando el pedido: lo publicado hasta ahí queda registrado y se puede reintentar
+    if (err instanceof GithubError) return c.json({ error: `${err.message} Lo que se alcanzó a publicar quedó registrado: podés reintentar.` }, 502);
     console.error(err);
     return c.json({ error: "Error interno de la plataforma de QA." }, 500);
 });

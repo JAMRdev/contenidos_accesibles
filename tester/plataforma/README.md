@@ -42,6 +42,16 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | `GET /api/bugs/:id/vista-previa` | Cualquier rol | El issue tal como se publicaría (título, cuerpo en Markdown, etiquetas, repo) y qué le falta al reporte. |
 | `GET /api/bugs/:id/duplicados` | Cualquier rol | Bugs activos del mismo caso y, con `GITHUB_TOKEN`, issues abiertos del caso en `GITHUB_REPO`. |
 
+| `POST /api/bugs/:id/publicar` | QA | Publica el bug en GitHub (o comenta en el issue abierto del caso). Límite: 10 por minuto por usuario. |
+| `GET /api/sesiones/:id/publicacion`, `POST /api/sesiones/:id/publicar` | POST: QA | Qué se va a publicar de la sesión y publicarla. |
+
+**Publicación en GitHub (#130).** Nada se publica sin que QA lo pida y nada se cierra solo.
+
+- **Un bug:** si hay un issue abierto del mismo caso (de otro bug de la plataforma o con la marca `<!-- qa-case: … -->` en GitHub), se comenta en él: el bug queda vinculado a ese issue o, si ya es de otro bug, descartado como duplicado. Si no, se crea el issue sin asignar, con las etiquetas de la plantilla, y se agrega al tablero con "Estado QA" = Falló si el campo existe. También se envían los comentarios marcados "también en GitHub".
+- **Una sesión:** publica sus bugs en borrador (omite los incompletos), propone cerrar con un comentario los bugs abiertos de casos que ahora pasaron, envía los comentarios pendientes y crea o actualiza el issue de ejecución `[QA - Issue] Ejecución <fecha> · <entorno> · <título>` con la tabla de casos, sus bugs y sus evidencias.
+- **Idempotente:** cada publicación queda en `qa_publications` con una clave única (`bug:7:issue`, `comentario:12`, `sesion:3:ejecucion`, `sesion:3:propuesta:9`). Publicar de nuevo no duplica; si GitHub falla a mitad de camino, la API responde 502, lo hecho queda registrado y el reintento sigue desde ahí (un issue creado sin guardar se recupera por la marca `<!-- qa-bug: … -->`).
+- **Tablero:** solo se usa si `GITHUB_REPO` es de la misma organización que `GITHUB_PROJECT_OWNER`. En local, con un repo personal en `.dev.vars`, el tablero de la org no se toca. El campo "Estado QA" (Pasó / Falló / Bloqueado / Omitido) se crea a mano una vez en el tablero; si no existe, se avisa y el issue se agrega igual.
+
 **Reporte de un bug (#129).** Campos: título, severidad, URL y versión probadas, pasos, resultado esperado, resultado obtenido y notas. Al crear un bug desde una sesión se precargan los pasos y el esperado del catálogo, la URL y la versión de la sesión y el obtenido de las notas del resultado. El issue sale de una sola plantilla (`src/worker/reporte.ts`): título `[QA - Issue] <caso> · <título>`, marca oculta `<!-- qa-case: <caso> -->`, etiquetas `[QA - Issue]`, `bug`, `testing` y `backend`, y enlaces a las evidencias del bug y del resultado. Para publicar no puede faltar título, pasos, esperado ni obtenido.
 
 | `GET /api/evidencias?resultado=\|bug=` | Cualquier rol | Evidencias de un resultado o un bug. |
@@ -101,7 +111,11 @@ Para el login, creá `.dev.vars` (no se versiona) antes de `npm run dev`:
 ```ini
 CLERK_SECRET_KEY=sk_test_...          # ADMIN_CLERK_SECRET_KEY del .env del backend
 ORIGENES_EXTRA=http://localhost:5173  # para npm run dev:web
+GITHUB_TOKEN=ghp_...                  # token clásico con public_repo (o repo) y project
+GITHUB_REPO=usuario/repo-de-prueba    # opcional: en local, publicar en un repo de prueba
 ```
+
+Los tests no leen nada de `.dev.vars`: `vitest.config.ts` fija sus propios valores (sin token y con Clerk y GitHub simulados).
 
 - `npm run dev:web` levanta Vite con recarga en caliente (puerto 5173) y manda `/api` y `/health` al Worker de `npm run dev`.
 - Para probar el Cron en local: `curl "http://127.0.0.1:8788/cdn-cgi/handler/scheduled?cron=*/10+*+*+*+*"`.

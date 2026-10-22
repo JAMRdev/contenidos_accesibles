@@ -9,6 +9,7 @@ import { BugDetallePagina, Bugs } from "./paginas/Bugs";
 import { CasoDetalle, Casos } from "./paginas/Casos";
 import { EvidenciaPagina } from "./paginas/Evidencia";
 import { Inicio } from "./paginas/Inicio";
+import { PublicarSesion } from "./paginas/PublicarSesion";
 import { SesionDetalle } from "./paginas/SesionDetalle";
 import { Sesiones } from "./paginas/Sesiones";
 import { Link, RutaProvider, useRuta } from "./ruta";
@@ -78,8 +79,9 @@ function SinAcceso({ titulo, mensaje }: { titulo: string; mensaje: string }) {
 // Qué página muestra cada ruta (la navegación está en Encabezado)
 function Pagina({ yo }: { yo: Yo }) {
     const { path } = useRuta();
-    const [, raiz, id] = path.split("/");
+    const [, raiz, id, sub] = path.split("/");
     if (raiz === "" || raiz === undefined) return <Inicio />;
+    if (raiz === "sesiones" && id && sub === "publicar") return <PublicarSesion key={id} id={id} />;
     if (raiz === "sesiones") return id ? <SesionDetalle key={id} id={id} /> : <Sesiones />;
     if (raiz === "bugs") return id ? <BugDetallePagina key={id} id={id} /> : <Bugs />;
     if (raiz === "casos") return id ? <CasoDetalle key={id} id={decodeURIComponent(id)} /> : <Casos />;

@@ -66,12 +66,22 @@ QA_ADMINS = "JAMRdev,VictoriaMackenzie,malessan4"
 # Repo donde se buscan duplicados y se publican los bugs (en local se puede apuntar a un repo de
 # prueba con GITHUB_REPO en .dev.vars). El token va como secreto: GITHUB_TOKEN.
 GITHUB_REPO = "e18-innovalab/contenidos_accesibles"
+# Tablero de la organización donde se agregan los issues publicados (campo "Estado QA" si existe).
+# Solo se usa si el repo es de la misma organización: en local, con un repo personal, no se toca.
+GITHUB_PROJECT_OWNER = "e18-innovalab"
+GITHUB_PROJECT_NUMBER = "3"
 
 # Límite de requests por usuario para toda la API
 [[ratelimits]]
 name = "LIMITE_API"
 namespace_id = "1001"
 simple = { limit = 120, period = 60 }
+
+# Límite por usuario para publicar en GitHub (cada publicación hace varias llamadas a GitHub)
+[[ratelimits]]
+name = "LIMITE_PUBLICAR"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }
 
 # Secretos (no van en este archivo). En producción: `wrangler secret put <NOMBRE>`;
 # en local se leen de .dev.vars (no se versiona). Los agregan sus issues:

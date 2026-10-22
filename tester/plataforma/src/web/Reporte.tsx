@@ -117,6 +117,88 @@ export function ReporteBug({ bug, alCambiar }: { bug: BugDetalle; alCambiar: () 
     );
 }
 
+type ResultadoPublicacion = { accion: "creado" | "vinculado" | "duplicado" | "ya_publicado"; issue: { numero: number; url: string }; comentarios: number; avisos: string[] };
+
+const MENSAJE_PUBLICACION: Record<ResultadoPublicacion["accion"], (n: number) => string> = {
+    creado: (n) => `Publicado en GitHub como #${n}.`,
+    vinculado: (n) => `Ya había un issue abierto de este caso (#${n}): se comentó ahí y el bug quedó vinculado.`,
+    duplicado: (n) => `Ya había un bug abierto de este caso: se comentó en #${n} y este quedó descartado como duplicado.`,
+    ya_publicado: (n) => `El bug ya estaba publicado en #${n}.`,
+};
+
+/** Publicar el bug en GitHub (o enviar sus comentarios pendientes si ya está publicado). */
+export function PublicarBug({ bug, alPublicar }: { bug: BugDetalle; alPublicar: () => void }) {
+    const api = useApi();
+    const yo = useYo();
+    const toast = useToast();
+    const previa = useDatos<VistaPrevia>(bug.issue ? null : `/api/bugs/${bug.id}/vista-previa?v=${encodeURIComponent(bug.actualizado_en)}`);
+    const [publicando, setPublicando] = useState(false);
+    const [resultado, setResultado] = useState<ResultadoPublicacion | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const pendientes = bug.comentarios.filter((c) => c.en_github && !c.publicado_en_github && c.origen === "plataforma").length;
+
+    async function publicar() {
+        if (!bug.issue && !window.confirm(`Se va a publicar en ${previa.datos?.repo ?? "GitHub"} (o a comentar en el issue abierto del mismo caso). ¿Seguir?`)) return;
+        setPublicando(true);
+        try {
+            const r = await api<ResultadoPublicacion>(`/api/bugs/${bug.id}/publicar`, { method: "POST" });
+            setResultado(r);
+            setError(null);
+            toast(MENSAJE_PUBLICACION[r.accion](r.issue.numero));
+            alPublicar();
+        } catch (e) {
+            setError((e as Error).message);
+        } finally {
+            setPublicando(false);
+        }
+    }
+
+    const resultadoAlerta = resultado && (
+        <div className={`alert alert-${resultado.accion === "duplicado" ? "warning" : "success"}`} role="status">
+            <p className="mb-0">
+                {MENSAJE_PUBLICACION[resultado.accion](resultado.issue.numero)}{" "}
+                <a href={resultado.issue.url} target="_blank" rel="noopener">Abrir en GitHub</a>
+                {resultado.comentarios > 0 && ` · ${resultado.comentarios} comentario(s) enviado(s).`}
+            </p>
+            {resultado.avisos.map((a) => <p key={a} className="mb-0 mt-1 small">{a}</p>)}
+        </div>
+    );
+
+    if (bug.issue) {
+        return (
+            <>
+                {resultadoAlerta}
+                {pendientes > 0 && yo.permisos.escribir && (
+                    <div className="alert alert-info" role="status">
+                        <p className="mb-2">Hay {pendientes} comentario(s) marcados para GitHub que todavía no se enviaron al issue #{bug.issue.numero}.</p>
+                        <button type="button" className="btn btn-sm btn-primary" disabled={publicando} onClick={() => void publicar()}>
+                            <Icon name="send" /> Enviar a GitHub
+                        </button>
+                    </div>
+                )}
+                {error && <Alerta tipo="danger">{error}</Alerta>}
+            </>
+        );
+    }
+    if (bug.estado !== "borrador") return null;
+
+    const faltan = previa.datos?.faltan ?? [];
+    return (
+        <div className="alert alert-info" role="status">
+            <p className="mb-2">
+                <strong>Este bug todavía no está en GitHub.</strong>{" "}
+                {faltan.length ? `Para publicarlo falta completar: ${faltan.join(", ")}.` : `Está listo para publicarse en ${previa.datos?.repo ?? "GitHub"} con la etiqueta [QA - Issue].`}
+            </p>
+            {yo.permisos.escribir && (
+                <button type="button" className="btn btn-sm btn-primary" disabled={publicando || !previa.datos || faltan.length > 0} onClick={() => void publicar()}>
+                    {publicando ? <span className="spinner-border spinner-border-sm me-1" aria-hidden="true" /> : <Icon name="publish" />} Publicar en GitHub
+                </button>
+            )}
+            {error && <div className="mt-2"><Alerta tipo="danger">{error}</Alerta></div>}
+        </div>
+    );
+}
+
 export function VistaPreviaIssue({ bugId, version }: { bugId: number; version: string }) {
     const previa = useDatos<VistaPrevia>(`/api/bugs/${bugId}/vista-previa?v=${encodeURIComponent(version)}`);
     const [abierta, setAbierta] = useState(false);
@@ -182,7 +264,7 @@ export function PosiblesDuplicados({ bugId }: { bugId: number }) {
                     </ul>
                 </>
             )}
-            {hay && <p className="admin-muted small mb-0">Si es el mismo problema, comentá en el existente en lugar de publicar otro (al publicar, #130 lo hace solo si el issue tiene la marca del caso).</p>}
+            {hay && <p className="admin-muted small mb-0">Al publicar, si hay un issue abierto de este caso, la plataforma comenta en él en lugar de crear otro.</p>}
             {!github.disponible && <p className="admin-note mb-0"><Icon name="info" /> GitHub no está configurado todavía: solo se buscan duplicados en la plataforma.</p>}
             {github.error && <Alerta tipo="warning">No se pudo buscar en GitHub: {github.error}</Alerta>}
         </section>

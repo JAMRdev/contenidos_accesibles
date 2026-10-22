@@ -16,4 +16,8 @@ export interface Env {
     // Repo donde se publican los bugs (owner/repo) y token para la API de GitHub (secreto)
     GITHUB_REPO: string;
     GITHUB_TOKEN?: string;
+    // Tablero de la organización donde se agregan los issues (solo si el repo es de esa organización)
+    GITHUB_PROJECT_OWNER?: string;
+    GITHUB_PROJECT_NUMBER?: string;
+    LIMITE_PUBLICAR: RateLimit;
 }

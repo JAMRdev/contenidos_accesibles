@@ -8,6 +8,7 @@
 // - PATCH /api/bugs/:id   { estado?, titulo?, severidad?, pasos?, esperado?, obtenido?, url?, version?, descripcion? } (qa)
 // - GET   /api/bugs/:id/vista-previa  → el issue tal como se publicaría y qué le falta (#129)
 // - GET   /api/bugs/:id/duplicados    → bugs activos del mismo caso e issues abiertos en GitHub (#129)
+// - POST  /api/bugs/:id/publicar      → publica en GitHub o comenta en el issue del caso (qa, #130)
 // - GET/POST /api/bugs/:id/comentarios                                           (POST: qa)
 //
 // Estados: borrador → (publicar en GitHub, #130) → abierto → en_curso → resuelto → verificado,
@@ -18,43 +19,18 @@ import { z } from "zod";
 import type { Caso } from "../../catalogo/esquema.ts";
 import { SEVERIDADES } from "../../catalogo/esquema.ts";
 import { auditar } from "../auditoria";
-import { requiereRol, type AppEnv } from "../auth";
+import { limitePublicar, requiereRol, type AppEnv } from "../auth";
+import { publicarBug } from "../publicar";
 import { buscarCaso, ENTORNOS } from "../catalogo";
 import { comentarioSchema, crearComentario, listarComentarios } from "../comentarios";
 import type { Env } from "../env";
 import { buscarIssuesDelCaso, githubDisponible, GithubError } from "../github";
-import { armarIssue, faltantes, type DatosReporte } from "../reporte";
+import { armarIssue, faltantes } from "../reporte";
+import { datosDelIssue, ESTADOS_BUG, type EstadoBug, type FilaBug } from "../bugs-datos";
 import { consultaLista, error, Filtros, idDe, leerBody, limiteDe, textoOpcional } from "../validar";
 
-export const ESTADOS_BUG = ["borrador", "abierto", "en_curso", "resuelto", "verificado", "reabierto", "descartado"] as const;
-export type EstadoBug = (typeof ESTADOS_BUG)[number];
 const PUBLICADOS: readonly EstadoBug[] = ["abierto", "en_curso", "resuelto", "verificado", "reabierto", "descartado"];
 
-type FilaBug = {
-    id: number;
-    case_id: string;
-    section: string;
-    session_id: number | null;
-    environment: string | null;
-    title: string;
-    description: string;
-    severity: (typeof SEVERIDADES)[number];
-    status: EstadoBug;
-    issue_number: number | null;
-    issue_url: string | null;
-    github_state: string | null;
-    github_state_reason: string | null;
-    project_status: string | null;
-    synced_at: string | null;
-    created_by: string;
-    created_at: string;
-    updated_at: string;
-    steps: string;
-    expected: string;
-    actual: string;
-    tested_url: string | null;
-    backend_version: string | null;
-};
 
 /** Mensaje de por qué no se puede pasar al estado pedido, o null si se puede. */
 export function motivoTransicion(bug: Pick<FilaBug, "status" | "issue_number">, nuevo: EstadoBug): string | null {
@@ -241,32 +217,6 @@ bugs.patch("/:id", requiereRol("qa"), async (c) => {
     return c.json(bugJson(await bugOError(c.env, b.id), buscarCaso(b.case_id)));
 });
 
-/** Datos del reporte y evidencias (del bug y del resultado del caso en su sesión) para armar el issue. */
-export async function datosDelIssue(env: Env, b: FilaBug) {
-    const { results: evidencias } = await env.DB.prepare(
-        `SELECT id, label, filename, kind FROM qa_evidence
-         WHERE bug_id = ?1 OR result_id = (SELECT id FROM qa_results WHERE session_id = ?2 AND case_id = ?3)
-         ORDER BY id`,
-    )
-        .bind(b.id, b.session_id, b.case_id)
-        .all<{ id: number; label: string | null; filename: string; kind: string }>();
-    const reporte: DatosReporte = {
-        id: b.id,
-        titulo: b.title,
-        severidad: b.severity,
-        entorno: b.environment as DatosReporte["entorno"],
-        url: b.tested_url,
-        version: b.backend_version,
-        pasos: b.steps,
-        esperado: b.expected,
-        obtenido: b.actual,
-        notas: b.description,
-        sesion_id: b.session_id,
-        creado_por: b.created_by,
-    };
-    return { reporte, evidencias: evidencias.map((e) => ({ id: e.id, etiqueta: e.label, nombre: e.filename, tipo: e.kind })) };
-}
-
 bugs.get("/:id/vista-previa", async (c) => {
     const b = await bugOError(c.env, idDe(c.req.param("id"), "Bug"));
     const caso = buscarCaso(b.case_id);
@@ -304,6 +254,12 @@ bugs.get("/:id/duplicados", async (c) => {
         }
     }
     return c.json({ plataforma: results.map((d) => bugJson(d, buscarCaso(d.case_id))), github: enGithub });
+});
+
+bugs.post("/:id/publicar", requiereRol("qa"), limitePublicar, async (c) => {
+    const b = await bugOError(c.env, idDe(c.req.param("id"), "Bug"));
+    const resultado = await publicarBug(c.env, b, c.get("usuario").github, new URL(c.req.url).origin);
+    return c.json({ ...resultado, bug: bugJson(await bugOError(c.env, b.id), buscarCaso(b.case_id)) });
 });
 
 bugs.get("/:id/comentarios", async (c) => {

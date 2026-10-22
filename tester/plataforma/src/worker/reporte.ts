@@ -30,6 +30,16 @@ export function marcaCaso(casoId: string): string {
     return `<!-- qa-case: ${casoId} -->`;
 }
 
+/** Marca oculta del bug de la plataforma: permite retomar una publicación que quedó a medias. */
+export function marcaBug(bugId: number): string {
+    return `<!-- qa-bug: ${bugId} -->`;
+}
+
+/** Marca oculta del issue de ejecución de una sesión. */
+export function marcaSesion(sesionId: number): string {
+    return `<!-- qa-session: ${sesionId} -->`;
+}
+
 /** Qué le falta al reporte para poder publicarse. */
 export function faltantes(r: Pick<DatosReporte, "titulo" | "pasos" | "obtenido" | "esperado">): string[] {
     const faltan: string[] = [];
@@ -59,7 +69,7 @@ export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaRep
         .filter(Boolean)
         .join(" · ");
     const partes = [
-        marcaCaso(caso.id),
+        `${marcaCaso(caso.id)}${marcaBug(r.id)}`,
         `**Caso:** \`${caso.id}\` · ${caso.titulo}${caso.endpoint ? ` (\`${caso.endpoint}\`)` : ""}`,
         `**Entorno:** ${entorno || "sin datos"}`,
         `**Severidad:** ${SEVERIDAD[r.severidad]}`,
@@ -89,4 +99,76 @@ export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaRep
         `Reportado por @${r.creado_por} desde la [plataforma de QA](${origenWeb}/bugs/${r.id})${r.sesion_id ? ` (sesión #${r.sesion_id})` : ""}.`,
     );
     return { titulo, cuerpo: partes.join("\n"), etiquetas: ETIQUETAS_BUG };
+}
+
+/** Comentario en un issue abierto del mismo caso cuando el bug vuelve a aparecer. */
+export function comentarioReincidencia(r: DatosReporte, caso: Caso, evidencias: EvidenciaReporte[], origenWeb: string): string {
+    // El mismo reporte, sin las marcas ocultas (el issue ya tiene la del caso)
+    const cuerpo = armarIssue(r, caso, evidencias, origenWeb).cuerpo.split("\n").slice(1).join("\n");
+    return `**Se volvió a reproducir este bug** en la plataforma de QA (bug #${r.id}).\n\n${cuerpo}`;
+}
+
+export function comentarioPropuestaCierre(caso: Caso, sesion: { id: number; titulo: string; version: string | null }, origenWeb: string): string {
+    return [
+        `**El caso \`${caso.id}\` pasó** en la sesión de QA [#${sesion.id} · ${sesion.titulo}](${origenWeb}/sesiones/${sesion.id})${sesion.version ? ` (backend v${sesion.version})` : ""}.`,
+        "",
+        "Propongo cerrar este issue si el arreglo ya está en esa versión. La plataforma de QA no cierra issues sola.",
+    ].join("\n");
+}
+
+export function comentarioInterno(autor: string, texto: string, bugId: number, origenWeb: string): string {
+    const cita = texto.trim().split("\n").map((l) => `> ${l}`).join("\n");
+    return `**@${autor}** comentó desde la [plataforma de QA](${origenWeb}/bugs/${bugId}):\n\n${cita}`;
+}
+
+const RESULTADO = { paso: "✅ Pasó", fallo: "❌ Falló", bloqueado: "⛔ Bloqueado", omitido: "⏭️ Omitido" } as const;
+
+export type FilaEjecucion = {
+    caso: Caso;
+    estado: keyof typeof RESULTADO;
+    bug: { numero: number; url: string } | null;
+    evidencias: number[];
+};
+
+export type SesionEjecucion = {
+    id: number;
+    titulo: string;
+    entorno: keyof typeof ENTORNO;
+    url: string;
+    version: string | null;
+    creada_por: string;
+    creada_en: string;
+    estado: "abierta" | "cerrada";
+};
+
+/** Issue de ejecución de una sesión: resumen y tabla de casos con su resultado, bug y evidencias. */
+export function armarEjecucion(s: SesionEjecucion, filas: FilaEjecucion[], total: number, origenWeb: string) {
+    const fecha = s.creada_en.slice(0, 10);
+    const titulo = `${ETIQUETA_QA} Ejecución ${fecha} · ${ENTORNO[s.entorno]} · ${s.titulo}`;
+    const cuenta = (e: keyof typeof RESULTADO) => filas.filter((f) => f.estado === e).length;
+    const partes = [
+        marcaSesion(s.id),
+        `**Sesión:** [#${s.id} · ${s.titulo}](${origenWeb}/sesiones/${s.id})${s.estado === "abierta" ? " (todavía abierta)" : ""}`,
+        `**Entorno:** ${ENTORNO[s.entorno]} · \`${s.url}\`${s.version ? ` · backend v${s.version}` : ""}`,
+        `**QA:** @${s.creada_por} · ${fecha}`,
+        "",
+        "| Pasó | Falló | Bloqueado | Omitido | Pendientes |",
+        "| :---: | :---: | :---: | :---: | :---: |",
+        `| ${cuenta("paso")} | ${cuenta("fallo")} | ${cuenta("bloqueado")} | ${cuenta("omitido")} | ${Math.max(total - filas.length, 0)} |`,
+        "",
+        "### Casos",
+    ];
+    if (filas.length) {
+        partes.push("| Caso | Título | Resultado | Bug | Evidencias |", "| :--- | :--- | :--- | :--- | :--- |");
+        for (const f of filas) {
+            const titulo = f.caso.titulo.replace(/\|/g, "\\|");
+            const bug = f.bug ? `#${f.bug.numero}` : "—";
+            const evidencias = f.evidencias.length ? f.evidencias.map((id, i) => `[${i + 1}](${origenWeb}/evidencias/${id})`).join(" ") : "—";
+            partes.push(`| \`${f.caso.id}\` | ${titulo} | ${RESULTADO[f.estado]} | ${bug} | ${evidencias} |`);
+        }
+    } else {
+        partes.push("_Todavía no hay resultados registrados._");
+    }
+    partes.push("", "---", "_Generado por la plataforma de QA; publicar de nuevo actualiza este issue. Las evidencias piden iniciar sesión._");
+    return { titulo, cuerpo: partes.join("\n"), etiquetas: [ETIQUETA_QA, "testing"] };
 }

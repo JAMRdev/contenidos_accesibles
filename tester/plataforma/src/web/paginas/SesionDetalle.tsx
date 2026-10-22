@@ -155,6 +155,9 @@ export function SesionDetalle({ id }: { id: string }) {
                     <Link className="btn btn-outline-secondary" href={`/bugs?sesion=${sesion.id}`}>
                         <Icon name="bug_report" /> Bugs de la sesión
                     </Link>
+                    <Link className="btn btn-outline-primary" href={`/sesiones/${sesion.id}/publicar`}>
+                        <Icon name="publish" /> Publicar en GitHub
+                    </Link>
                     {sesion.estado === "abierta" && yo.permisos.escribir && (
                         <button type="button" className="btn btn-outline-primary" onClick={() => void cambiarEstadoSesion("cerrar")}>
                             <Icon name="lock" /> Cerrar sesión
