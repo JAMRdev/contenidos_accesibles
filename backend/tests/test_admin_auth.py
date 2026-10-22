@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import jwt
 import pytest
+from clerk_backend_api.security.types import TokenVerificationError, TokenVerificationErrorReason
+from clerk_backend_api.security.verifytoken import verify_token
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
@@ -33,6 +35,9 @@ PRIVATE_PEM = _private_key.private_bytes(
 PUBLIC_PEM = _private_key.public_key().public_bytes(
     serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
 ).decode()
+OTHER_PRIVATE_PEM = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+    serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+)
 
 
 @pytest.fixture
@@ -63,10 +68,11 @@ def as_github(client, username: str) -> TestClient:
     return client
 
 
-def clerk_token(sub="user_123", azp=ORIGIN, exp_in=60, **extra) -> str:
+def clerk_token(sub="user_123", azp=ORIGIN, exp_in=3600, key=PRIVATE_PEM, algorithm="RS256", **extra) -> str:
+    # 1 h de vigencia: el token no vence aunque la suite tarde (Issues #114 y #115)
     now = int(time.time())
     claims = {"sub": sub, "azp": azp, "iat": now, "nbf": now, "exp": now + exp_in, "sid": "sess_1", **extra}
-    return jwt.encode(claims, PRIVATE_PEM, algorithm="RS256")
+    return jwt.encode(claims, key, algorithm=algorithm)
 
 
 # ---------------------------------------------------------------------------
@@ -244,17 +250,41 @@ def test_login_con_clerk_de_alguien_sin_acceso(client, clerk_on, monkeypatch):
     assert "set-cookie" not in r.headers
 
 
-@pytest.mark.parametrize("token", [
-    clerk_token(exp_in=-120),                                   # vencido
-    clerk_token(azp="https://otro-sitio.example"),              # emitido para otro origen
-    jwt.encode({"sub": "user_1", "azp": ORIGIN, "exp": int(time.time()) + 60}, "una-clave-hmac-distinta-de-al-menos-32-bytes", algorithm="HS256"),
-    "mt_token_de_maquina",                                      # no es un token de sesión
-    "basura",
+@pytest.fixture
+def rejections(monkeypatch):
+    """Motivos con los que verify_token rechazó los tokens del request."""
+    reasons = []
+
+    def spy(token, options):
+        try:
+            return verify_token(token, options)
+        except TokenVerificationError as error:
+            reasons.append(error.reason)
+            raise
+
+    monkeypatch.setattr(clerk_auth, "verify_token", spy)
+    return reasons
+
+
+# Los tokens se firman dentro del test y no al recolectar: si no, con la suite lenta vencerían y
+# el 401 llegaría por vencimiento y no por el defecto que se prueba (Issue #115). El motivo del
+# rechazo se comprueba para que cada caso falle solo por su defecto.
+@pytest.mark.parametrize("make_token, reason", [
+    pytest.param(lambda: clerk_token(exp_in=-120), TokenVerificationErrorReason.TOKEN_EXPIRED, id="vencido"),
+    pytest.param(lambda: clerk_token(azp="https://otro-sitio.example"),
+                 TokenVerificationErrorReason.TOKEN_INVALID_AUTHORIZED_PARTIES, id="otro-origen"),
+    pytest.param(lambda: clerk_token(key=OTHER_PRIVATE_PEM),
+                 TokenVerificationErrorReason.TOKEN_INVALID_SIGNATURE, id="firmado-con-otra-clave"),
+    pytest.param(lambda: clerk_token(key="una-clave-hmac-distinta-de-al-menos-32-bytes", algorithm="HS256"),
+                 TokenVerificationErrorReason.TOKEN_INVALID, id="hmac-en-lugar-de-rsa"),
+    pytest.param(lambda: "mt_token_de_maquina", None, id="no-es-de-sesion"),  # se rechaza antes de verificarlo
+    pytest.param(lambda: "basura", TokenVerificationErrorReason.TOKEN_INVALID, id="mal-formado"),
 ])
-def test_tokens_de_clerk_invalidos(client, clerk_on, monkeypatch, token):
+def test_tokens_de_clerk_invalidos(client, clerk_on, monkeypatch, rejections, make_token, reason):
     monkeypatch.setattr(clerk_auth, "fetch_identity", lambda user_id: pytest.fail("no debería consultar Clerk"))
-    r = client.post(PREFIX + "/auth/clerk", json={"token": token})
+    r = client.post(PREFIX + "/auth/clerk", json={"token": make_token()})
     assert r.status_code == 401
+    assert rejections == ([reason] if reason else [])
 
 
 def test_si_clerk_no_responde_se_informa(client, clerk_on, monkeypatch):

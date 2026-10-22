@@ -74,7 +74,7 @@ def local_login(client) -> dict:
     return r.json()
 
 
-def clerk_token(azp=WEB, exp_in=60):
+def clerk_token(azp=WEB, exp_in=3600):
     now = int(time.time())
     return jwt.encode({"sub": "user_1", "azp": azp, "iat": now, "nbf": now, "exp": now + exp_in}, PRIVATE_PEM, algorithm="RS256")
 

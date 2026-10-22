@@ -9,6 +9,8 @@ import time
 
 import jwt
 import pytest
+from clerk_backend_api.security.types import TokenVerificationError, TokenVerificationErrorReason
+from clerk_backend_api.security.verifytoken import verify_token
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
@@ -18,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.admin import session, test_web_auth
 from app.api.v1.router import api_router
-from app.core import rate_limit
+from app.core import rate_limit, teacher_auth
 from app.core.config import settings
 from app.db.database import init_db
 
@@ -40,7 +42,8 @@ PRIVATE_PEM, PUBLIC_PEM = _keypair()
 OTHER_PRIVATE_PEM, _ = _keypair()
 
 
-def clerk_token(sub="user_docente", azp=FRONT, exp_in=60, key=PRIVATE_PEM) -> str:
+def clerk_token(sub="user_docente", azp=FRONT, exp_in=3600, key=PRIVATE_PEM) -> str:
+    # 1 h de vigencia: el token no vence aunque la suite tarde (Issues #114 y #115)
     now = int(time.time())
     claims = {"sub": sub, "azp": azp, "iat": now, "nbf": now, "exp": now + exp_in, "sid": "sess_1"}
     return jwt.encode(claims, key, algorithm="RS256")
@@ -100,20 +103,42 @@ def test_sin_token_responde_401_tambien_en_modo_mock(client, teacher_auth_on):
     assert client.get(ADAPTATIONS).status_code == 401
 
 
+@pytest.fixture
+def rejections(monkeypatch):
+    """Motivos con los que verify_token rechazó los tokens del request."""
+    reasons = []
+
+    def spy(token, options):
+        try:
+            return verify_token(token, options)
+        except TokenVerificationError as error:
+            reasons.append(error.reason)
+            raise
+
+    monkeypatch.setattr(teacher_auth, "verify_token", spy)
+    return reasons
+
+
+# Los tokens se firman dentro del test y no al recolectar: si no, con la suite lenta vencerían y
+# el 401 llegaría por vencimiento y no por el defecto que se prueba (Issue #115). El motivo del
+# rechazo se comprueba para que cada caso falle solo por su defecto.
 @pytest.mark.parametrize(
-    "token",
+    "make_token, reason",
     [
-        pytest.param(clerk_token(exp_in=-60), id="vencido"),
-        pytest.param(clerk_token(azp="https://otro-sitio.example"), id="otro-origen"),
-        pytest.param(clerk_token(key=OTHER_PRIVATE_PEM), id="firmado-con-otra-clave"),
-        pytest.param("no-es-un-jwt", id="mal-formado"),
-        pytest.param("oat_token_de_maquina", id="no-es-de-sesion"),
+        pytest.param(lambda: clerk_token(exp_in=-60), TokenVerificationErrorReason.TOKEN_EXPIRED, id="vencido"),
+        pytest.param(lambda: clerk_token(azp="https://otro-sitio.example"),
+                     TokenVerificationErrorReason.TOKEN_INVALID_AUTHORIZED_PARTIES, id="otro-origen"),
+        pytest.param(lambda: clerk_token(key=OTHER_PRIVATE_PEM),
+                     TokenVerificationErrorReason.TOKEN_INVALID_SIGNATURE, id="firmado-con-otra-clave"),
+        pytest.param(lambda: "no-es-un-jwt", TokenVerificationErrorReason.TOKEN_INVALID, id="mal-formado"),
+        pytest.param(lambda: "oat_token_de_maquina", None, id="no-es-de-sesion"),  # se rechaza antes de verificarlo
     ],
 )
-def test_token_invalido_responde_401(client, teacher_auth_on, token):
-    response = client.post(ANALYSIS, json=SAMPLE, headers=bearer(token))
+def test_token_invalido_responde_401(client, teacher_auth_on, rejections, make_token, reason):
+    response = client.post(ANALYSIS, json=SAMPLE, headers=bearer(make_token()))
     assert response.status_code == 401
     assert "Volvé a iniciar sesión" in response.json()["detail"]
+    assert rejections == ([reason] if reason else [])
 
 
 def test_esquema_distinto_de_bearer_cuenta_como_sin_token(client, teacher_auth_on):

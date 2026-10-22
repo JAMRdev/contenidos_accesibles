@@ -19,8 +19,15 @@ from app.services import retention_service, storage_service
 from app.services.storage_service import StorageError
 from tests.test_permissions import FRONT, MATERIAL, PDF, PUBLIC_PEM, bearer, clerk_token, storage  # noqa: F401
 
-ADMIN = bearer(clerk_token("user_admin", role="admin"))
-DOCENTE = bearer(clerk_token("user_ana"))
+
+# Funciones y no constantes del módulo: el token se firma al usarlo y no al recolectar los tests,
+# así no vence si la suite tarda (Issue #114)
+def admin() -> dict:
+    return bearer(clerk_token("user_admin", role="admin"))
+
+
+def docente() -> dict:
+    return bearer(clerk_token("user_ana"))
 
 
 @pytest.fixture
@@ -44,7 +51,8 @@ def _path(url: str) -> str:
     return f"{parts.path}?{parts.query}"
 
 
-def _upload(client, headers=DOCENTE, confirm=True) -> dict:
+def _upload(client, headers=None, confirm=True) -> dict:
+    headers = headers or docente()
     asked = client.post(
         "/api/v1/files/upload-url", headers=headers,
         json={"filename": "material.pdf", "content_type": "application/pdf", "size_bytes": len(PDF)},
@@ -74,7 +82,7 @@ def _set(file_id: str, **columns) -> None:
 # ---------------------------------------------------------------------------
 
 def test_sin_cambios_vale_el_valor_por_defecto(client):
-    info = client.get("/api/v1/settings/retention", headers=ADMIN).json()
+    info = client.get("/api/v1/settings/retention", headers=admin()).json()
     assert info["hours"] == 24 and info["default_hours"] == 24 and info["max_hours"] == 168
     assert info["source"] == "env" and info["last_cleanup"] is None
     assert 23.9 < _hours_left(_upload(client)["expires_at"]) <= 24
@@ -82,7 +90,7 @@ def test_sin_cambios_vale_el_valor_por_defecto(client):
 
 def test_un_admin_cambia_la_retencion_y_solo_afecta_a_los_archivos_nuevos(client):
     before = _upload(client)
-    changed = client.put("/api/v1/settings/retention", json={"hours": 72}, headers=ADMIN)
+    changed = client.put("/api/v1/settings/retention", json={"hours": 72}, headers=admin())
     assert changed.status_code == 200
     info = changed.json()
     assert info["hours"] == 72 and info["source"] == "panel" and info["updated_by"] == "user_admin"
@@ -93,15 +101,15 @@ def test_un_admin_cambia_la_retencion_y_solo_afecta_a_los_archivos_nuevos(client
 
 
 def test_un_docente_no_puede_ver_ni_cambiar_la_retencion(client):
-    assert client.get("/api/v1/settings/retention", headers=DOCENTE).status_code == 403
-    assert client.put("/api/v1/settings/retention", json={"hours": 1}, headers=DOCENTE).status_code == 403
+    assert client.get("/api/v1/settings/retention", headers=docente()).status_code == 403
+    assert client.put("/api/v1/settings/retention", json={"hours": 1}, headers=docente()).status_code == 403
     assert client.put("/api/v1/settings/retention", json={"hours": 1}).status_code == 401
     assert retention_service.file_retention_hours() == 24
 
 
 @pytest.mark.parametrize("hours", [0, -5, 169])
 def test_la_retencion_tiene_que_estar_entre_1_hora_y_el_maximo(client, hours):
-    assert client.put("/api/v1/settings/retention", json={"hours": hours}, headers=ADMIN).status_code == 422
+    assert client.put("/api/v1/settings/retention", json={"hours": hours}, headers=admin()).status_code == 422
     assert retention_service.file_retention_hours() == 24
 
 
@@ -131,9 +139,9 @@ def test_la_politica_de_privacidad_muestra_la_retencion_vigente(client):
 
 def test_el_archivo_exportado_vence_con_su_diagnostico(client):
     retention_service.set_file_retention_hours(168, updated_by="test")
-    analysis = client.post("/api/v1/analysis/sample?mock=true", json={"text": MATERIAL}, headers=DOCENTE).json()
+    analysis = client.post("/api/v1/analysis/sample?mock=true", json={"text": MATERIAL}, headers=docente()).json()
     exported = client.get(
-        f"/api/v1/export/content?analysis_id={analysis['analysis_id']}&format=txt&delivery=link", headers=DOCENTE,
+        f"/api/v1/export/content?analysis_id={analysis['analysis_id']}&format=txt&delivery=link", headers=docente(),
     )
     assert exported.status_code == 200, exported.text
     assert exported.json()["file"]["expires_at"] == analysis["expires_at"]  # 24 h, no 168
@@ -145,11 +153,11 @@ def test_el_archivo_exportado_vence_con_su_diagnostico(client):
 
 def test_un_archivo_vencido_no_existe_para_la_api_aunque_no_se_haya_borrado(client):
     file = _upload(client)
-    share = client.post(f"/api/v1/files/{file['file_id']}/shares", headers=DOCENTE).json()
+    share = client.post(f"/api/v1/files/{file['file_id']}/shares", headers=docente()).json()
     _set(file["file_id"], expires_at=_iso(datetime.now(timezone.utc) - timedelta(minutes=1)))
 
-    assert client.get(f"/api/v1/files/{file['file_id']}", headers=DOCENTE).status_code == 404
-    assert client.get(f"/api/v1/files/{file['file_id']}/download-url", headers=DOCENTE).status_code == 404
+    assert client.get(f"/api/v1/files/{file['file_id']}", headers=docente()).status_code == 404
+    assert client.get(f"/api/v1/files/{file['file_id']}/download-url", headers=docente()).status_code == 404
     assert client.get(urlsplit(share["url"]).path, follow_redirects=False).status_code == 404
     assert _row(file["file_id"]) is not None
 
@@ -157,7 +165,7 @@ def test_un_archivo_vencido_no_existe_para_la_api_aunque_no_se_haya_borrado(clie
 def test_la_limpieza_borra_vencidos_y_subidas_abandonadas_y_conserva_lo_vigente(client, storage):  # noqa: F811
     now = datetime.now(timezone.utc)
     vigente, vencido = _upload(client), _upload(client)
-    client.post(f"/api/v1/files/{vencido['file_id']}/shares", headers=DOCENTE)
+    client.post(f"/api/v1/files/{vencido['file_id']}/shares", headers=docente())
     abandonado, pendiente_reciente = _upload(client, confirm=False), _upload(client, confirm=False)
     _set(vencido["file_id"], expires_at=_iso(now - timedelta(minutes=1)))
     _set(abandonado["file_id"], created_at=_iso(now - timedelta(hours=1)))

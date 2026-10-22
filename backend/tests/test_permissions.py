@@ -46,7 +46,8 @@ PRIVATE_PEM, PUBLIC_PEM = _keypair()
 
 def clerk_token(sub="user_ana", role=None) -> str:
     now = int(time.time())
-    claims = {"sub": sub, "azp": FRONT, "iat": now, "nbf": now, "exp": now + 60, "sid": "sess_1"}
+    # 1 h de vigencia: el token no vence aunque la suite tarde (Issue #114)
+    claims = {"sub": sub, "azp": FRONT, "iat": now, "nbf": now, "exp": now + 3600, "sid": "sess_1"}
     if role is not None:
         claims["role"] = role
     return jwt.encode(claims, PRIVATE_PEM, algorithm="RS256")
