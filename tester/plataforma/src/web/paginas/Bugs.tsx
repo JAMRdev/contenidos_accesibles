@@ -2,6 +2,7 @@
 import { useState, type FormEvent } from "react";
 import { useApi, useDatos, useYo } from "../api";
 import { Comentarios } from "../Comentarios";
+import { Evidencias } from "../Evidencias";
 import { Link, useFiltros } from "../ruta";
 import type { Bug, BugDetalle, Entorno, EstadoBug, Seccion, Severidad } from "../tipos";
 import { Alerta, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
@@ -175,6 +176,14 @@ export function BugDetallePagina({ id }: { id: string }) {
                 </div>
             </div>
             {error && <Alerta tipo="danger">{error}</Alerta>}
+            {!b.issue && b.estado === "borrador" && (
+                <div className="alert alert-info" role="status">
+                    <p className="mb-0">
+                        <strong>Este bug todavía no está en GitHub.</strong> Por ahora queda como borrador en la plataforma: el botón para publicarlo como issue
+                        (con la etiqueta <code>[QA - Issue]</code>) llega con #130.
+                    </p>
+                </div>
+            )}
 
             <div className="qa-two-cols">
                 <div>
@@ -208,6 +217,11 @@ export function BugDetallePagina({ id }: { id: string }) {
                         ) : (
                             <p className="qa-pre">{b.descripcion || <span className="admin-muted">Sin descripción todavía. El formulario completo del reporte llega con #129.</span>}</p>
                         )}
+                    </section>
+
+                    <section className="qa-card" aria-labelledby="bug-evidencias">
+                        <h3 className="qa-card-title" id="bug-evidencias">Evidencias</h3>
+                        <Evidencias destino={{ bug: b.id }} />
                     </section>
 
                     <section className="qa-card" aria-labelledby="bug-comentarios">

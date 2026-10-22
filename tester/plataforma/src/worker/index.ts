@@ -17,6 +17,7 @@ import { LAST_CRON_KEY, setMeta } from "./meta";
 import { alcanza } from "./roles";
 import { bugs } from "./rutas/bugs";
 import { casos } from "./rutas/casos";
+import { evidencias } from "./rutas/evidencias";
 import { miembros } from "./rutas/miembros";
 import { resultados } from "./rutas/resultados";
 import { sesiones } from "./rutas/sesiones";
@@ -46,6 +47,7 @@ app.route("/api/casos", casos);
 app.route("/api/sesiones", sesiones);
 app.route("/api/resultados", resultados);
 app.route("/api/bugs", bugs);
+app.route("/api/evidencias", evidencias);
 
 app.get("/api/auditoria", requiereRol("admin"), async (c) => {
     const limite = Math.min(Math.max(Number(c.req.query("limite")) || 50, 1), 200);

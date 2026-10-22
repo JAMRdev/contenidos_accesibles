@@ -267,6 +267,24 @@ textarea.form-control { border-radius: 16px; min-height: 96px; resize: vertical;
 .qa-two-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .qa-pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 
+/* Evidencias */
+.qa-evidence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem; }
+.qa-evidence { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.qa-evidence-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; }
+.qa-evidence-head .cell-title { font-weight: 600; display: block; }
+.qa-evidence-head .cell-sub { font-size: 0.8125rem; color: var(--ink-muted); display: block; overflow-wrap: anywhere; }
+.qa-evidence-media { display: block; width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; background: var(--surface-page); }
+.qa-evidence-text, .qa-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
+.qa-evidence-text { margin: 0; max-height: 280px; overflow: auto; background: var(--surface-page); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qa-card .qa-evidence-text { max-height: none; }
+.qa-dropzone { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; border: 2px dashed var(--line); border-radius: var(--radius-card); padding: 1.25rem; background: var(--surface); color: var(--ink-2); }
+.qa-dropzone > .material-symbols-rounded { font-size: 2rem; color: var(--series-1); }
+.qa-dropzone.is-over { border-color: var(--series-1); background: #e3f1f6; }
+.qa-paste { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+
 @media (max-width: 991.98px) {
     .qa-detail, .qa-two-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+    .qa-paste { grid-template-columns: 1fr; }
 }

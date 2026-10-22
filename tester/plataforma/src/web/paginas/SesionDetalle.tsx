@@ -2,6 +2,7 @@
 import { Fragment, useState } from "react";
 import { useApi, useDatos, useYo } from "../api";
 import { Comentarios } from "../Comentarios";
+import { Evidencias } from "../Evidencias";
 import { Link, useFiltros, useRuta } from "../ruta";
 import type { Avance, Bug, Comentario, EstadoResultado, ResultadoCaso, Seccion, Sesion } from "../tipos";
 import { Alerta, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Kpi, Marcas, RESULTADO_INFO, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
@@ -82,6 +83,8 @@ function DetalleCaso({ sesion, fila, editable, alGuardar }: { sesion: Sesion; fi
                 {error && <div className="mt-2"><Alerta tipo="danger">{error}</Alerta></div>}
                 {resultado && (
                     <>
+                        <h3 className="mt-3">Evidencias</h3>
+                        <Evidencias destino={{ resultado: resultado.id }} />
                         <h3 className="mt-3">Comentarios</h3>
                         {comentarios.datos ? <Comentarios ruta={`/api/resultados/${resultado.id}/comentarios`} iniciales={comentarios.datos.comentarios} conGithub={false} /> : <Cargando />}
                     </>

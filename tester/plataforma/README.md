@@ -40,6 +40,20 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | `POST /api/bugs`, `PATCH /api/bugs/:id` | QA | Crear un borrador (`{ caso_id, sesion_id?, titulo, descripcion?, severidad? }`) o cambiar estado, título, descripción o severidad. |
 | `GET /api/bugs/:id`, `GET/POST /api/bugs/:id/comentarios` | POST: QA | El bug con su historial de estados y sus comentarios. |
 
+| `GET /api/evidencias?resultado=\|bug=` | Cualquier rol | Evidencias de un resultado o un bug. |
+| `POST /api/evidencias?resultado=\|bug=` | QA | Sube un archivo: el body es el archivo, con `Content-Type`, `X-Nombre` (URL-encoded) y `X-Etiqueta` opcional. |
+| `POST /api/evidencias/texto` | QA | `{ resultado_id \| bug_id, etiqueta, texto }`: request, response, curl o consola pegados. |
+| `GET /api/evidencias/:id`, `GET /api/evidencias/:id/archivo` | Cualquier rol | Metadatos y archivo. |
+| `DELETE /api/evidencias/:id`, `GET /api/evidencias/uso` | Admin | Borrar una evidencia (queda en la auditoría) y ver cuánto ocupa el bucket. |
+
+### Evidencias
+
+- **Qué se sube:** imágenes y GIF (PNG, JPEG, WebP, GIF, hasta 10 MB), video (MP4, WebM, hasta 50 MB) y texto (JSON, HAR, log, txt, hasta 2 MB). Se valida la firma del archivo, no solo la extensión. Las imágenes y los videos van directo al bucket, sin cargarse en memoria.
+- **Datos sensibles:** el texto (pegado o subido) se guarda con los tokens, headers `Authorization`/`Cookie`, claves (`sk_`, `pk_`, `AIza…`, `gsk_`, `ghp_`…), JWT y firmas de URLs ocultos (`src/worker/redactar.ts`). Las capturas y los videos no se pueden revisar solos: la web le recuerda a QA usar solo los datos de prueba de la guía.
+- **La plataforma no ejecuta llamadas contra el backend.** QA prueba con Swagger, la web de pruebas o curl y carga lo que obtuvo. Así no se manejan tokens de docente y se puede probar igual el backend local.
+- **Enlaces desde GitHub:** apuntan a la página `/evidencias/:id` de la web, que pide login (el repo es público y las evidencias no). La web pide el archivo con el token de sesión y lo muestra desde un blob local.
+- **Sin borrado automático:** solo un admin borra evidencias. Un resultado con evidencias no vuelve a pendiente (se cambia de estado).
+
 **Resultados y bugs son cosas distintas.** El resultado es lo que dio un caso en una sesión. El bug es lo que se publica en GitHub y tiene su propio estado: `borrador` → (publicar, #130) → `abierto` → `en_curso` → `resuelto` → `verificado`, más `reabierto` y `descartado`. Sin issue, un bug solo pasa entre `borrador` y `descartado`; publicado, QA puede moverlo entre los estados publicados y GitHub lo actualiza con la sincronización (#134). Cada cambio queda en el historial del bug con su origen (`qa`, `github` o `sincronizacion`).
 
 **Casos destructivos** (estrés, cambios de configuración): no se pueden registrar en una sesión de producción (409) y no cuentan en su avance.

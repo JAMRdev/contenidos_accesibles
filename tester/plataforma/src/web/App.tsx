@@ -7,6 +7,7 @@ import { Encabezado } from "./Encabezado";
 import { Miembros } from "./Miembros";
 import { BugDetallePagina, Bugs } from "./paginas/Bugs";
 import { CasoDetalle, Casos } from "./paginas/Casos";
+import { EvidenciaPagina } from "./paginas/Evidencia";
 import { Inicio } from "./paginas/Inicio";
 import { SesionDetalle } from "./paginas/SesionDetalle";
 import { Sesiones } from "./paginas/Sesiones";
@@ -82,6 +83,7 @@ function Pagina({ yo }: { yo: Yo }) {
     if (raiz === "sesiones") return id ? <SesionDetalle key={id} id={id} /> : <Sesiones />;
     if (raiz === "bugs") return id ? <BugDetallePagina key={id} id={id} /> : <Bugs />;
     if (raiz === "casos") return id ? <CasoDetalle key={id} id={decodeURIComponent(id)} /> : <Casos />;
+    if (raiz === "evidencias" && id) return <EvidenciaPagina key={id} id={id} />;
     if (raiz === "miembros" && yo.permisos.administrar) return <Miembros yo={yo.github} />;
     return (
         <Alerta tipo="warning">

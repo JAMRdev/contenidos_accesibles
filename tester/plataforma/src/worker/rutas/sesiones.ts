@@ -230,6 +230,9 @@ sesiones.delete("/:id/resultados/:caso", requiereRol("qa"), async (c) => {
         .bind(s.id, c.req.param("caso"))
         .first<{ id: number }>();
     if (!r) throw error(404, "Ese caso todavía no tiene resultado en la sesión.");
+    // Las evidencias no se pierden por volver a pendiente: se cambia el resultado en lugar de borrarlo
+    const conEvidencia = await c.env.DB.prepare("SELECT 1 FROM qa_evidence WHERE result_id = ? LIMIT 1").bind(r.id).first();
+    if (conEvidencia) throw error(409, "El resultado tiene evidencias: cambialo a otro estado en lugar de volverlo a pendiente.");
     // Sus comentarios se van con él
     await c.env.DB.batch([
         c.env.DB.prepare("DELETE FROM qa_comments WHERE target_type = 'resultado' AND target_id = ?").bind(r.id),
