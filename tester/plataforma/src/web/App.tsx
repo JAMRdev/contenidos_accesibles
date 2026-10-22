@@ -8,6 +8,7 @@ type Health = {
     d1: string;
     r2: string;
     ultima_cron: string | null;
+    casos: number;
 };
 
 type State = { kind: "loading" } | { kind: "ready"; health: Health } | { kind: "error"; message: string };
@@ -45,6 +46,8 @@ export function App() {
                         <dd>{state.health.d1}</dd>
                         <dt>Evidencias (R2)</dt>
                         <dd>{state.health.r2}</dd>
+                        <dt>Casos en el catálogo</dt>
+                        <dd>{state.health.casos}</dd>
                         <dt>Última sincronización</dt>
                         <dd>{formatDate(state.health.ultima_cron)}</dd>
                         <dt>Versión</dt>

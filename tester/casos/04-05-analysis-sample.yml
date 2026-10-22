@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.5"
+titulo: "POST /analysis/sample"
+casos:
+  - id: QA-4.5-01
+    titulo: El material con barreras devuelve las barreras esperadas
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar el material con barreras con ?mock=true.
+    datos: Material con barreras (sección 3.1).
+    esperado: 200 con barreras de oración extensa, consigna múltiple y referencia visual, más analysis_id y expires_at.
+    severidad: media
+    etiquetas: [diagnostico]
+    mock: true
+
+  - id: QA-4.5-02
+    titulo: Un texto en text/plain con saltos de línea se analiza
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar el material con barreras con Content-Type text/plain (--data-binary) y ?mock=true.
+    datos: Material con barreras (sección 3.1).
+    esperado: "200."
+    severidad: media
+    etiquetas: [diagnostico]
+    mock: true
+
+  - id: QA-4.5-03
+    titulo: Un texto de menos de 10 o más de 20.000 caracteres responde 422
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar un texto de 5 caracteres con ?mock=true.
+      - Enviar un texto de 20.001 caracteres con ?mock=true.
+    esperado: 422 en los dos casos.
+    severidad: media
+    etiquetas: [validacion, limites]
+    mock: true
+
+  - id: QA-4.5-04
+    titulo: Un JSON mal formado o un body vacío responde 422
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar un JSON mal formado con ?mock=true.
+      - Enviar un body vacío con ?mock=true.
+    esperado: 422 con json_invalid.
+    severidad: media
+    etiquetas: [validacion]
+    mock: true
+
+  - id: QA-4.5-05
+    titulo: Un texto que no es UTF-8 responde 422
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar con text/plain un archivo en Latin-1 con acentos, con ?mock=true.
+    esperado: 422 con unicode_decode.
+    severidad: media
+    etiquetas: [validacion]
+    mock: true
+
+  - id: QA-4.5-06
+    titulo: Un texto de solo espacios responde 422
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar un text de 20 espacios con ?mock=true.
+    esperado: 422 con "no contiene texto analizable".
+    severidad: media
+    etiquetas: [validacion]
+    mock: true
+
+  - id: QA-4.5-07
+    titulo: Un texto con datos personales responde 422 sensitive_data_detected
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Enviar el texto con datos personales ficticios con ?mock=true.
+    datos: Datos personales ficticios (sección 3.1).
+    esperado: 422 con detail.code "sensitive_data_detected", los hallazgos enmascarados y nunca el dato completo.
+    severidad: alta
+    etiquetas: [datos-personales, privacidad]
+    mock: true
+
+  - id: QA-4.5-08
+    titulo: El mismo texto con todos los hallazgos descartados se analiza
+    endpoint: POST /api/v1/analysis/sample
+    precondiciones:
+      - Tener los id de los hallazgos del caso QA-4.5-07.
+    pasos:
+      - Reenviar el mismo texto con ?mock=true y un dismissed por cada id.
+    datos: Datos personales ficticios (sección 3.1).
+    esperado: 200 y un warning de que el docente descartó hallazgos.
+    severidad: alta
+    etiquetas: [datos-personales, privacidad]
+    mock: true
+
+  - id: QA-4.5-09
+    titulo: Sin mock, la 6.ª llamada en el mismo minuto responde 429
+    endpoint: POST /api/v1/analysis/sample
+    precondiciones:
+      - Backend local o staging con una API key de prueba.
+    pasos:
+      - Hacer 6 llamadas seguidas sin ?mock=true.
+    esperado: La 6.ª responde 429 con header Retry-After.
+    severidad: media
+    etiquetas: [rate-limit, ia]
+    ia_real: true
+    destructivo: true

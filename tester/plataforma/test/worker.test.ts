@@ -1,5 +1,6 @@
 import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { catalogo } from "../src/worker/catalogo";
 import worker from "../src/worker/index";
 
 describe("GET /health", () => {
@@ -14,6 +15,12 @@ describe("GET /health", () => {
             r2: "ok",
             ultima_cron: null,
         });
+    });
+
+    it("informa cuántos casos tiene el catálogo empaquetado", async () => {
+        const body = await (await SELF.fetch("https://qa.test/health")).json<{ casos: number }>();
+        expect(body.casos).toBe(catalogo.casos.length);
+        expect(body.casos).toBeGreaterThan(100);
     });
 
     it("muestra la última corrida del Cron", async () => {

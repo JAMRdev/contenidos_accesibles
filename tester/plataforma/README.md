@@ -23,8 +23,14 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 
 | Ruta | Login | Qué hace |
 | :--- | :--- | :--- |
-| `GET /health` | No | `{ ok, version, d1, r2, ultima_cron }`. 200 si responden D1 y R2; 503 si no. Lo consulta la pestaña **Estado** de `/admin` (`QA_PLATFORM_URL`). |
+| `GET /health` | No | `{ ok, version, d1, r2, ultima_cron, casos }`. 200 si responden D1 y R2; 503 si no. Lo consulta la pestaña **Estado** de `/admin` (`QA_PLATFORM_URL`). |
 | `/api/*` | Sí (#126) | API de la plataforma (#127 en adelante). Hoy cualquier ruta devuelve 404. |
+
+### Catálogo de casos
+
+Los casos viven en [`tester/casos/`](../casos/) y se **empaquetan en el build**: `npm run catalogo` los valida y genera `src/worker/catalogo.gen.json` (no se versiona), que el Worker importa. `build`, `dev`, `deploy`, `typecheck` y `test` lo corren antes.
+
+Por qué empaquetado y no leído desde GitHub: cada deploy usa exactamente los casos de su commit, la plataforma no depende de GitHub ni de su rate limit para listar casos y no hay caché que invalidar. Cambiar un caso requiere un deploy, que el workflow hace solo al mergear en `main`.
 
 ## Desarrollo local
 
@@ -44,11 +50,11 @@ npm run dev             # build de la web + Worker en http://127.0.0.1:8788
 ### Tests
 
 ```bash
-npm run typecheck   # Worker y web
-npm test            # build de la web + Vitest dentro del runtime de Workers
+npm run typecheck   # catálogo, Worker, web y scripts
+npm test            # tests del validador del catálogo + Vitest dentro del runtime de Workers
 ```
 
-Los tests corren con `@cloudflare/vitest-plugin` sobre D1 y R2 simulados, con las migraciones aplicadas.
+Los tests del Worker corren con `@cloudflare/vitest-plugin` sobre D1 y R2 simulados, con las migraciones aplicadas. Los del validador (`scripts/catalogo.test.ts`) corren con el runner de Node.
 
 ## Secretos
 

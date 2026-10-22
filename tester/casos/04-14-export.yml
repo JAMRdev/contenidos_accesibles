@@ -1,0 +1,93 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.14"
+titulo: "GET /export/content y GET /export/report"
+casos:
+  - id: QA-4.14-01
+    titulo: Cada formato válido descarga un archivo que abre
+    endpoint: GET /api/v1/export/content y /api/v1/export/report
+    precondiciones:
+      - Un diagnóstico con decisiones.
+    pasos:
+      - Descargar el material en docx, pdf, md y txt.
+      - Descargar el informe en pdf, md y txt.
+      - Abrir cada archivo.
+    esperado: 200 con el Content-Type correcto, Content-Disposition attachment con el nombre esperado y el archivo abre.
+    severidad: media
+    etiquetas: [exportacion]
+
+  - id: QA-4.14-02
+    titulo: El material incluye las aceptadas y las editadas, nunca las descartadas
+    endpoint: GET /api/v1/export/content
+    precondiciones:
+      - Propuestas aceptadas, editadas y descartadas.
+    pasos:
+      - Descargar el material en docx y revisarlo.
+    esperado: Incluye las aceptadas y el texto editado; nunca las descartadas.
+    severidad: alta
+    etiquetas: [exportacion, version-final]
+
+  - id: QA-4.14-03
+    titulo: Sin decisiones el material es igual al original
+    endpoint: GET /api/v1/export/content
+    pasos:
+      - Descargar el material de un diagnóstico sin decisiones.
+    esperado: El material es igual al original.
+    severidad: media
+    etiquetas: [exportacion]
+
+  - id: QA-4.14-04
+    titulo: Acentos, ñ, ¿ y ¡ se ven bien en todos los formatos
+    endpoint: GET /api/v1/export/content y /api/v1/export/report
+    pasos:
+      - Analizar un texto con acentos, ñ, ¿ y ¡ y exportarlo en todos los formatos.
+    esperado: Los caracteres se ven bien en todos los formatos.
+    severidad: media
+    etiquetas: [exportacion]
+
+  - id: QA-4.14-05
+    titulo: Flechas, ≥, emojis o escrituras no latinas
+    endpoint: GET /api/v1/export/content
+    pasos:
+      - Analizar un texto con flechas, ≥, emojis y escritura no latina y exportarlo en todos los formatos.
+    esperado: En md, txt y docx se conservan; en pdf salen como ? (limitación conocida, sección 10).
+    severidad: baja
+    etiquetas: [exportacion]
+
+  - id: QA-4.14-06
+    titulo: Un format inválido responde 400
+    endpoint: GET /api/v1/export/content y /api/v1/export/report
+    pasos:
+      - Pedir el material con format=exe.
+      - Pedir el informe con format=docx.
+    esperado: 400 en los dos casos.
+    severidad: baja
+    etiquetas: [exportacion, validacion]
+
+  - id: QA-4.14-07
+    titulo: Un diagnóstico inexistente o vencido responde 404
+    endpoint: GET /api/v1/export/content y /api/v1/export/report
+    pasos:
+      - Exportar con un analysis_id inventado.
+    esperado: "404."
+    severidad: baja
+    etiquetas: [exportacion]
+
+  - id: QA-4.14-08
+    titulo: Con delivery=link devuelve una URL de descarga
+    endpoint: GET /api/v1/export/content
+    pasos:
+      - Pedir el material con &delivery=link.
+      - Abrir download.url.
+    esperado: 200 JSON con file (kind "export") y download.url; la URL descarga el mismo archivo que sin el parámetro.
+    severidad: media
+    etiquetas: [exportacion, archivos]
+
+  - id: QA-4.14-09
+    titulo: La URL de descarga vence a los 5 minutos
+    endpoint: GET /api/v1/export/content
+    pasos:
+      - Pedir el material con &delivery=link.
+      - Abrir download.url después de 5 minutos.
+    esperado: 403 (la URL firmada venció; hay que pedir otra).
+    severidad: media
+    etiquetas: [exportacion, archivos, seguridad]

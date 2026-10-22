@@ -32,8 +32,13 @@ jobs:
     name: typecheck y tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # El validador del catálogo compara contra la base para exigir que un caso borrado quede retirado
+      CATALOGO_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Node 24 trae npm 11 (npm 10 no resuelve el árbol de @cloudflare/vitest-plugin)
       - uses: actions/setup-node@v4
@@ -45,8 +50,12 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Typecheck
+      # Valida tester/casos (esquema, IDs únicos, retirados y la guía) antes que nada
+      - name: Typecheck y catálogo
         run: npm run typecheck
+
+      - name: casos/esquema.json al día
+        run: git diff --exit-code -- ../casos/esquema.json || (echo "::error::Corré npm run catalogo y commiteá tester/casos/esquema.json." && exit 1)
 
       # `pretest` hace el build de la web (los tests la sirven desde dist/web)
       - name: Tests

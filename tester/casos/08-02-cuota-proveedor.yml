@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=./esquema.json
+# Requiere rol admin en /admin de staging: hacerlo junto con alguien de Backend (sección 8.2).
+seccion: "8.2"
+titulo: "Cuota del proveedor y rotación"
+casos:
+  - id: QA-8.2-01
+    titulo: Al llegar al umbral se usa la conexión de respaldo
+    pasos:
+      - En /admin, poner RPM = 2 a la conexión principal.
+      - Hacer 3 análisis reales.
+    esperado: El 3.º usa la conexión de respaldo (metadata.connection cambia).
+    severidad: alta
+    etiquetas: [ia, rotacion, admin]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-8.2-02
+    titulo: Sin respaldo responde 429
+    pasos:
+      - Dejar una sola conexión con RPM = 1.
+      - Hacer 2 análisis reales.
+    esperado: El 2.º responde 429 "todas las conexiones agotadas".
+    severidad: media
+    etiquetas: [ia, rotacion, admin]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-8.2-03
+    titulo: Un proveedor caído se pausa y se usa el siguiente
+    pasos:
+      - Poner como principal una conexión con URL o key inválida.
+      - Hacer un análisis real.
+    esperado: El backend la pausa y usa la siguiente; si no hay otra, 503.
+    severidad: alta
+    etiquetas: [ia, rotacion, admin]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-8.2-04
+    titulo: La conexión principal vuelve después del cooldown
+    pasos:
+      - Esperar 1 minuto (o el cooldown) después de QA-8.2-01.
+      - Hacer un análisis real.
+    esperado: La conexión principal vuelve a usarse.
+    severidad: media
+    etiquetas: [ia, rotacion]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-8.2-05
+    titulo: El panel refleja el consumo
+    pasos:
+      - Mirar el panel de /admin antes y después de los análisis.
+    esperado: Requests y tokens suben según lo enviado.
+    severidad: baja
+    etiquetas: [ia, admin]
+    ia_real: true
+    destructivo: true

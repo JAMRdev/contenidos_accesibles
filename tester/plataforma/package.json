@@ -5,13 +5,15 @@
   "description": "Plataforma de QA del backend: Worker con la API y la web en Cloudflare, D1 y R2 propios (Issue #123)",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite build && wrangler dev --local --port 8788",
+    "catalogo": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/catalogo.ts",
+    "build": "npm run catalogo && vite build",
+    "dev": "npm run build && wrangler dev --local --port 8788",
     "dev:web": "vite",
-    "deploy": "vite build && wrangler deploy",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.web.json",
-    "pretest": "vite build",
-    "test": "vitest run",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "npm run catalogo && tsc -p tsconfig.json && tsc -p tsconfig.web.json && tsc -p tsconfig.scripts.json",
+    "pretest": "npm run build",
+    "test": "npm run test:catalogo && vitest run",
+    "test:catalogo": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test scripts/catalogo.test.ts",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "d1:create": "wrangler d1 create innovalab-qa --location enam",
@@ -20,17 +22,20 @@
   "dependencies": {
     "hono": "4.13.13",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.4",
     "@cloudflare/workers-types": "5.20261007.1",
+    "@types/node": "22.20.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",
     "typescript": "6.0.3",
     "vite": "8.1.6",
     "vitest": "4.1.12",
-    "wrangler": "4.151.1"
+    "wrangler": "4.151.1",
+    "yaml": "2.9.1"
   }
 }

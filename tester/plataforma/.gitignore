@@ -3,3 +3,5 @@ dist/
 .wrangler/
 # Secretos en local (wrangler dev): nunca se versionan
 .dev.vars
+# Catálogo empaquetado (lo genera npm run catalogo)
+src/worker/catalogo.gen.json

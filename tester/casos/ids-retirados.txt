@@ -1,0 +1,2 @@
+# IDs de casos borrados del catálogo: no se pueden volver a usar (un bug viejo puede
+# referenciarlos). Uno por línea; lo que va después de # es un comentario.

@@ -1,0 +1,186 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.15"
+titulo: "Acceso: panel /admin, documentación y web de pruebas"
+casos:
+  - id: QA-4.15-01
+    titulo: /admin sin sesión redirige al login
+    endpoint: GET /admin
+    pasos:
+      - Abrir /admin en una ventana privada.
+    esperado: 303 a /admin/login?next=/admin/.
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-02
+    titulo: Una cuenta de GitHub habilitada entra al panel
+    endpoint: GET /admin/login
+    pasos:
+      - Entrar con Continue with GitHub con una cuenta habilitada.
+    esperado: Vuelve al panel y arriba a la derecha se ven el usuario y el rol.
+    severidad: alta
+    etiquetas: [admin, login]
+
+  - id: QA-4.15-03
+    titulo: Una cuenta de GitHub no habilitada no entra
+    endpoint: GET /admin/login
+    pasos:
+      - Entrar con una cuenta de GitHub que no está en Usuarios.
+    esperado: Mensaje "La cuenta de GitHub @usuario no tiene acceso" y no entra.
+    severidad: alta
+    etiquetas: [admin, login, seguridad]
+
+  - id: QA-4.15-04
+    titulo: 5 intentos fallidos del login de respaldo bloquean el acceso
+    endpoint: POST /admin/login
+    pasos:
+      - Probar 5 veces el login de respaldo con una contraseña incorrecta.
+    esperado: 429 "Demasiados intentos fallidos" (se libera a los 10 minutos).
+    severidad: alta
+    etiquetas: [admin, login, seguridad]
+
+  - id: QA-4.15-05
+    titulo: Con solo lectura no hay acciones de edición
+    endpoint: GET /admin
+    precondiciones:
+      - Una cuenta con rol de solo lectura.
+    pasos:
+      - Entrar al panel.
+    esperado: Aviso "Modo solo lectura", sin botones de agregar, editar ni borrar y sin pestaña Usuarios.
+    severidad: media
+    etiquetas: [admin, permisos]
+
+  - id: QA-4.15-06
+    titulo: Las métricas del panel piden sesión
+    endpoint: GET /admin/api/metrics
+    pasos:
+      - Llamar sin sesión.
+    esperado: "401."
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-07
+    titulo: Uso del producto refleja archivos y enlaces compartidos
+    endpoint: GET /admin
+    pasos:
+      - Subir, exportar, descargar y abrir un enlace compartido.
+      - Abrir Uso del producto → Archivos y enlaces compartidos.
+    esperado: Los indicadores y gráficos del período lo reflejan; en la tabla de enlaces no aparecen nombres de archivo.
+    severidad: media
+    etiquetas: [admin, archivos, privacidad]
+
+  - id: QA-4.15-08
+    titulo: La pestaña Estado muestra los servicios
+    endpoint: GET /admin
+    pasos:
+      - Abrir la pestaña Estado con cualquier rol.
+    esperado: Una tarjeta por servicio con su estado, el aviso general arriba y la tabla de URLs; se actualiza sola cada 30 s.
+    severidad: baja
+    etiquetas: [admin, estado]
+
+  - id: QA-4.15-09
+    titulo: El estado pide sesión
+    endpoint: GET /admin/api/status
+    pasos:
+      - Llamar sin sesión.
+    esperado: "401."
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-10
+    titulo: El estado no expone secretos
+    endpoint: GET /admin/api/status
+    pasos:
+      - Llamar con sesión y revisar la respuesta completa.
+    esperado: Ninguna key, token ni contraseña en la respuesta.
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-11
+    titulo: Con solo lectura no se pueden modificar conexiones
+    endpoint: POST /admin/keys
+    precondiciones:
+      - Sesión con rol de solo lectura.
+    pasos:
+      - Mandar un POST a /admin/keys.
+    esperado: 403 "Tu usuario tiene acceso de solo lectura".
+    severidad: alta
+    etiquetas: [admin, permisos, seguridad]
+
+  - id: QA-4.15-12
+    titulo: Un POST al panel desde otro origen se rechaza
+    endpoint: POST /admin/...
+    pasos:
+      - Mandar un POST a una ruta de /admin con el header Origin de otro dominio.
+    esperado: 403 "Origen no permitido".
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-13
+    titulo: La ruta vieja /adminv2 redirige
+    endpoint: GET /adminv2
+    pasos:
+      - Abrir /adminv2.
+    esperado: 308 a /admin/.
+    severidad: baja
+    etiquetas: [admin]
+
+  - id: QA-4.15-14
+    titulo: La documentación pide login fuera de desarrollo
+    endpoint: GET /docs y /redoc
+    pasos:
+      - Abrir /docs y /redoc sin sesión.
+      - Iniciar sesión.
+    esperado: Redirigen (303) al login y después de entrar vuelven a la documentación.
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-15
+    titulo: El OpenAPI pide sesión fuera de desarrollo
+    endpoint: GET /api/v1/openapi.json
+    pasos:
+      - Llamar a /api/v1/openapi.json sin sesión.
+    esperado: "401."
+    severidad: alta
+    etiquetas: [admin, seguridad]
+
+  - id: QA-4.15-16
+    titulo: Cerrar sesión vuelve a pedir login
+    endpoint: GET /admin
+    pasos:
+      - Cerrar sesión desde el menú del usuario.
+      - Abrir /admin.
+    esperado: Vuelve al login con "Cerraste la sesión" y /admin vuelve a pedir login.
+    severidad: media
+    etiquetas: [admin, login]
+
+  - id: QA-4.15-17
+    titulo: La web de pruebas pide login y sin sesión la API responde 401
+    endpoint: Web de pruebas
+    pasos:
+      - Abrir la web de pruebas sin sesión.
+      - Desde su origen, llamar a /api/v1 sin sesión.
+    esperado: Pide el mismo login antes de mostrarse; la llamada responde 401 con code "test_web_login_required" y la página vuelve al login.
+    severidad: alta
+    etiquetas: [web-pruebas, seguridad]
+
+  - id: QA-4.15-18
+    titulo: En la web de pruebas, solo lectura queda en mock
+    endpoint: Web de pruebas
+    precondiciones:
+      - Cuenta con rol de solo lectura.
+    pasos:
+      - Entrar a la web de pruebas e intentar una llamada de IA real.
+    esperado: El modo mock queda fijo y una llamada de IA real responde 403.
+    severidad: alta
+    etiquetas: [web-pruebas, permisos]
+
+  - id: QA-4.15-19
+    titulo: Desde curl, Postman o Bruno la API no pide credenciales
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Llamar desde curl sin credenciales con ?mock=true.
+    datos: Material con barreras (sección 3.1).
+    esperado: La API responde normalmente (200).
+    severidad: media
+    etiquetas: [web-pruebas]
+    mock: true

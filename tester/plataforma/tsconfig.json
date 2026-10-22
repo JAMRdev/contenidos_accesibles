@@ -1,5 +1,5 @@
 {
-  // Worker y tests (runtime de Workers). La web tiene su propio tsconfig.web.json (DOM).
+  // Worker y tests (runtime de Workers). La web (DOM) y los scripts (Node) tienen su propio tsconfig.
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -10,7 +10,9 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/worker", "test", "vitest.config.ts", "vite.config.ts"]
+  "include": ["src/worker", "src/catalogo", "test", "vitest.config.ts", "vite.config.ts"]
 }

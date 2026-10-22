@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.6"
+titulo: "POST /analysis/pdf y POST /analysis/file"
+casos:
+  - id: QA-4.6-01
+    titulo: Las imágenes sin texto alternativo reciben una propuesta
+    endpoint: POST /api/v1/analysis/file
+    pasos:
+      - Subir el PDF con títulos, listas e imágenes con ?mock=true.
+      - Repetir con el .docx y el .pptx de la sección 3.2.
+    datos: PDF con imágenes, .docx y .pptx (sección 3.2).
+    esperado: alt_text_proposals con una propuesta por imagen relevante sin texto alternativo (hasta 5), con location_description según el formato; las imágenes con texto alternativo no reciben propuesta.
+    severidad: media
+    etiquetas: [diagnostico, accesibilidad, archivos]
+    mock: true
+
+  - id: QA-4.6-02
+    titulo: Un PDF escaneado tiene la barrera de escaneo y puntaje bajo
+    endpoint: POST /api/v1/analysis/file
+    pasos:
+      - Subir el PDF escaneado con ?mock=true.
+    datos: PDF escaneado (sección 3.2).
+    esperado: 200 con la barrera "PDF escaneado sin capa de texto" y estimated_score de 40 o menos.
+    severidad: media
+    etiquetas: [diagnostico, archivos, pdf]
+    mock: true
+
+  - id: QA-4.6-03
+    titulo: La metadata informa el tipo de archivo y las páginas
+    endpoint: POST /api/v1/analysis/file
+    pasos:
+      - Subir un PDF, un .docx y un .pptx con ?mock=true.
+    datos: Archivos de la sección 3.2.
+    esperado: metadata.source_type y metadata.page_count correctos para cada archivo; los errores de archivo son los mismos de 4.4 (400 y 413).
+    severidad: media
+    etiquetas: [diagnostico, archivos]
+    mock: true

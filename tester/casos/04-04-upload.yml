@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.4"
+titulo: "POST /documents/upload-pdf y POST /documents/upload"
+casos:
+  - id: QA-4.4-01
+    titulo: Un PDF con texto devuelve su contenido
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir el PDF de texto como file.
+    datos: PDF de texto (sección 3.2).
+    esperado: 200 con raw_text igual al contenido del PDF.
+    severidad: media
+    etiquetas: [archivos, pdf]
+
+  - id: QA-4.4-02
+    titulo: Un Word con estilos de título devuelve sus encabezados
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir el .docx con estilos Título 1 y Título 2.
+    datos: .docx con títulos, listas, tabla e imágenes (sección 3.2).
+    esperado: 200 con structure.headings que incluye el nivel y el texto de cada título.
+    severidad: media
+    etiquetas: [archivos, word]
+
+  - id: QA-4.4-03
+    titulo: Un PowerPoint usa los títulos de diapositiva como encabezados
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir el .pptx con una diapositiva oculta y notas del orador.
+    datos: .pptx de la sección 3.2.
+    esperado: 200 con los títulos de diapositiva como encabezados; las diapositivas ocultas y las notas del orador no aparecen.
+    severidad: media
+    etiquetas: [archivos, powerpoint]
+
+  - id: QA-4.4-04
+    titulo: Las imágenes con texto alternativo se cuentan
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir el .docx y el .pptx que tienen una imagen con texto alternativo y otra sin.
+    datos: .docx y .pptx de la sección 3.2.
+    esperado: images_with_alt_text cuenta solo la imagen que tiene texto alternativo.
+    severidad: media
+    etiquetas: [archivos, accesibilidad]
+
+  - id: QA-4.4-05
+    titulo: Una extensión no admitida responde 400
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir un .txt.
+      - Subir un .doc.
+    esperado: 400 en los dos casos.
+    severidad: media
+    etiquetas: [archivos, validacion]
+
+  - id: QA-4.4-06
+    titulo: Un Content-Type incorrecto responde 400
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir un PDF con Content-Type image/png.
+    esperado: "400."
+    severidad: media
+    etiquetas: [archivos, validacion]
+
+  - id: QA-4.4-07
+    titulo: Un contenido que no corresponde a la extensión responde 400
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir un .txt renombrado a .pdf.
+      - Subir un .pptx renombrado a .docx.
+    datos: Archivos renombrados de la sección 3.2.
+    esperado: 400 en los dos casos (firma inválida o extensión que no coincide).
+    severidad: media
+    etiquetas: [archivos, validacion, seguridad]
+
+  - id: QA-4.4-08
+    titulo: Un PDF u Office protegido con contraseña responde 400
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir el PDF protegido con contraseña.
+      - Subir un .docx con contraseña.
+    esperado: 400 con un mensaje claro para el docente.
+    severidad: media
+    etiquetas: [archivos, validacion]
+
+  - id: QA-4.4-09
+    titulo: Un Office con macros responde 400
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir un .docm.
+      - Subir un .pptm.
+    esperado: "400."
+    severidad: media
+    etiquetas: [archivos, validacion, seguridad]
+
+  - id: QA-4.4-10
+    titulo: Un archivo vacío responde 400
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir un archivo de 0 bytes.
+    esperado: "400."
+    severidad: media
+    etiquetas: [archivos, validacion]
+
+  - id: QA-4.4-11
+    titulo: Un archivo de más de 10 MB responde 413
+    endpoint: POST /api/v1/documents/upload
+    pasos:
+      - Subir un PDF real de más de 10 MB (uno con muchas fotos).
+    datos: Archivo de más de 10 MB (sección 3.2).
+    esperado: "413."
+    severidad: media
+    etiquetas: [archivos, limites]

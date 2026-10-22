@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "5"
+titulo: "Flujos de punta a punta"
+casos:
+  - id: QA-5-01
+    titulo: "F1. Texto completo: análisis, decisiones, versión final, informe y exportación"
+    pasos:
+      - Analizar el material con barreras con ?mock=true.
+      - Pedir propuestas para 3 barreras.
+      - Aceptar una, editar otra y descartar la tercera.
+      - Ver el registro de decisiones.
+      - Ver la versión final y el informe.
+      - Exportar el material en docx y el informe en pdf y abrirlos.
+      - Deshacer la aceptada y repetir versión final, informe y exportaciones.
+    datos: Material con barreras (sección 3.1).
+    esperado: Registro con 3 entradas; versión final con 2 aplicadas y 1 descartada y la edición textual; informe con puntaje después ≥ antes; al deshacer, versión final, informe y exportaciones se actualizan.
+    severidad: alta
+    etiquetas: [flujo, version-final, exportacion]
+    mock: true
+
+  - id: QA-5-02
+    titulo: "F2. PDF con texto e imágenes"
+    pasos:
+      - Subir un PDF con texto e imágenes con ?mock=true.
+      - Revisar alt_text_proposals.
+      - Proponer y aceptar una adaptación.
+      - Ver la versión final.
+    datos: PDF con títulos, listas e imágenes (sección 3.2).
+    esperado: Propuestas de texto alternativo para las imágenes sin él y la adaptación aceptada aplicada en la versión final.
+    severidad: alta
+    etiquetas: [flujo, pdf]
+    mock: true
+
+  - id: QA-5-03
+    titulo: "F3. Word y PowerPoint"
+    pasos:
+      - Repetir F2 con el .docx y con el .pptx.
+    datos: .docx y .pptx de la sección 3.2.
+    esperado: Títulos y listas detectados, diapositivas ocultas excluidas e imágenes con texto alternativo sin propuesta.
+    severidad: alta
+    etiquetas: [flujo, word, powerpoint]
+    mock: true
+
+  - id: QA-5-04
+    titulo: "F4. Datos personales: descartar de a poco"
+    pasos:
+      - Analizar el texto con datos ficticios con ?mock=true.
+      - Reenviar descartando 2 hallazgos.
+      - Reenviar descartando todos.
+    datos: Datos personales ficticios (sección 3.1).
+    esperado: 422 con 4 hallazgos enmascarados; después 422 con los 2 restantes; al final 200.
+    severidad: alta
+    etiquetas: [flujo, datos-personales, privacidad]
+    mock: true
+
+  - id: QA-5-05
+    titulo: "F5. PDF escaneado"
+    pasos:
+      - Subir el PDF escaneado con ?mock=true.
+      - Repetir con confirm_images_without_personal_data=true.
+    datos: PDF escaneado (sección 3.2).
+    esperado: 200 con la barrera de escaneo y puntaje de 40 o menos en los dos casos.
+    severidad: media
+    etiquetas: [flujo, pdf]
+    mock: true
+
+  - id: QA-5-06
+    titulo: "F6. Vencimiento del diagnóstico"
+    pasos:
+      - Guardar un analysis_id.
+      - Consultarlo al día siguiente (más de 24 h).
+    esperado: 404 "El diagnóstico ha expirado".
+    severidad: media
+    etiquetas: [flujo, vencimiento]
+
+  - id: QA-5-07
+    titulo: "F7. IA real (coordinado con Backend)"
+    precondiciones:
+      - Avisar en el canal de Backend con día y hora. Una sola vez por entorno.
+    pasos:
+      - Hacer F1 sin ?mock=true.
+    esperado: metadata.provider y metadata.total_tokens reales y las citas de las barreras con fragment_found true.
+    severidad: alta
+    etiquetas: [flujo, ia]
+    ia_real: true

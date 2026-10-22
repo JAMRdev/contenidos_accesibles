@@ -1,6 +1,7 @@
 // GET /health: sin login, para monitoreo (sección Estado de /admin del backend).
 // Devuelve { ok: true } solo si responden D1 y R2; si no, 503 con el detalle.
 import type { Context } from "hono";
+import { catalogo } from "./catalogo";
 import type { Env } from "./env";
 import { getMeta, LAST_CRON_KEY } from "./meta";
 
@@ -31,6 +32,7 @@ export async function health(c: Context<{ Bindings: Env }>) {
             d1: d1.ok ? "ok" : d1.error,
             r2: r2.ok ? "ok" : r2.error,
             ultima_cron: d1.ok ? d1.value : null,
+            casos: catalogo.casos.length,
         },
         ok ? 200 : 503,
     );
