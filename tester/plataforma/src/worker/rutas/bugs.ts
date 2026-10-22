@@ -16,12 +16,12 @@
 // QA puede mover el estado entre los publicados y GitHub lo actualiza con la sincronización (#134).
 import { Hono } from "hono";
 import { z } from "zod";
-import type { Caso } from "../../catalogo/esquema.ts";
 import { SEVERIDADES } from "../../catalogo/esquema.ts";
 import { auditar } from "../auditoria";
 import { limitePublicar, requiereRol, type AppEnv } from "../auth";
 import { publicarBug } from "../publicar";
-import { buscarCaso, ENTORNOS } from "../catalogo";
+import { ENTORNOS } from "../catalogo";
+import { AREAS, cargarCasos, obtenerCaso, type CasoQA } from "../casos";
 import { comentarioSchema, crearComentario, listarComentarios } from "../comentarios";
 import type { Env } from "../env";
 import { buscarIssuesDelCaso, githubDisponible, GithubError } from "../github";
@@ -64,11 +64,12 @@ const cambioSchema = z
     .strictObject({ estado: z.enum(ESTADOS_BUG).optional(), titulo: titulo.optional(), ...camposReporte })
     .refine((c) => Object.values(c).some((v) => v !== undefined), "No hay nada para cambiar.");
 
-function bugJson(b: FilaBug, caso: Caso | undefined) {
+function bugJson(b: FilaBug, caso: CasoQA | undefined) {
     return {
         id: b.id,
         caso: { id: b.case_id, seccion: b.section, titulo: caso?.titulo ?? null },
         sesion_id: b.session_id,
+        area: b.area,
         entorno: b.environment,
         titulo: b.title,
         descripcion: b.description,
@@ -98,6 +99,7 @@ bugs.get("/", async (c) => {
     where.en("status", consultaLista(q.estado, ESTADOS_BUG));
     where.en("severity", consultaLista(q.severidad, SEVERIDADES));
     where.en("environment", consultaLista(q.entorno, ENTORNOS));
+    where.en("area", consultaLista(q.area, AREAS));
     if (q.caso) where.agregar("case_id = ?", q.caso);
     if (q.seccion) where.agregar("section = ?", q.seccion);
     if (Number(q.sesion)) where.agregar("session_id = ?", Number(q.sesion));
@@ -111,8 +113,9 @@ bugs.get("/", async (c) => {
         .bind(...where.valores, limite + 1)
         .all<FilaBug>();
     const pagina = results.slice(0, limite);
+    const casos = await cargarCasos(c.env);
     return c.json({
-        bugs: pagina.map((b) => bugJson(b, buscarCaso(b.case_id))),
+        bugs: pagina.map((b) => bugJson(b, casos.porId.get(b.case_id))),
         siguiente: results.length > limite ? pagina.at(-1)!.id : null,
     });
 });
@@ -126,7 +129,7 @@ bugs.get("/resumen", async (c) => {
 
 bugs.post("/", requiereRol("qa"), async (c) => {
     const datos = await leerBody(c, altaSchema);
-    const caso = buscarCaso(datos.caso_id);
+    const caso = await obtenerCaso(c.env, datos.caso_id);
     if (!caso) throw error(404, `El caso ${datos.caso_id} no está en el catálogo.`);
     // Precarga del reporte: pasos y esperado del catálogo; entorno, URL y versión de la sesión;
     // obtenido, de las notas del resultado del caso en esa sesión
@@ -144,12 +147,12 @@ bugs.post("/", requiereRol("qa"), async (c) => {
     }
     const yo = c.get("usuario").github;
     const b = await c.env.DB.prepare(
-        `INSERT INTO qa_bugs (case_id, section, session_id, environment, title, description, severity, created_by,
+        `INSERT INTO qa_bugs (case_id, section, area, session_id, environment, title, description, severity, created_by,
                               steps, expected, actual, tested_url, backend_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
     )
         .bind(
-            caso.id, caso.seccion, datos.sesion_id ?? null, sesion?.environment ?? null, datos.titulo, datos.descripcion ?? "",
+            caso.id, caso.seccion, caso.area, datos.sesion_id ?? null, sesion?.environment ?? null, datos.titulo, datos.descripcion ?? "",
             datos.severidad ?? caso.severidad, yo,
             datos.pasos ?? caso.pasos.join("\n"),
             datos.esperado ?? caso.esperado,
@@ -173,7 +176,7 @@ bugs.get("/:id", async (c) => {
         .bind(b.id)
         .all<{ from_status: string | null; to_status: string; source: string; actor: string | null; note: string | null; created_at: string }>();
     return c.json({
-        ...bugJson(b, buscarCaso(b.case_id)),
+        ...bugJson(b, await obtenerCaso(c.env, b.case_id)),
         historial: historial.map((h) => ({ de: h.from_status, a: h.to_status, origen: h.source, actor: h.actor, nota: h.note, en: h.created_at })),
         comentarios: await listarComentarios(c.env, "bug", b.id),
     });
@@ -214,12 +217,12 @@ bugs.patch("/:id", requiereRol("qa"), async (c) => {
     }
     await c.env.DB.batch(consultas);
     if (datos.estado) await auditar(c.env, yo, "bug.estado", { id: b.id, de: b.status, a: datos.estado });
-    return c.json(bugJson(await bugOError(c.env, b.id), buscarCaso(b.case_id)));
+    return c.json(bugJson(await bugOError(c.env, b.id), await obtenerCaso(c.env, b.case_id)));
 });
 
 bugs.get("/:id/vista-previa", async (c) => {
     const b = await bugOError(c.env, idDe(c.req.param("id"), "Bug"));
-    const caso = buscarCaso(b.case_id);
+    const caso = await obtenerCaso(c.env, b.case_id);
     if (!caso) throw error(409, `El caso ${b.case_id} ya no está en el catálogo.`);
     const { reporte, evidencias } = await datosDelIssue(c.env, b);
     return c.json({
@@ -253,13 +256,14 @@ bugs.get("/:id/duplicados", async (c) => {
             enGithub.error = e.message;
         }
     }
-    return c.json({ plataforma: results.map((d) => bugJson(d, buscarCaso(d.case_id))), github: enGithub });
+    const casos = await cargarCasos(c.env);
+    return c.json({ plataforma: results.map((d) => bugJson(d, casos.porId.get(d.case_id))), github: enGithub });
 });
 
 bugs.post("/:id/publicar", requiereRol("qa"), limitePublicar, async (c) => {
     const b = await bugOError(c.env, idDe(c.req.param("id"), "Bug"));
     const resultado = await publicarBug(c.env, b, c.get("usuario").github, new URL(c.req.url).origin);
-    return c.json({ ...resultado, bug: bugJson(await bugOError(c.env, b.id), buscarCaso(b.case_id)) });
+    return c.json({ ...resultado, bug: bugJson(await bugOError(c.env, b.id), await obtenerCaso(c.env, b.case_id)) });
 });
 
 bugs.get("/:id/comentarios", async (c) => {

@@ -12,11 +12,11 @@
 // - POST   /api/sesiones/:id/publicar            → publica la sesión en GitHub (qa, #130)
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import type { Caso } from "../../catalogo/esquema.ts";
 import { auditar } from "../auditoria";
 import { limitePublicar, requiereRol, type AppEnv } from "../auth";
 import { planDeSesion, publicarSesion } from "../publicar";
-import { aplica, buscarCaso, catalogo, ENTORNOS, filtrarCasos, type Entorno } from "../catalogo";
+import { aplica, ENTORNOS, filtrarCasos, type Entorno } from "../catalogo";
+import { AREAS, cargarCasos, casosDelArea, type Area, type Casos, type CasoQA } from "../casos";
 import type { Env } from "../env";
 import { consultaBooleana, consultaLista, error, Filtros, idDe, leerBody, limiteDe, textoOpcional } from "../validar";
 
@@ -35,12 +35,16 @@ type FilaSesion = {
     created_at: string;
     closed_by: string | null;
     closed_at: string | null;
+    area: Area;
+    execution_issue_number: number | null;
+    execution_issue_url: string | null;
 };
 
 type FilaResultado = { id: number; case_id: string; status: EstadoResultado; notes: string | null; updated_by: string; updated_at: string };
 
 const altaSchema = z.strictObject({
     titulo: z.string().trim().min(1, "Poné un título.").max(200, "Hasta 200 caracteres."),
+    area: z.enum(AREAS).default("backend"),
     entorno: z.enum(ENTORNOS),
     url: z.url({ protocol: /^https?$/, error: "La URL tiene que empezar con http:// o https://." }),
     version: textoOpcional(100),
@@ -57,6 +61,7 @@ function sesionJson(s: FilaSesion) {
     return {
         id: s.id,
         titulo: s.title,
+        area: s.area,
         entorno: s.environment,
         url: s.base_url,
         version: s.backend_version,
@@ -66,12 +71,17 @@ function sesionJson(s: FilaSesion) {
         creada_en: s.created_at,
         cerrada_por: s.closed_by,
         cerrada_en: s.closed_at,
+        ejecucion: s.execution_issue_number ? { numero: s.execution_issue_number, url: s.execution_issue_url } : null,
     };
 }
 
-/** Casos aplicables en el entorno y cuántos hay en cada resultado (los que faltan, pendientes). */
-function avance(entorno: Entorno, conteos: Partial<Record<EstadoResultado, number>>) {
-    const total = catalogo.casos.filter((c) => aplica(c, entorno)).length;
+/** Casos del área que aplican en el entorno de la sesión. */
+function casosAplicables(casos: Casos, s: Pick<FilaSesion, "area" | "environment">): CasoQA[] {
+    return casosDelArea(casos, s.area).filter((c) => aplica(c, s.environment));
+}
+
+/** Cuántos casos hay en cada resultado (los que faltan, pendientes). */
+function avance(total: number, conteos: Partial<Record<EstadoResultado, number>>) {
     const porEstado = Object.fromEntries(ESTADOS_RESULTADO.map((e) => [e, conteos[e] ?? 0])) as Record<EstadoResultado, number>;
     const registrados = Object.values(porEstado).reduce((a, b) => a + b, 0);
     return { total, pendiente: Math.max(total - registrados, 0), ...porEstado };
@@ -97,6 +107,7 @@ sesiones.get("/", async (c) => {
     const where = new Filtros();
     where.en("status", estados);
     where.en("environment", entornos);
+    where.en("area", consultaLista(q.area, AREAS));
     if (q.autor) where.agregar("created_by = ? COLLATE NOCASE", q.autor.replace(/^@/, ""));
     if (q.q) where.agregar("(title LIKE ? OR notes LIKE ?)", `%${q.q}%`, `%${q.q}%`);
     if (Number(q.antes)) where.agregar("id < ?", Number(q.antes));
@@ -115,8 +126,9 @@ sesiones.get("/", async (c) => {
             .all<{ session_id: number; status: EstadoResultado; n: number }>();
         for (const f of filas) conteos.set(f.session_id, { ...conteos.get(f.session_id), [f.status]: f.n });
     }
+    const casos = await cargarCasos(c.env);
     return c.json({
-        sesiones: pagina.map((s) => ({ ...sesionJson(s), avance: avance(s.environment, conteos.get(s.id) ?? {}) })),
+        sesiones: pagina.map((s) => ({ ...sesionJson(s), avance: avance(casosAplicables(casos, s).length, conteos.get(s.id) ?? {}) })),
         siguiente: results.length > limite ? pagina.at(-1)!.id : null,
     });
 });
@@ -125,12 +137,12 @@ sesiones.post("/", requiereRol("qa"), async (c) => {
     const datos = await leerBody(c, altaSchema);
     const yo = c.get("usuario").github;
     const s = await c.env.DB.prepare(
-        "INSERT INTO qa_sessions (title, environment, base_url, backend_version, notes, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO qa_sessions (title, area, environment, base_url, backend_version, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
-        .bind(datos.titulo, datos.entorno, datos.url, datos.version ?? null, datos.notas ?? null, yo)
+        .bind(datos.titulo, datos.area, datos.entorno, datos.url, datos.version ?? null, datos.notas ?? null, yo)
         .first<FilaSesion>();
-    await auditar(c.env, yo, "sesion.crear", { id: s!.id, titulo: datos.titulo, entorno: datos.entorno });
-    return c.json({ ...sesionJson(s!), avance: avance(s!.environment, {}) }, 201);
+    await auditar(c.env, yo, "sesion.crear", { id: s!.id, titulo: datos.titulo, area: datos.area, entorno: datos.entorno });
+    return c.json({ ...sesionJson(s!), avance: avance(casosAplicables(await cargarCasos(c.env), s!).length, {}) }, 201);
 });
 
 sesiones.get("/:id", async (c) => {
@@ -142,15 +154,21 @@ sesiones.get("/:id", async (c) => {
     for (const r of results) conteos[r.status] = (conteos[r.status] ?? 0) + 1;
 
     const filtroResultado = consultaLista(q.resultado, ["pendiente", ...ESTADOS_RESULTADO] as const);
-    const casosSesion = filtrarCasos({
-        seccion: q.seccion,
-        etiqueta: q.etiqueta,
-        q: q.q,
-        destructivo: consultaBooleana(q.destructivo),
-        mock: consultaBooleana(q.mock),
-        ia_real: consultaBooleana(q.ia_real),
-    })
-        .map((caso: Caso) => {
+    const casos = await cargarCasos(c.env);
+    // Los casos vigentes del área y, si ya tienen resultado en esta sesión, también los archivados
+    const delaSesion = casos.lista.filter((k) => k.area === s.area && (k.activo || porCaso.has(k.id)));
+    const casosSesion = filtrarCasos(
+        {
+            seccion: q.seccion,
+            etiqueta: q.etiqueta,
+            q: q.q,
+            destructivo: consultaBooleana(q.destructivo),
+            mock: consultaBooleana(q.mock),
+            ia_real: consultaBooleana(q.ia_real),
+        },
+        delaSesion,
+    )
+        .map((caso) => {
             const r = porCaso.get(caso.id);
             return {
                 caso,
@@ -162,7 +180,7 @@ sesiones.get("/:id", async (c) => {
         })
         .filter((x) => !filtroResultado.length || filtroResultado.includes(x.resultado?.estado ?? "pendiente"));
 
-    return c.json({ sesion: sesionJson(s), avance: avance(s.environment, conteos), casos: casosSesion });
+    return c.json({ sesion: sesionJson(s), avance: avance(casosAplicables(casos, s).length, conteos), casos: casosSesion });
 });
 
 sesiones.patch("/:id", requiereRol("qa"), async (c) => {
@@ -209,9 +227,11 @@ sesiones.post("/:id/publicar", requiereRol("qa"), limitePublicar, async (c) =>
 sesiones.post("/:id/cerrar", requiereRol("qa"), (c) => cambiarEstado(c, "cerrada"));
 sesiones.post("/:id/reabrir", requiereRol("admin"), (c) => cambiarEstado(c, "abierta"));
 
-function casoDeLaSesion(s: FilaSesion, casoId: string): Caso {
-    const caso = buscarCaso(casoId);
+async function casoDeLaSesion(env: Env, s: FilaSesion, casoId: string): Promise<CasoQA> {
+    const caso = (await cargarCasos(env)).porId.get(casoId);
     if (!caso) throw error(404, `El caso ${casoId} no está en el catálogo.`);
+    if (caso.area !== s.area) throw error(409, `${caso.id} es de ${caso.area} y la sesión es de ${s.area}.`);
+    if (!caso.activo) throw error(409, `${caso.id} está archivado.`);
     if (!aplica(caso, s.environment)) throw error(409, `${caso.id} es destructivo: solo se prueba en local o staging.`);
     return caso;
 }
@@ -219,7 +239,7 @@ function casoDeLaSesion(s: FilaSesion, casoId: string): Caso {
 sesiones.put("/:id/resultados/:caso", requiereRol("qa"), async (c) => {
     const s = await sesionOError(c.env, idDe(c.req.param("id"), "Sesión"));
     exigirAbierta(s);
-    const caso = casoDeLaSesion(s, c.req.param("caso"));
+    const caso = await casoDeLaSesion(c.env, s, c.req.param("caso"));
     const datos = await leerBody(c, resultadoSchema);
     const r = await c.env.DB.prepare(
         `INSERT INTO qa_results (session_id, case_id, status, notes, updated_by) VALUES (?, ?, ?, ?, ?)

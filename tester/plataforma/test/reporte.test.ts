@@ -28,7 +28,7 @@ describe("plantilla del issue", () => {
         expect(issue.titulo).toBe("[QA - Issue] QA-4.3-01 · Devuelve 500 con un texto válido");
         expect(issue.etiquetas).toEqual(["[QA - Issue]", "bug", "testing", "backend"]);
         expect(issue.cuerpo.startsWith(marcaCaso("QA-4.3-01"))).toBe(true);
-        expect(issue.cuerpo).toContain("**Entorno:** Producción · `https://api.example.com/api/v1` · backend v0.1.0");
+        expect(issue.cuerpo).toContain("**Entorno:** Producción · `https://api.example.com/api/v1` · versión 0.1.0");
         expect(issue.cuerpo).toContain("1. Enviar el texto\n2. Mirar la respuesta");
         expect(issue.cuerpo).toContain('```\n500\n{"detail": "Internal Server Error"}\n```');
         expect(issue.cuerpo).toContain("> [!IMPORTANT]\n> **Reporte completo en la plataforma de QA:** [bug #7](https://qa.test/bugs/7). Ahí se ven la evidencia adjunta");
@@ -79,7 +79,7 @@ describe("reporte de un bug", () => {
         expect(previa.faltan).toEqual(["resultado obtenido"]);
         expect(previa.repo).toBe("e18-innovalab/contenidos_accesibles");
         expect(previa.cuerpo).toContain("**Entorno:** Staging · `https://staging.example/api/v1`");
-        expect(previa.cuerpo).not.toContain("backend v");
+        expect(previa.cuerpo).not.toContain("versión");
 
         await api("user_qa", `/api/bugs/${bug.id}`, { method: "PATCH", ...body({ obtenido: "500 Internal Server Error" }) });
         expect((await (await api("user_qa", `/api/bugs/${bug.id}/vista-previa`)).json<{ faltan: string[] }>()).faltan).toEqual([]);

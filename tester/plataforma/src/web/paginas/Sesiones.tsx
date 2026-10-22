@@ -2,15 +2,15 @@
 import { useState, type FormEvent } from "react";
 import { useApi, useDatos, useYo } from "../api";
 import { Link, useFiltros, useRuta } from "../ruta";
-import type { Avance, Entorno, Sesion } from "../tipos";
-import { Alerta, Busqueda, Cargando, ENTORNO_TEXTO, fecha, Icon, RESULTADO_INFO, Selector } from "../ui";
+import type { Area, Avance, Entorno, Sesion } from "../tipos";
+import { Alerta, AREA_TEXTO, AREAS, Busqueda, Cargando, ENTORNO_TEXTO, fecha, Icon, RESULTADO_INFO, Selector } from "../ui";
 
 type Lista = { sesiones: (Sesion & { avance: Avance })[]; siguiente: number | null };
 
-const URL_POR_ENTORNO: Record<Entorno, string> = {
-    produccion: "https://innovalab-educacion-e18-test.up.railway.app/api/v1",
-    staging: "",
-    local: "http://127.0.0.1:8000/api/v1",
+// URL sugerida según el área y el entorno (se puede cambiar)
+const URL_SUGERIDA: Record<Area, Record<Entorno, string>> = {
+    backend: { produccion: "https://innovalab-educacion-e18-test.up.railway.app/api/v1", staging: "", local: "http://127.0.0.1:8000/api/v1" },
+    frontend: { produccion: "https://contenidos-accesibles.vercel.app", staging: "", local: "http://localhost:5173" },
 };
 
 export function BarraAvance({ avance }: { avance: Avance }) {
@@ -28,7 +28,15 @@ export function BarraAvance({ avance }: { avance: Avance }) {
 function NuevaSesion({ alCancelar }: { alCancelar: () => void }) {
     const api = useApi();
     const { ir } = useRuta();
-    const [datos, setDatos] = useState({ titulo: `Ronda ${new Date().toLocaleDateString("es-AR")}`, entorno: "produccion" as Entorno, url: URL_POR_ENTORNO.produccion, version: "", notas: "" });
+    const [datos, setDatos] = useState({
+        titulo: `Ronda ${new Date().toLocaleDateString("es-AR")}`,
+        area: "backend" as Area,
+        entorno: "produccion" as Entorno,
+        url: URL_SUGERIDA.backend.produccion,
+        version: "",
+        notas: "",
+    });
+    const sugerir = (area: Area, entorno: Entorno) => setDatos({ ...datos, area, entorno, url: URL_SUGERIDA[area][entorno] || datos.url });
     const [error, setError] = useState<string | null>(null);
     const [detectando, setDetectando] = useState(false);
 
@@ -65,35 +73,38 @@ function NuevaSesion({ alCancelar }: { alCancelar: () => void }) {
                     <Icon name="add_circle" /> Nueva sesión
                 </legend>
                 <div className="form-grid form-grid-3">
-                    <div className="form-group span-2">
+                    <div className="form-group span-3">
                         <div className="form-label-container">
                             <label className="form-label" htmlFor="ses-titulo">Título</label>
                         </div>
                         <input className="form-control" id="ses-titulo" value={datos.titulo} onChange={(e) => setDatos({ ...datos, titulo: e.target.value })} required />
                     </div>
+                    <Selector id="ses-area" etiqueta="Área" valor={datos.area} opciones={AREAS.map((a) => [a, AREA_TEXTO[a]] as const)} onChange={(area) => sugerir(area, datos.entorno)} />
                     <Selector
                         id="ses-entorno"
                         etiqueta="Entorno"
                         valor={datos.entorno}
                         opciones={(Object.keys(ENTORNO_TEXTO) as Entorno[]).map((e) => [e, ENTORNO_TEXTO[e]] as const)}
-                        onChange={(entorno) => setDatos({ ...datos, entorno, url: URL_POR_ENTORNO[entorno] || datos.url })}
+                        onChange={(entorno) => sugerir(datos.area, entorno)}
                     />
-                    <div className="form-group span-2">
-                        <div className="form-label-container">
-                            <label className="form-label" htmlFor="ses-url">URL de la API probada</label>
-                        </div>
-                        <input className="form-control" id="ses-url" type="url" value={datos.url} onChange={(e) => setDatos({ ...datos, url: e.target.value })} required />
-                    </div>
                     <div className="form-group">
                         <div className="form-label-container">
-                            <label className="form-label" htmlFor="ses-version">Versión del backend</label>
+                            <label className="form-label" htmlFor="ses-version">Versión probada</label>
                         </div>
                         <div className="qa-input-action">
                             <input className="form-control" id="ses-version" value={datos.version} placeholder="0.1.0" onChange={(e) => setDatos({ ...datos, version: e.target.value })} />
-                            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void detectarVersion()} disabled={detectando}>
-                                <Icon name="manage_search" /> Detectar
-                            </button>
+                            {datos.area === "backend" && (
+                                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void detectarVersion()} disabled={detectando}>
+                                    <Icon name="manage_search" /> Detectar
+                                </button>
+                            )}
                         </div>
+                    </div>
+                    <div className="form-group span-3">
+                        <div className="form-label-container">
+                            <label className="form-label" htmlFor="ses-url">{datos.area === "backend" ? "URL de la API probada" : "URL del frontend probado"}</label>
+                        </div>
+                        <input className="form-control" id="ses-url" type="url" value={datos.url} onChange={(e) => setDatos({ ...datos, url: e.target.value })} required />
                     </div>
                     <div className="form-group span-3">
                         <div className="form-label-container">
@@ -123,8 +134,8 @@ function NuevaSesion({ alCancelar }: { alCancelar: () => void }) {
 
 export function Sesiones() {
     const yo = useYo();
-    const [f, setF] = useFiltros({ q: "", estado: "", entorno: "", nueva: "" });
-    const consulta = new URLSearchParams(Object.entries({ q: f.q, estado: f.estado, entorno: f.entorno }).filter(([, v]) => v)).toString();
+    const [f, setF] = useFiltros({ q: "", estado: "", area: "", entorno: "", nueva: "" });
+    const consulta = new URLSearchParams(Object.entries({ q: f.q, estado: f.estado, area: f.area, entorno: f.entorno }).filter(([, v]) => v)).toString();
     const lista = useDatos<Lista>(`/api/sesiones?limite=50&${consulta}`);
 
     return (
@@ -146,6 +157,7 @@ export function Sesiones() {
             <div className="table-filters qa-filters">
                 <Busqueda id="ses-q" etiqueta="Buscar" valor={f.q} onChange={(q) => setF({ q })} placeholder="Título o notas" />
                 <Selector id="ses-estado" etiqueta="Estado" valor={f.estado} opciones={[["", "Todas"], ["abierta", "Abiertas"], ["cerrada", "Cerradas"]]} onChange={(estado) => setF({ estado })} />
+                <Selector id="ses-f-area" etiqueta="Área" valor={f.area} opciones={[["", "Todas"], ...AREAS.map((a) => [a, AREA_TEXTO[a]] as const)]} onChange={(area) => setF({ area })} />
                 <Selector
                     id="ses-f-entorno"
                     etiqueta="Entorno"
@@ -164,7 +176,7 @@ export function Sesiones() {
                         <thead>
                             <tr>
                                 <th scope="col">Sesión</th>
-                                <th scope="col">Entorno</th>
+                                <th scope="col">Área y entorno</th>
                                 <th scope="col">Avance</th>
                                 <th scope="col">Falló</th>
                                 <th scope="col">Estado</th>
@@ -181,9 +193,9 @@ export function Sesiones() {
                                 <tr key={s.id}>
                                     <td>
                                         <Link className="cell-title" href={`/sesiones/${s.id}`}>{s.titulo}</Link>
-                                        <span className="cell-sub">{s.version ? `Backend v${s.version}` : "Sin versión"} · #{s.id}</span>
+                                        <span className="cell-sub">{s.version ? `Versión ${s.version}` : "Sin versión"} · #{s.id}</span>
                                     </td>
-                                    <td>{ENTORNO_TEXTO[s.entorno]}</td>
+                                    <td>{AREA_TEXTO[s.area]}<span className="cell-sub">{ENTORNO_TEXTO[s.entorno]}</span></td>
                                     <td>
                                         <BarraAvance avance={s.avance} />
                                         <span className="cell-sub">{s.avance.total - s.avance.pendiente} de {s.avance.total} casos</span>

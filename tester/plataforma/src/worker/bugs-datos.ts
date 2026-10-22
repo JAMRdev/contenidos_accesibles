@@ -11,6 +11,7 @@ export type FilaBug = {
     id: number;
     case_id: string;
     section: string;
+    area: "backend" | "frontend";
     session_id: number | null;
     environment: string | null;
     title: string;

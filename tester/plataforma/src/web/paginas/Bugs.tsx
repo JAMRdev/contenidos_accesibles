@@ -6,7 +6,7 @@ import { Evidencias } from "../Evidencias";
 import { PosiblesDuplicados, PublicarBug, ReporteBug, VistaPreviaIssue } from "../Reporte";
 import { Link, useFiltros } from "../ruta";
 import type { Bug, BugDetalle, Entorno, EstadoBug, Seccion, Severidad } from "../tipos";
-import { Alerta, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
+import { Alerta, AREA_TEXTO, AREAS, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
 
 const ESTADOS = Object.keys(BUG_INFO) as EstadoBug[];
 const SEVERIDADES = Object.keys(SEVERIDAD_TEXTO) as Severidad[];
@@ -21,10 +21,10 @@ const FILTRO_ESTADO = [
 const ORIGEN_TEXTO = { qa: "QA", github: "GitHub", sincronizacion: "Sincronización" } as const;
 
 export function Bugs() {
-    const [f, setF] = useFiltros({ q: "", estado: "", severidad: "", seccion: "", entorno: "", sesion: "", caso: "" });
+    const [f, setF] = useFiltros({ q: "", estado: "", area: "", severidad: "", seccion: "", entorno: "", sesion: "", caso: "" });
     const consulta = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
     const lista = useDatos<{ bugs: Bug[]; siguiente: number | null }>(`/api/bugs?limite=100&${consulta}`);
-    const secciones = useDatos<{ secciones: Seccion[] }>("/api/casos/secciones");
+    const secciones = useDatos<{ secciones: Seccion[] }>(`/api/casos/secciones?area=${f.area || "backend"}`);
     const estadoConocido = FILTRO_ESTADO.some(([v]) => v === f.estado);
 
     return (
@@ -47,6 +47,7 @@ export function Bugs() {
                     opciones={estadoConocido ? FILTRO_ESTADO : [...FILTRO_ESTADO, [f.estado, f.estado] as const]}
                     onChange={(estado) => setF({ estado })}
                 />
+                <Selector id="bug-area" etiqueta="Área" valor={f.area} opciones={[["", "Todas"], ...AREAS.map((a) => [a, AREA_TEXTO[a]] as const)]} onChange={(area) => setF({ area, seccion: "" })} />
                 <Selector id="bug-sev" etiqueta="Severidad" valor={f.severidad} opciones={[["", "Todas"], ...SEVERIDADES.map((s) => [s, SEVERIDAD_TEXTO[s]] as const)]} onChange={(severidad) => setF({ severidad })} />
                 <Selector
                     id="bug-seccion"
@@ -96,7 +97,7 @@ export function Bugs() {
                                 <tr key={b.id}>
                                     <td>
                                         <Link className="cell-title" href={`/bugs/${b.id}`}>{b.titulo}</Link>
-                                        <span className="cell-sub">#{b.id}{b.entorno ? ` · ${ENTORNO_TEXTO[b.entorno]}` : ""}</span>
+                                        <span className="cell-sub">#{b.id} · {AREA_TEXTO[b.area]}{b.entorno ? ` · ${ENTORNO_TEXTO[b.entorno]}` : ""}</span>
                                     </td>
                                     <td>
                                         <Link href={`/casos/${b.caso.id}`}><code>{b.caso.id}</code></Link>

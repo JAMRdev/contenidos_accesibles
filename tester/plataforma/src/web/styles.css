@@ -364,3 +364,31 @@ body.modal-open { overflow: hidden; }
 .qa-alert-action { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .qa-alert-action > p { flex: 1; min-width: 240px; }
 .qa-alert-action .btn { flex: none; display: inline-flex; align-items: center; gap: 0.35rem; }
+
+/* Pestañas de área (Backend / Frontend), con el mismo aspecto que la navegación del encabezado */
+.qa-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+.qa-tab { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 0.9rem; border: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--ink-2); font: inherit; font-weight: 600; cursor: pointer; }
+.qa-tab:hover { background: var(--surface-soft); color: var(--ink); }
+.qa-tab.is-active { color: var(--series-1); box-shadow: inset 0 -3px 0 var(--series-1); background: var(--surface-soft); }
+
+/* Estado vacío con una acción */
+.qa-empty { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; text-align: center; padding: 2.5rem 1rem; border: 1px dashed #b7c4cf; border-radius: var(--radius-card); background: var(--surface); color: var(--ink-2); }
+.qa-empty > .material-symbols-rounded { font-size: 2.5rem; color: var(--series-1); }
+.qa-empty .btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+
+/* Grupo de casillas dentro de una grilla de formulario */
+.qa-checks { border: 0; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
+.qa-checks legend { float: none; font-size: 1rem; margin-bottom: 0.25rem; }
+.form-grid { gap: 1rem 1.25rem; }
+.form-grid .form-group { margin: 0; }
+
+/* Una sección que sigue a otro bloque arranca separada (el panel solo quita el margen al primer
+   encabezado de la página, no al de una sección anidada) */
+.admin-main > :not(:first-child) > .admin-section-head:first-child { margin-top: 2.5rem; }
+
+/* Selector de resultado coloreado según el estado (mismos colores que .status) */
+.qa-select-estado.is-paso { background-color: #e3f5ea; outline-color: #00642f; color: #00642f; font-weight: 600; }
+.qa-select-estado.is-fallo { background-color: #fde8ea; outline-color: #ad0b1e; color: #ad0b1e; font-weight: 600; }
+.qa-select-estado.is-bloqueado { background-color: #fff3e0; outline-color: #814800; color: #814800; font-weight: 600; }
+.qa-select-estado.is-omitido { background-color: #f3f3f3; outline-color: #565656; color: #565656; font-weight: 600; }
+.qa-nowrap, .qa-nowrap .cell-sub { white-space: nowrap; }

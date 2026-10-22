@@ -3,7 +3,7 @@ import { useDatos } from "../api";
 import { Estado as EstadoPlataforma } from "../Estado";
 import { Link } from "../ruta";
 import type { Avance, EstadoBug, Sesion } from "../tipos";
-import { Alerta, Cargando, ENTORNO_TEXTO, fecha, Icon, Kpi } from "../ui";
+import { Alerta, AREA_TEXTO, Cargando, ENTORNO_TEXTO, fecha, Icon, Kpi } from "../ui";
 import { BarraAvance } from "./Sesiones";
 
 type ListaSesiones = { sesiones: (Sesion & { avance: Avance })[] };
@@ -18,7 +18,7 @@ export function Inicio() {
             <div className="admin-title-row">
                 <div>
                     <h1 className="admin-h1">Plataforma de QA</h1>
-                    <p className="admin-lead">Rondas de prueba del backend, evidencias y bugs publicados en GitHub.</p>
+                    <p className="admin-lead">Rondas de prueba del backend y del frontend, evidencias y bugs publicados en GitHub.</p>
                 </div>
             </div>
             <div className="kpi-grid">
@@ -51,7 +51,7 @@ export function Inicio() {
                                         <Link href={`/sesiones/${s.id}`}>{s.titulo}</Link>
                                     </h3>
                                     <span className="cell-sub">
-                                        {ENTORNO_TEXTO[s.entorno]} · {s.version ? `v${s.version}` : "sin versión"}
+                                        {AREA_TEXTO[s.area]} · {ENTORNO_TEXTO[s.entorno]} · {s.version ? `v${s.version}` : "sin versión"}
                                     </span>
                                 </div>
                             </div>

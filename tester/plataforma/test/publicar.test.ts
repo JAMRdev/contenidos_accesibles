@@ -188,8 +188,8 @@ describe("publicar una sesión", () => {
         expect(r.bugs).toEqual([expect.objectContaining({ bug_id: listo, accion: "creado" })]);
         expect(r.omitidos.map((o) => o.id)).toEqual([incompleto]);
         const ejecucion = gh.issues.find((i) => i.number === r.ejecucion.numero)!;
-        expect(ejecucion.title).toMatch(/^\[QA - Issue\] Ejecución \d{4}-\d{2}-\d{2} · Staging · Ronda 1$/);
-        expect(ejecucion.labels).toEqual(["[QA - Issue]", "testing"]);
+        expect(ejecucion.title).toMatch(/^\[QA - Issue\] Ejecución \d{4}-\d{2}-\d{2} · Backend · Staging · Ronda 1$/);
+        expect(ejecucion.labels).toEqual(["[QA - Issue]", "testing", "backend"]);
         expect(ejecucion.body).toContain(`<!-- qa-session: ${s} -->`);
         expect(ejecucion.body).toContain("| `QA-4.1-02` |");
         expect(ejecucion.body).toContain("| ✅ Pasó |");

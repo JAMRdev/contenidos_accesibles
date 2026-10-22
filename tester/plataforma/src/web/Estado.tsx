@@ -93,8 +93,8 @@ export function Estado() {
                             descripcion={`Empaquetado en el deploy · versión ${state.health.version}.`}
                         />
                         <Tarjeta
-                            titulo="Sincronización con GitHub"
-                            plataforma="Cron Trigger cada 10 min"
+                            titulo="Sincronización"
+                            plataforma="GitHub · Cron cada 10 min"
                             estado={state.health.ultima_cron ? "ok" : "pendiente"}
                             detalle={state.health.ultima_cron ? `Última corrida: ${fecha.format(new Date(state.health.ultima_cron))}` : "Todavía no corrió"}
                             descripcion="Trae los cambios de estado de los bugs publicados."

@@ -7,7 +7,7 @@ import { App } from "../App";
 import "../styles.css";
 
 const ahora = "2026-10-22T19:43:00.000Z";
-const casos = catalogo.casos;
+const casos = catalogo.casos.map((c) => ({ ...c, area: "backend", manual: false, activo: true, creado_por: null }));
 const caso = (id: string) => casos.find((c) => c.id === id)!;
 
 const yo = { github: "jamrdev", nombre: "José Monsalve", avatar_url: null, rol: "admin", permisos: { escribir: true, administrar: true } };
@@ -66,7 +66,10 @@ const fijos: [RegExp, (m: RegExpMatchArray, url: URL) => unknown][] = [
     [/^\/api\/bugs$/, () => ({ bugs: [bug, bugBorrador], siguiente: null })],
     [/^\/api\/evidencias$/, () => ({ evidencias })],
     [/^\/api\/evidencias\/(\d+)$/, (m) => evidencias.find((e) => e.id === Number(m[1]))],
-    [/^\/api\/casos\/secciones$/, () => ({ secciones: catalogo.secciones })],
+    [/^\/api\/casos\/secciones$/, (_m, url) =>
+        url.searchParams.get("area") === "frontend"
+            ? { secciones: [{ seccion: "Login de docentes", titulo: "Login de docentes", casos: 1 }, { seccion: "Subir material", titulo: "Subir material", casos: 1 }] }
+            : { secciones: catalogo.secciones }],
     [/^\/api\/casos\/(QA-[^/]+)$/, (m) => ({ caso: casosManuales.find((c) => c.id === m[1]) ?? caso(m[1]), historial: [{ resultado_id: 1, estado: "fallo", notas: "Respondió 500", actualizado_por: "jamrdev", actualizado_en: ahora, sesion: { id: 3, titulo: "Ronda 22/10", entorno: "produccion", version: "0.1.0" } }], bugs: [{ id: 1, titulo: bug.titulo, estado: "abierto", severidad: "baja", issue: bug.issue, creado_en: ahora }] })],
     [/^\/api\/casos$/, (_m, url) => {
         const area = url.searchParams.get("area");

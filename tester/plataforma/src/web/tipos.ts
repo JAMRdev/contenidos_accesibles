@@ -1,7 +1,12 @@
 // Tipos de las respuestas de la API que usa la web.
-import type { Caso, Seccion } from "../catalogo/esquema.ts";
+import type { Caso as CasoRepo, Seccion as SeccionRepo } from "../catalogo/esquema.ts";
 
-export type { Caso, Seccion };
+export type Area = "backend" | "frontend";
+
+/** Un caso del repo (área backend) o uno manual creado desde la plataforma. */
+export type Caso = CasoRepo & { area: Area; manual: boolean; activo: boolean; creado_por: string | null };
+
+export type Seccion = Pick<SeccionRepo, "seccion" | "titulo" | "casos">;
 
 export type Entorno = "produccion" | "staging" | "local";
 export type EstadoResultado = "paso" | "fallo" | "bloqueado" | "omitido";
@@ -13,6 +18,7 @@ export type Avance = Record<EstadoResultado | "pendiente" | "total", number>;
 export type Sesion = {
     id: number;
     titulo: string;
+    area: Area;
     entorno: Entorno;
     url: string;
     version: string | null;
@@ -22,6 +28,7 @@ export type Sesion = {
     creada_en: string;
     cerrada_por: string | null;
     cerrada_en: string | null;
+    ejecucion: { numero: number; url: string } | null;
 };
 
 export type ResultadoCaso = {
@@ -36,6 +43,7 @@ export type Bug = {
     id: number;
     caso: { id: string; seccion: string; titulo: string | null };
     sesion_id: number | null;
+    area: Area;
     entorno: Entorno | null;
     titulo: string;
     descripcion: string;

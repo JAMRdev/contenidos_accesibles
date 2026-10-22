@@ -1,7 +1,7 @@
 // Piezas de interfaz compartidas, con el mismo markup y las mismas clases que el panel /admin.
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Rol } from "./api";
-import type { Entorno, EstadoBug, EstadoResultado, Severidad } from "./tipos";
+import type { Area, Entorno, EstadoBug, EstadoResultado, Severidad } from "./tipos";
 
 export function Icon({ name }: { name: string }) {
     return (
@@ -47,6 +47,8 @@ export const BUG_INFO: Record<EstadoBug, { icon: string; label: string; css: str
 };
 
 export const ENTORNO_TEXTO: Record<Entorno, string> = { produccion: "Producción", staging: "Staging", local: "Local" };
+export const AREA_TEXTO: Record<Area, string> = { backend: "Backend", frontend: "Frontend" };
+export const AREAS = Object.keys(AREA_TEXTO) as Area[];
 export const SEVERIDAD_TEXTO: Record<Severidad, string> = { alta: "Alta", media: "Media", baja: "Baja" };
 
 export function Estado({ info }: { info: { icon: string; label: string; css: string } }) {
@@ -96,11 +98,12 @@ export function Selector<T extends string>(props: {
     oculta?: boolean;
     chico?: boolean;
     disabled?: boolean;
+    clase?: string;
 }) {
     const select = (
         <select
             id={props.id}
-            className={`qa-select${props.chico ? " qa-select-sm" : ""}`}
+            className={`qa-select${props.chico ? " qa-select-sm" : ""}${props.clase ? ` ${props.clase}` : ""}`}
             aria-label={props.oculta ? props.etiqueta : undefined}
             value={props.valor}
             disabled={props.disabled}

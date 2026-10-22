@@ -3,7 +3,13 @@
 import type { Caso } from "../catalogo/esquema.ts";
 
 export const ETIQUETA_QA = "[QA - Issue]";
-export const ETIQUETAS_BUG = [ETIQUETA_QA, "bug", "testing", "backend"];
+/** Etiquetas de un bug: la de QA, bug, testing y el área del caso (backend o frontend). */
+export function etiquetasBug(area: string = "backend"): string[] {
+    return [ETIQUETA_QA, "bug", "testing", area];
+}
+
+const AREA = { backend: "Backend", frontend: "Frontend" } as const;
+type CasoConArea = Caso & { area?: keyof typeof AREA };
 
 const ENTORNO = { produccion: "Producción", staging: "Staging", local: "Local" } as const;
 const SEVERIDAD = { alta: "Alta", media: "Media", baja: "Baja" } as const;
@@ -90,9 +96,9 @@ function seccionEvidencias(evidencias: EvidenciaReporte[], origenWeb: string): s
     ];
 }
 
-export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaReporte[], origenWeb: string) {
+export function armarIssue(r: DatosReporte, caso: CasoConArea, evidencias: EvidenciaReporte[], origenWeb: string) {
     const titulo = `${ETIQUETA_QA} ${caso.id} · ${r.titulo.trim()}`;
-    const entorno = [r.entorno ? ENTORNO[r.entorno] : null, r.url ? `\`${r.url}\`` : null, r.version ? `backend v${r.version}` : null]
+    const entorno = [r.entorno ? ENTORNO[r.entorno] : null, r.url ? `\`${r.url}\`` : null, r.version ? `versión ${r.version}` : null]
         .filter(Boolean)
         .join(" · ");
     const partes = [
@@ -119,11 +125,11 @@ export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaRep
         "---",
         `Reportado por @${r.creado_por} desde la [plataforma de QA](${origenWeb}/bugs/${r.id})${r.sesion_id ? ` (sesión #${r.sesion_id})` : ""}.`,
     );
-    return { titulo, cuerpo: partes.join("\n"), etiquetas: ETIQUETAS_BUG };
+    return { titulo, cuerpo: partes.join("\n"), etiquetas: etiquetasBug(caso.area) };
 }
 
 /** Comentario en un issue abierto del mismo caso cuando el bug vuelve a aparecer. */
-export function comentarioReincidencia(r: DatosReporte, caso: Caso, evidencias: EvidenciaReporte[], origenWeb: string): string {
+export function comentarioReincidencia(r: DatosReporte, caso: CasoConArea, evidencias: EvidenciaReporte[], origenWeb: string): string {
     // El mismo reporte, sin las marcas ocultas (el issue ya tiene la del caso)
     const cuerpo = armarIssue(r, caso, evidencias, origenWeb).cuerpo.split("\n").slice(1).join("\n");
     return `**Se volvió a reproducir este bug** en la plataforma de QA (bug #${r.id}).\n\n${cuerpo}`;
@@ -131,7 +137,7 @@ export function comentarioReincidencia(r: DatosReporte, caso: Caso, evidencias: 
 
 export function comentarioPropuestaCierre(caso: Caso, sesion: { id: number; titulo: string; version: string | null }, origenWeb: string): string {
     return [
-        `**El caso \`${caso.id}\` pasó** en la sesión de QA [#${sesion.id} · ${sesion.titulo}](${origenWeb}/sesiones/${sesion.id})${sesion.version ? ` (backend v${sesion.version})` : ""}.`,
+        `**El caso \`${caso.id}\` pasó** en la sesión de QA [#${sesion.id} · ${sesion.titulo}](${origenWeb}/sesiones/${sesion.id})${sesion.version ? ` (versión ${sesion.version})` : ""}.`,
         "",
         "Propongo cerrar este issue si el arreglo ya está en esa versión. La plataforma de QA no cierra issues sola.",
     ].join("\n");
@@ -154,6 +160,7 @@ export type FilaEjecucion = {
 export type SesionEjecucion = {
     id: number;
     titulo: string;
+    area: keyof typeof AREA;
     entorno: keyof typeof ENTORNO;
     url: string;
     version: string | null;
@@ -165,7 +172,7 @@ export type SesionEjecucion = {
 /** Issue de ejecución de una sesión: resumen y tabla de casos con su resultado, bug y evidencias. */
 export function armarEjecucion(s: SesionEjecucion, filas: FilaEjecucion[], total: number, origenWeb: string) {
     const fecha = s.creada_en.slice(0, 10);
-    const titulo = `${ETIQUETA_QA} Ejecución ${fecha} · ${ENTORNO[s.entorno]} · ${s.titulo}`;
+    const titulo = `${ETIQUETA_QA} Ejecución ${fecha} · ${AREA[s.area]} · ${ENTORNO[s.entorno]} · ${s.titulo}`;
     const cuenta = (e: keyof typeof RESULTADO) => filas.filter((f) => f.estado === e).length;
     const partes = [
         marcaSesion(s.id),
@@ -174,7 +181,7 @@ export function armarEjecucion(s: SesionEjecucion, filas: FilaEjecucion[], total
         "> Pide iniciar sesión con GitHub (la misma cuenta del panel).",
         "",
         `**Sesión:** [#${s.id} · ${s.titulo}](${origenWeb}/sesiones/${s.id})${s.estado === "abierta" ? " (todavía abierta)" : ""}`,
-        `**Entorno:** ${ENTORNO[s.entorno]} · \`${s.url}\`${s.version ? ` · backend v${s.version}` : ""}`,
+        `**Área:** ${AREA[s.area]} · **Entorno:** ${ENTORNO[s.entorno]} · \`${s.url}\`${s.version ? ` · versión ${s.version}` : ""}`,
         `**QA:** @${s.creada_por} · ${fecha}`,
         "",
         "| Pasó | Falló | Bloqueado | Omitido | Pendientes |",
@@ -195,5 +202,5 @@ export function armarEjecucion(s: SesionEjecucion, filas: FilaEjecucion[], total
         partes.push("_Todavía no hay resultados registrados._");
     }
     partes.push("", "---", "_Generado por la plataforma de QA; publicar de nuevo actualiza este issue. Las evidencias piden iniciar sesión._");
-    return { titulo, cuerpo: partes.join("\n"), etiquetas: [ETIQUETA_QA, "testing"] };
+    return { titulo, cuerpo: partes.join("\n"), etiquetas: [ETIQUETA_QA, "testing", s.area] };
 }

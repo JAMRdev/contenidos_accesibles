@@ -9,9 +9,9 @@
 //   3. Si no, se crea el issue (sin asignar) y se agrega al tablero con "Estado QA" = Falló.
 // Una sesión: publica sus bugs en borrador, propone cerrar los bugs abiertos de casos que ahora
 // pasaron, crea o actualiza el issue de ejecución y envía los comentarios pendientes.
-import type { Caso } from "../catalogo/esquema.ts";
 import { auditar } from "./auditoria";
-import { aplica, buscarCaso, catalogo, type Entorno } from "./catalogo";
+import { aplica, type Entorno } from "./catalogo";
+import { cargarCasos, casosDelArea, obtenerCaso, type Area, type CasoQA } from "./casos";
 import type { Env } from "./env";
 import {
     agregarAlTablero,
@@ -140,7 +140,7 @@ export async function publicarBug(env: Env, bug: FilaBug, actor: string, origen:
         const propio = await env.DB.prepare("SELECT comment_id FROM qa_publications WHERE key = ? AND kind = 'issue' AND status = 'ok'")
             .bind(`bug:${bug.id}:issue`)
             .first<{ comment_id: number | null }>();
-        const caso = buscarCaso(bug.case_id);
+        const caso = await obtenerCaso(env, bug.case_id);
         if (propio && propio.comment_id === null && caso) {
             const { reporte, evidencias } = await datosDelIssue(env, bug);
             await editarIssue(env, bug.issue_number, armarIssue(reporte, caso, evidencias, origen));
@@ -151,7 +151,7 @@ export async function publicarBug(env: Env, bug: FilaBug, actor: string, origen:
         return { bug_id: bug.id, accion, issue: { numero: bug.issue_number, url: bug.issue_url! }, comentarios, avisos: [] };
     }
     if (bug.status !== "borrador") throw error(409, "Solo se publican bugs en borrador.");
-    const caso = buscarCaso(bug.case_id);
+    const caso = await obtenerCaso(env, bug.case_id);
     if (!caso) throw error(409, `El caso ${bug.case_id} ya no está en el catálogo.`);
     const { reporte, evidencias } = await datosDelIssue(env, bug);
     const faltan = faltantes(reporte);
@@ -222,6 +222,7 @@ type FilaSesion = {
     status: "abierta" | "cerrada";
     created_by: string;
     created_at: string;
+    area: Area;
     execution_issue_number: number | null;
     execution_issue_url: string | null;
 };
@@ -235,7 +236,7 @@ export type PlanSesion = {
     github_disponible: boolean;
 };
 
-async function armarPlan(env: Env, s: FilaSesion): Promise<PlanSesion & { _bugs: FilaBug[]; _propuestas: { bug: number; issue: number; caso: Caso }[] }> {
+async function armarPlan(env: Env, s: FilaSesion): Promise<PlanSesion & { _bugs: FilaBug[]; _propuestas: { bug: number; issue: number; caso: CasoQA }[] }> {
     const { results: bugs } = await env.DB.prepare("SELECT * FROM qa_bugs WHERE session_id = ? ORDER BY id").bind(s.id).all<FilaBug>();
     const borradores = bugs.filter((b) => b.status === "borrador");
     const planBugs = await Promise.all(
@@ -253,9 +254,10 @@ async function armarPlan(env: Env, s: FilaSesion): Promise<PlanSesion & { _bugs:
     )
         .bind(s.id)
         .all<{ id: number; issue_number: number; case_id: string }>();
+    const casos = await cargarCasos(env);
     const propuestas = abiertos
-        .map((b) => ({ bug: b.id, issue: b.issue_number, caso: buscarCaso(b.case_id) }))
-        .filter((p): p is { bug: number; issue: number; caso: Caso } => Boolean(p.caso));
+        .map((b) => ({ bug: b.id, issue: b.issue_number, caso: casos.porId.get(b.case_id) }))
+        .filter((p): p is { bug: number; issue: number; caso: CasoQA } => Boolean(p.caso));
     const ids = bugs.filter((b) => b.issue_number || b.status === "borrador").map((b) => b.id);
     const pendientes = ids.length
         ? (
@@ -291,7 +293,7 @@ export async function planDeSesion(env: Env, id: number): Promise<PlanSesion> {
     return plan;
 }
 
-async function filasEjecucion(env: Env, sesionId: number): Promise<FilaEjecucion[]> {
+async function filasEjecucion(env: Env, sesionId: number, casos: CasoQA[]): Promise<FilaEjecucion[]> {
     const [resultados, bugs, evidencias] = await env.DB.batch([
         env.DB.prepare("SELECT id, case_id, status FROM qa_results WHERE session_id = ?").bind(sesionId),
         env.DB.prepare("SELECT case_id, issue_number, issue_url FROM qa_bugs WHERE session_id = ? AND issue_number IS NOT NULL ORDER BY id DESC").bind(sesionId),
@@ -307,7 +309,7 @@ async function filasEjecucion(env: Env, sesionId: number): Promise<FilaEjecucion
         evidenciasPorResultado.set(e.result_id, [...(evidenciasPorResultado.get(e.result_id) ?? []), e.id]);
     }
     // En el orden del catálogo
-    return catalogo.casos
+    return casos
         .filter((c) => porCaso.has(c.id))
         .map((caso) => {
             const r = porCaso.get(caso.id)!;
@@ -376,10 +378,11 @@ export async function publicarSesion(env: Env, id: number, actor: string, origen
     resultado.comentarios += resultado.bugs.reduce((t, b) => t + b.comentarios, 0);
 
     // 4. Issue de ejecución (al final, para que la tabla enlace los issues recién creados)
-    const total = catalogo.casos.filter((c) => aplica(c, s.environment)).length;
+    const casos = await cargarCasos(env);
+    const total = casosDelArea(casos, s.area).filter((c) => aplica(c, s.environment)).length;
     const ejecucion = armarEjecucion(
-        { id: s.id, titulo: s.title, entorno: s.environment, url: s.base_url, version: s.backend_version, creada_por: s.created_by, creada_en: s.created_at, estado: s.status },
-        await filasEjecucion(env, s.id),
+        { id: s.id, titulo: s.title, area: s.area, entorno: s.environment, url: s.base_url, version: s.backend_version, creada_por: s.created_by, creada_en: s.created_at, estado: s.status },
+        await filasEjecucion(env, s.id, casos.lista),
         total,
         origen,
     );

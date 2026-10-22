@@ -28,10 +28,13 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | `GET /api/me` | Cualquier rol | Cuenta de GitHub, rol y permisos (`escribir`, `administrar`). |
 | `GET/POST /api/miembros`, `PATCH/DELETE /api/miembros/:github` | Admin | Miembros y su rol (`{ github, rol }`, `{ rol?, habilitado? }`). |
 | `GET /api/auditoria?limite=&antes=` | Admin | Registro de auditoría, lo más reciente primero. |
-| `GET /api/casos?seccion=&etiqueta=&q=&destructivo=&mock=&ia_real=` | Cualquier rol | Catálogo de casos filtrado. |
+| `GET /api/casos?area=&seccion=&etiqueta=&q=&destructivo=&mock=&ia_real=&archivados=` | Cualquier rol | Casos del repo y manuales, filtrados. |
+| `GET /api/casos/secciones?area=` | Cualquier rol | Secciones (repo) o casos de uso (manuales) del área. |
+| `POST /api/casos`, `PATCH /api/casos/:id` | QA | Crear o editar un caso manual (`{ area, seccion, titulo, ubicacion?, precondiciones[], pasos[], datos?, esperado, severidad, etiquetas[], mock, ia_real, destructivo }`). |
+| `POST /api/casos/:id/archivar`, `…/reactivar` | QA | Los casos manuales no se borran: se archivan. |
 | `GET /api/casos/:id` | Cualquier rol | Un caso, su historial en todas las sesiones (regresiones) y sus bugs. |
 | `GET /api/sesiones?estado=&entorno=&autor=&q=&antes=&limite=` | Cualquier rol | Sesiones con su avance (casos por resultado), paginadas. |
-| `POST /api/sesiones` | QA | `{ titulo, entorno, url, version?, notas? }`. Entornos: `produccion`, `staging`, `local`. |
+| `POST /api/sesiones` | QA | `{ titulo, area?, entorno, url, version?, notas? }`. Áreas: `backend` (por defecto) y `frontend`; entornos: `produccion`, `staging`, `local`. |
 | `GET /api/sesiones/:id?seccion=&resultado=&q=&destructivo=&mock=&ia_real=` | Cualquier rol | La sesión, su avance y cada caso con su resultado. |
 | `PATCH /api/sesiones/:id`, `POST /api/sesiones/:id/cerrar` | QA | Editar o cerrar (solo sesiones abiertas). `POST …/reabrir`: admin. |
 | `PUT/DELETE /api/sesiones/:id/resultados/:caso` | QA | `{ estado, notas? }` con `paso`, `fallo`, `bloqueado` u `omitido`; `DELETE` lo vuelve a pendiente. |
@@ -67,6 +70,14 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 - **La plataforma no ejecuta llamadas contra el backend.** QA prueba con Swagger, la web de pruebas o curl y carga lo que obtuvo. Así no se manejan tokens de docente y se puede probar igual el backend local.
 - **Enlaces desde GitHub:** apuntan a la página `/evidencias/:id` de la web, que pide login (el repo es público y las evidencias no). La web pide el archivo con el token de sesión y lo muestra desde un blob local.
 - **Sin borrado automático:** solo un admin borra evidencias. Un resultado con evidencias no vuelve a pendiente (se cambia de estado).
+
+### Áreas y casos manuales
+
+La plataforma sirve para el backend y para el frontend. Los casos del repo (`tester/casos`) son del área **backend** y se cambian con un PR. Los **casos manuales** se crean desde la web (Catálogo → Nuevo caso) en cualquier área, agrupados por **caso de uso** (por ejemplo "Login de docentes"), y viven en `qa_cases`:
+
+- Su ID lo asigna la plataforma por área (`QA-FE-001`, `QA-BE-001`…) y no se reutiliza: un caso que ya no se usa se **archiva**, así sus resultados y bugs lo siguen nombrando.
+- Cada **sesión** prueba un área y lista solo sus casos vigentes (más los archivados que ya tengan resultado en esa sesión).
+- Cada **bug** hereda el área de su caso: el issue lleva la etiqueta `backend` o `frontend`, y el issue de ejecución, el área en el título.
 
 **Resultados y bugs son cosas distintas.** El resultado es lo que dio un caso en una sesión. El bug es lo que se publica en GitHub y tiene su propio estado: `borrador` → (publicar, #130) → `abierto` → `en_curso` → `resuelto` → `verificado`, más `reabierto` y `descartado`. Sin issue, un bug solo pasa entre `borrador` y `descartado`; publicado, QA puede moverlo entre los estados publicados y GitHub lo actualiza con la sincronización (#134). Cada cambio queda en el historial del bug con su origen (`qa`, `github` o `sincronizacion`).
 

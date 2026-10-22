@@ -28,9 +28,10 @@ export type FiltroCasos = {
     ia_real?: boolean;
 };
 
-export function filtrarCasos(f: FiltroCasos): Caso[] {
+/** Filtra una lista de casos (por defecto, los del repo). */
+export function filtrarCasos<T extends Caso>(f: FiltroCasos, lista: T[] = catalogo.casos as T[]): T[] {
     const q = f.q?.trim().toLowerCase();
-    return catalogo.casos.filter(
+    return lista.filter(
         (c) =>
             (!f.seccion || c.seccion === f.seccion) &&
             (!f.etiqueta || c.etiquetas.includes(f.etiqueta)) &&

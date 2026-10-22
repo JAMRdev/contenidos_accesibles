@@ -1,6 +1,6 @@
 # Catálogo de casos de prueba
 
-Los casos de la [guía de QA](../GUIA_QA_BACKEND.md) con un ID estable, un archivo por sección. Es la **fuente de verdad**: la plataforma de QA los lista, registra sus resultados y marca con su ID los bugs que publica en GitHub ([#125](https://github.com/e18-innovalab/contenidos_accesibles/issues/125)).
+Los casos del **backend** de la [guía de QA](../GUIA_QA_BACKEND.md) con un ID estable, un archivo por sección. Los casos del frontend (y cualquier caso extra) no viven acá: se crean como **casos manuales** desde la plataforma (Catálogo → Nuevo caso, #135). Es la **fuente de verdad**: la plataforma de QA los lista, registra sus resultados y marca con su ID los bugs que publica en GitHub ([#125](https://github.com/e18-innovalab/contenidos_accesibles/issues/125)).
 
 ## Un caso
 

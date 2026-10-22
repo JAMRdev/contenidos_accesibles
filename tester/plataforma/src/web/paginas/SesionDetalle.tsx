@@ -5,7 +5,7 @@ import { Comentarios } from "../Comentarios";
 import { Evidencias } from "../Evidencias";
 import { Link, useFiltros, useRuta } from "../ruta";
 import type { Avance, Bug, Comentario, EstadoResultado, ResultadoCaso, Seccion, Sesion } from "../tipos";
-import { Alerta, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Kpi, Marcas, RESULTADO_INFO, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
+import { Alerta, AREA_TEXTO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Kpi, Marcas, RESULTADO_INFO, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
 
 type Detalle = { sesion: Sesion; avance: Avance; casos: ResultadoCaso[] };
 
@@ -104,7 +104,7 @@ export function SesionDetalle({ id }: { id: string }) {
         Object.entries({ q: f.q, seccion: f.seccion, resultado: f.resultado, ...(f.marcas ? { [f.marcas]: "true" } : {}) }).filter(([, v]) => v),
     ).toString();
     const detalle = useDatos<Detalle>(`/api/sesiones/${id}?${consulta}`);
-    const secciones = useDatos<{ secciones: Seccion[] }>("/api/casos/secciones");
+    const secciones = useDatos<{ secciones: Seccion[] }>(`/api/casos/secciones?area=${detalle.datos?.sesion.area ?? "backend"}`);
     const [abierto, setAbierto] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -146,7 +146,7 @@ export function SesionDetalle({ id }: { id: string }) {
                 <div>
                     <h2 className="admin-h2">{sesion.titulo}</h2>
                     <p className="admin-muted admin-section-lead">
-                        {ENTORNO_TEXTO[sesion.entorno]} · <code>{sesion.url}</code> · {sesion.version ? `backend v${sesion.version}` : "sin versión"} · abierta por @{sesion.creada_por} el {fecha(sesion.creada_en)}
+                        {AREA_TEXTO[sesion.area]} · {ENTORNO_TEXTO[sesion.entorno]} · <code>{sesion.url}</code> · {sesion.version ? `versión ${sesion.version}` : "sin versión"} · abierta por @{sesion.creada_por} el {fecha(sesion.creada_en)}
                         {sesion.estado === "cerrada" && ` · cerrada por @${sesion.cerrada_por} el ${fecha(sesion.cerrada_en)}`}
                     </p>
                     {sesion.notas && <p className="qa-pre admin-muted mt-1">{sesion.notas}</p>}
@@ -199,6 +199,16 @@ export function SesionDetalle({ id }: { id: string }) {
 
             {error && <Alerta tipo="danger">{error}</Alerta>}
 
+            {avance.total === 0 && (
+                <div className="qa-empty mb-3">
+                    <Icon name="post_add" />
+                    <p className="mb-0">El área {AREA_TEXTO[sesion.area].toLowerCase()} todavía no tiene casos para probar en este entorno.</p>
+                    <Link className="btn btn-primary btn-sm" href={`/casos?area=${sesion.area}&nuevo=1`}>
+                        <Icon name="add" /> Crear casos de {AREA_TEXTO[sesion.area].toLowerCase()}
+                    </Link>
+                </div>
+            )}
+
             <div className="table-card">
                 <table className="table table-borderless admin-table">
                     <caption className="visually-hidden">Casos de la sesión y su resultado</caption>
@@ -233,14 +243,14 @@ export function SesionDetalle({ id }: { id: string }) {
                                         <td><Marcas caso={caso} /></td>
                                         <td>
                                             {editable && fila.aplica ? (
-                                                <Selector id={`res-${caso.id}`} etiqueta={`Resultado de ${caso.id}`} oculta chico valor={estado} opciones={OPCIONES_RESULTADO} onChange={(e) => void registrar(fila, e)} />
+                                                <Selector id={`res-${caso.id}`} etiqueta={`Resultado de ${caso.id}`} oculta chico clase={`qa-select-estado is-${estado}`} valor={estado} opciones={OPCIONES_RESULTADO} onChange={(e) => void registrar(fila, e)} />
                                             ) : fila.aplica ? (
                                                 <Estado info={RESULTADO_INFO[estado]} />
                                             ) : (
                                                 <span className="admin-muted small">No aplica en producción</span>
                                             )}
                                         </td>
-                                        <td>{resultado ? <>@{resultado.actualizado_por}<span className="cell-sub">{fecha(resultado.actualizado_en)}</span></> : "—"}</td>
+                                        <td className="qa-nowrap">{resultado ? <>@{resultado.actualizado_por}<span className="cell-sub">{fecha(resultado.actualizado_en)}</span></> : "—"}</td>
                                         <td>
                                             <div className="row-actions">
                                                 <button
