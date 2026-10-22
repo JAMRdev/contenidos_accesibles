@@ -1,8 +1,9 @@
-// Bugs: listado con filtros y detalle con estado, historial y comentarios.
-import { useState, type FormEvent } from "react";
+// Bugs: listado con filtros y detalle con reporte, estado, historial y comentarios.
+import { useState } from "react";
 import { useApi, useDatos, useYo } from "../api";
 import { Comentarios } from "../Comentarios";
 import { Evidencias } from "../Evidencias";
+import { PosiblesDuplicados, ReporteBug, VistaPreviaIssue } from "../Reporte";
 import { Link, useFiltros } from "../ruta";
 import type { Bug, BugDetalle, Entorno, EstadoBug, Seccion, Severidad } from "../tipos";
 import { Alerta, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
@@ -120,7 +121,6 @@ export function BugDetallePagina({ id }: { id: string }) {
     const yo = useYo();
     const toast = useToast();
     const bug = useDatos<BugDetalle>(`/api/bugs/${id}`);
-    const [edicion, setEdicion] = useState<{ titulo: string; descripcion: string; severidad: Severidad } | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     if (bug.error && !bug.datos) return <Alerta tipo="danger">{bug.error}</Alerta>;
@@ -133,17 +133,11 @@ export function BugDetallePagina({ id }: { id: string }) {
         try {
             await api(`/api/bugs/${b.id}`, { method: "PATCH", body: JSON.stringify(cambios) });
             setError(null);
-            setEdicion(null);
             toast(ok);
             bug.recargar();
         } catch (e) {
             setError((e as Error).message);
         }
-    }
-
-    function guardar(ev: FormEvent) {
-        ev.preventDefault();
-        if (edicion) void cambiar(edicion, "Bug actualizado.");
     }
 
     return (
@@ -187,37 +181,7 @@ export function BugDetallePagina({ id }: { id: string }) {
 
             <div className="qa-two-cols">
                 <div>
-                    <section className="qa-card" aria-labelledby="bug-reporte">
-                        <div className="qa-actions" style={{ justifyContent: "space-between" }}>
-                            <h3 className="qa-card-title" id="bug-reporte">Reporte</h3>
-                            {yo.permisos.escribir && !edicion && (
-                                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setEdicion({ titulo: b.titulo, descripcion: b.descripcion, severidad: b.severidad })}>
-                                    <Icon name="edit" /> Editar
-                                </button>
-                            )}
-                        </div>
-                        {edicion ? (
-                            <form onSubmit={guardar}>
-                                <div className="form-group">
-                                    <div className="form-label-container"><label className="form-label" htmlFor="bug-titulo">Título</label></div>
-                                    <input className="form-control" id="bug-titulo" value={edicion.titulo} onChange={(e) => setEdicion({ ...edicion, titulo: e.target.value })} />
-                                </div>
-                                <div className="form-group mt-2">
-                                    <div className="form-label-container"><label className="form-label" htmlFor="bug-desc">Descripción</label></div>
-                                    <textarea className="form-control" id="bug-desc" rows={8} value={edicion.descripcion} onChange={(e) => setEdicion({ ...edicion, descripcion: e.target.value })} />
-                                </div>
-                                <div className="mt-2" style={{ maxWidth: 240 }}>
-                                    <Selector id="bug-sev-edit" etiqueta="Severidad" valor={edicion.severidad} opciones={SEVERIDADES.map((s) => [s, SEVERIDAD_TEXTO[s]] as const)} onChange={(severidad) => setEdicion({ ...edicion, severidad })} />
-                                </div>
-                                <div className="qa-actions mt-3">
-                                    <button type="submit" className="btn btn-primary btn-sm"><Icon name="save" /> Guardar</button>
-                                    <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setEdicion(null)}>Cancelar</button>
-                                </div>
-                            </form>
-                        ) : (
-                            <p className="qa-pre">{b.descripcion || <span className="admin-muted">Sin descripción todavía. El formulario completo del reporte llega con #129.</span>}</p>
-                        )}
-                    </section>
+                    <ReporteBug bug={b} alCambiar={bug.recargar} />
 
                     <section className="qa-card" aria-labelledby="bug-evidencias">
                         <h3 className="qa-card-title" id="bug-evidencias">Evidencias</h3>
@@ -231,6 +195,10 @@ export function BugDetallePagina({ id }: { id: string }) {
                 </div>
 
                 <div>
+                    {/* actualizado_en cambia con cada edición: la vista previa se vuelve a pedir */}
+                    <VistaPreviaIssue bugId={b.id} version={b.actualizado_en} />
+                    <PosiblesDuplicados bugId={b.id} />
+
                     <section className="qa-card" aria-labelledby="bug-github">
                         <h3 className="qa-card-title" id="bug-github">GitHub</h3>
                         {b.issue ? (

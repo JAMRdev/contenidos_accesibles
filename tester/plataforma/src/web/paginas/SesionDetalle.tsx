@@ -23,7 +23,8 @@ function DetalleCaso({ sesion, fila, editable, alGuardar }: { sesion: Sesion; fi
         try {
             const bug = await api<Bug>("/api/bugs", {
                 method: "POST",
-                body: JSON.stringify({ caso_id: caso.id, sesion_id: sesion.id, titulo: caso.titulo, descripcion: notas ? `Obtenido: ${notas}` : "" }),
+                // Pasos, esperado, obtenido (las notas del resultado), URL y versión los precarga el Worker
+                body: JSON.stringify({ caso_id: caso.id, sesion_id: sesion.id, titulo: caso.titulo }),
             });
             ir(`/bugs/${bug.id}`);
         } catch (e) {

@@ -13,4 +13,7 @@ export interface Env {
     QA_ADMINS: string;
     // Orígenes extra que pueden pedir tokens (por ejemplo Vite en local), separados por comas
     ORIGENES_EXTRA?: string;
+    // Repo donde se publican los bugs (owner/repo) y token para la API de GitHub (secreto)
+    GITHUB_REPO: string;
+    GITHUB_TOKEN?: string;
 }

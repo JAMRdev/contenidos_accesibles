@@ -63,6 +63,9 @@ sHflN24gjcxUSV5guT/qWwlCMvJBHB4UPIax2eQA6Yf6LjM5zDgwYZXv/JNNa3S/
 # Cuentas de GitHub que son admin siempre (las mismas que ADMIN_GITHUB_ADMINS del backend).
 # El resto de los miembros se administra desde la plataforma (tabla qa_members).
 QA_ADMINS = "JAMRdev,VictoriaMackenzie,malessan4"
+# Repo donde se buscan duplicados y se publican los bugs (en local se puede apuntar a un repo de
+# prueba con GITHUB_REPO en .dev.vars). El token va como secreto: GITHUB_TOKEN.
+GITHUB_REPO = "e18-innovalab/contenidos_accesibles"
 
 # Límite de requests por usuario para toda la API
 [[ratelimits]]

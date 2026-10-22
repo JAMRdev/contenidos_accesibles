@@ -12,6 +12,15 @@ type Cuenta = { github: string | null; verificada?: boolean };
 const usuarios = new Map<string, Cuenta>();
 export const llamadasAClerk: string[] = [];
 
+// API de GitHub simulada: cada test define cómo responde (sin definir, 500)
+type RespuestaGithub = (url: URL, init?: RequestInit) => Response | Promise<Response>;
+let github: RespuestaGithub = () => Response.json({ message: "sin simular" }, { status: 500 });
+export const llamadasAGithub: { metodo: string; ruta: string; body: unknown }[] = [];
+
+export function githubSimulado(respuesta: RespuestaGithub) {
+    github = respuesta;
+}
+
 /** Registra un usuario de Clerk con su cuenta de GitHub (null: sin GitHub). */
 export function usuarioClerk(sub: string, cuenta: Cuenta) {
     usuarios.set(sub, cuenta);
@@ -20,9 +29,15 @@ export function usuarioClerk(sub: string, cuenta: Cuenta) {
 export function instalarClerk() {
     usuarios.clear();
     llamadasAClerk.length = 0;
+    llamadasAGithub.length = 0;
+    github = () => Response.json({ message: "sin simular" }, { status: 500 });
     const real = globalThis.fetch;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
         const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.hostname === "api.github.com") {
+            llamadasAGithub.push({ metodo: init?.method ?? "GET", ruta: url.pathname + url.search, body: init?.body ? JSON.parse(String(init.body)) : null });
+            return github(url, init);
+        }
         if (url.hostname !== "api.clerk.com") return real(input, init);
         llamadasAClerk.push(url.pathname);
         const sub = decodeURIComponent(url.pathname.split("/").pop() ?? "");

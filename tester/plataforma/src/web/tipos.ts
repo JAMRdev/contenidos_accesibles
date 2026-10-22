@@ -40,12 +40,22 @@ export type Bug = {
     titulo: string;
     descripcion: string;
     severidad: Severidad;
+    reporte: Reporte;
     estado: EstadoBug;
     issue: { numero: number; url: string; estado: string | null; motivo: string | null; tablero: string | null } | null;
     sincronizado_en: string | null;
     creado_por: string;
     creado_en: string;
     actualizado_en: string;
+};
+
+export type Reporte = { pasos: string; esperado: string; obtenido: string; url: string | null; version: string | null };
+
+export type VistaPrevia = { titulo: string; cuerpo: string; etiquetas: string[]; repo: string; faltan: string[] };
+
+export type Duplicados = {
+    plataforma: Bug[];
+    github: { disponible: boolean; issues: { numero: number; titulo: string; url: string; estado: string }[]; error: string | null };
 };
 
 export type BugDetalle = Bug & {

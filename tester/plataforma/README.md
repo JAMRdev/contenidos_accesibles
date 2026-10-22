@@ -38,7 +38,11 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | `GET/POST /api/resultados/:id/comentarios` | POST: QA | Comentarios de un resultado (`{ texto, en_github? }`). |
 | `GET /api/bugs?estado=&caso=&seccion=&entorno=&severidad=&autor=&sesion=&desde=&hasta=&q=&antes=&limite=` | Cualquier rol | Bugs filtrados y paginados. |
 | `POST /api/bugs`, `PATCH /api/bugs/:id` | QA | Crear un borrador (`{ caso_id, sesion_id?, titulo, descripcion?, severidad? }`) o cambiar estado, título, descripción o severidad. |
-| `GET /api/bugs/:id`, `GET/POST /api/bugs/:id/comentarios` | POST: QA | El bug con su historial de estados y sus comentarios. |
+| `GET /api/bugs/:id`, `GET/POST /api/bugs/:id/comentarios` | POST: QA | El bug con su reporte, su historial de estados y sus comentarios. |
+| `GET /api/bugs/:id/vista-previa` | Cualquier rol | El issue tal como se publicaría (título, cuerpo en Markdown, etiquetas, repo) y qué le falta al reporte. |
+| `GET /api/bugs/:id/duplicados` | Cualquier rol | Bugs activos del mismo caso y, con `GITHUB_TOKEN`, issues abiertos del caso en `GITHUB_REPO`. |
+
+**Reporte de un bug (#129).** Campos: título, severidad, URL y versión probadas, pasos, resultado esperado, resultado obtenido y notas. Al crear un bug desde una sesión se precargan los pasos y el esperado del catálogo, la URL y la versión de la sesión y el obtenido de las notas del resultado. El issue sale de una sola plantilla (`src/worker/reporte.ts`): título `[QA - Issue] <caso> · <título>`, marca oculta `<!-- qa-case: <caso> -->`, etiquetas `[QA - Issue]`, `bug`, `testing` y `backend`, y enlaces a las evidencias del bug y del resultado. Para publicar no puede faltar título, pasos, esperado ni obtenido.
 
 | `GET /api/evidencias?resultado=\|bug=` | Cualquier rol | Evidencias de un resultado o un bug. |
 | `POST /api/evidencias?resultado=\|bug=` | QA | Sube un archivo: el body es el archivo, con `Content-Type`, `X-Nombre` (URL-encoded) y `X-Etiqueta` opcional. |
@@ -121,7 +125,7 @@ Se cargan con `wrangler secret put <NOMBRE>` (en local, en `.dev.vars`, que no s
 | `CLERK_SECRET_KEY` | #126 | Leer en la API de Clerk la cuenta de GitHub de quien inicia sesión (`ADMIN_CLERK_SECRET_KEY` del backend) |
 | `GITHUB_TOKEN` | #130 | Publicar issues y sincronizar su estado |
 
-Las variables públicas (`CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_KEY`, `QA_ADMINS`) están en `[vars]` de `wrangler.toml`.
+Las variables públicas (`CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_KEY`, `QA_ADMINS`, `GITHUB_REPO`) están en `[vars]` de `wrangler.toml`. Sin `GITHUB_TOKEN` la plataforma funciona igual: solo no consulta ni publica en GitHub.
 
 ## Deploy
 
