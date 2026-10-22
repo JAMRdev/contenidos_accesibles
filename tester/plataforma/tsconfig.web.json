@@ -12,7 +12,8 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true
   },
-  "include": ["src/web", "src/catalogo"]
+  "include": ["src/web", "src/catalogo", "src/worker/catalogo.gen.json"]
 }

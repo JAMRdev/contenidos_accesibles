@@ -105,7 +105,7 @@ export function CasoDetalle({ id }: { id: string }) {
             <div className="qa-two-cols">
                 <section className="qa-card" aria-labelledby="caso-def">
                     <h3 className="qa-card-title" id="caso-def">Definición</h3>
-                    <div className="qa-detail" style={{ gridTemplateColumns: "1fr", padding: 0 }}>
+                    <div className="qa-detail is-single">
                         <div>
                             {caso.precondiciones.length > 0 && (
                                 <>

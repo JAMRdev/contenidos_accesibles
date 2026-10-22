@@ -9,6 +9,8 @@
     "build": "npm run catalogo && vite build",
     "dev": "npm run build && wrangler dev --local --port 8788",
     "dev:web": "vite",
+    "capturas": "npm run catalogo && vite --config vite.capturas.config.ts",
+    "capturas:build": "npm run catalogo && vite build --config vite.capturas.config.ts",
     "deploy": "npm run build && wrangler deploy",
     "typecheck": "npm run catalogo && tsc -p tsconfig.json && tsc -p tsconfig.web.json && tsc -p tsconfig.scripts.json",
     "pretest": "npm run build",

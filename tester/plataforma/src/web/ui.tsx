@@ -181,32 +181,43 @@ export function Alerta({ tipo, children }: { tipo: "danger" | "success" | "warni
     );
 }
 
-// Aviso flotante, como el toast del panel
-const ToastContext = createContext<(texto: string) => void>(() => {});
+// Avisos flotantes abajo a la derecha (como el toast del panel), bien visibles y apilables
+type TipoToast = "exito" | "error";
+type Toast = { id: number; texto: string; tipo: TipoToast };
+
+const ToastContext = createContext<(texto: string, tipo?: TipoToast) => void>(() => {});
 
 export function useToast() {
     return useContext(ToastContext);
 }
 
-export function ToastProvider({ children }: { children: ReactNode }) {
-    const [texto, setTexto] = useState<string | null>(null);
-    const mostrar = useCallback((t: string) => setTexto(t), []);
+let siguienteToast = 1;
 
-    useEffect(() => {
-        if (!texto) return;
-        const id = setTimeout(() => setTexto(null), 4000);
-        return () => clearTimeout(id);
-    }, [texto]);
+export function ToastProvider({ children }: { children: ReactNode }) {
+    const [toasts, setToasts] = useState<Toast[]>([]);
+    const quitar = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+    const mostrar = useCallback(
+        (texto: string, tipo: TipoToast = "exito") => {
+            const id = siguienteToast++;
+            setToasts((t) => [...t.slice(-2), { id, texto, tipo }]);
+            setTimeout(() => quitar(id), tipo === "error" ? 8000 : 5000);
+        },
+        [quitar],
+    );
 
     return (
         <ToastContext.Provider value={mostrar}>
             {children}
-            <div className="qa-toast" aria-live="polite" aria-atomic="true">
-                {texto && (
-                    <div className="toast show" role="status">
-                        <div className="toast-body">{texto}</div>
+            <div className="qa-toasts" aria-live="polite" aria-atomic="false">
+                {toasts.map((t) => (
+                    <div key={t.id} className={`qa-toast is-${t.tipo}`} role={t.tipo === "error" ? "alert" : "status"}>
+                        <Icon name={t.tipo === "error" ? "error" : "check_circle"} />
+                        <span>{t.texto}</span>
+                        <button type="button" className="qa-toast-close" aria-label="Cerrar aviso" onClick={() => quitar(t.id)}>
+                            <Icon name="close" />
+                        </button>
                     </div>
-                )}
+                ))}
             </div>
         </ToastContext.Provider>
     );

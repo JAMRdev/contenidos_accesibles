@@ -63,6 +63,33 @@ function bloque(texto: string): string {
     return `${cerca}\n${texto.trim()}\n${cerca}`;
 }
 
+const TIPO_EVIDENCIA: Record<string, string> = { imagen: "🖼️ imagen", video: "🎬 video", texto: "📄 texto", pdf: "📕 PDF" };
+
+function cantidad(n: number, singular: string, plural: string): string {
+    return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/** Aviso destacado al principio del issue: el reporte completo está en la plataforma. */
+function avisoPlataforma(r: DatosReporte, evidencias: EvidenciaReporte[], origenWeb: string): string {
+    const adjuntos =
+        evidencias.length === 0 ? "el detalle" : evidencias.length === 1 ? "la evidencia adjunta" : `las ${evidencias.length} evidencias adjuntas (capturas, videos y archivos)`;
+    return [
+        "> [!IMPORTANT]",
+        `> **Reporte completo en la plataforma de QA:** [bug #${r.id}](${origenWeb}/bugs/${r.id}). Ahí se ven ${adjuntos}, los comentarios y el historial de estados.`,
+        "> Pide iniciar sesión con GitHub (la misma cuenta del panel).",
+    ].join("\n");
+}
+
+function seccionEvidencias(evidencias: EvidenciaReporte[], origenWeb: string): string[] {
+    if (!evidencias.length) return ["### Evidencias", "_Este bug no tiene evidencias adjuntas en la plataforma de QA._"];
+    return [
+        "### Evidencias",
+        `**${cantidad(evidencias.length, "evidencia adjunta", "evidencias adjuntas")}** en la plataforma de QA (piden iniciar sesión):`,
+        "",
+        ...evidencias.map((e) => `- ${TIPO_EVIDENCIA[e.tipo] ?? e.tipo}: [${e.etiqueta ? `${e.etiqueta} · ${e.nombre}` : e.nombre}](${origenWeb}/evidencias/${e.id})`),
+    ];
+}
+
 export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaReporte[], origenWeb: string) {
     const titulo = `${ETIQUETA_QA} ${caso.id} · ${r.titulo.trim()}`;
     const entorno = [r.entorno ? ENTORNO[r.entorno] : null, r.url ? `\`${r.url}\`` : null, r.version ? `backend v${r.version}` : null]
@@ -70,6 +97,8 @@ export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaRep
         .join(" · ");
     const partes = [
         `${marcaCaso(caso.id)}${marcaBug(r.id)}`,
+        avisoPlataforma(r, evidencias, origenWeb),
+        "",
         `**Caso:** \`${caso.id}\` · ${caso.titulo}${caso.endpoint ? ` (\`${caso.endpoint}\`)` : ""}`,
         `**Entorno:** ${entorno || "sin datos"}`,
         `**Severidad:** ${SEVERIDAD[r.severidad]}`,
@@ -84,15 +113,7 @@ export function armarIssue(r: DatosReporte, caso: Caso, evidencias: EvidenciaRep
         r.obtenido.includes("\n") ? bloque(r.obtenido) : r.obtenido.trim() || "_Sin completar._",
     ];
     if (r.notas.trim()) partes.push("", "### Notas", r.notas.trim());
-    if (evidencias.length) {
-        partes.push(
-            "",
-            "### Evidencias",
-            ...evidencias.map((e) => `- [${e.etiqueta ?? e.nombre}](${origenWeb}/evidencias/${e.id}) (${e.tipo}${e.etiqueta ? `, ${e.nombre}` : ""})`),
-            "",
-            "_Las evidencias están en la plataforma de QA y piden iniciar sesión._",
-        );
-    }
+    partes.push("", ...seccionEvidencias(evidencias, origenWeb));
     partes.push(
         "",
         "---",
@@ -148,6 +169,10 @@ export function armarEjecucion(s: SesionEjecucion, filas: FilaEjecucion[], total
     const cuenta = (e: keyof typeof RESULTADO) => filas.filter((f) => f.estado === e).length;
     const partes = [
         marcaSesion(s.id),
+        "> [!IMPORTANT]",
+        `> **Detalle completo en la plataforma de QA:** [sesión #${s.id}](${origenWeb}/sesiones/${s.id}). Ahí están las notas de cada caso, las evidencias y los comentarios.`,
+        "> Pide iniciar sesión con GitHub (la misma cuenta del panel).",
+        "",
         `**Sesión:** [#${s.id} · ${s.titulo}](${origenWeb}/sesiones/${s.id})${s.estado === "abierta" ? " (todavía abierta)" : ""}`,
         `**Entorno:** ${ENTORNO[s.entorno]} · \`${s.url}\`${s.version ? ` · backend v${s.version}` : ""}`,
         `**QA:** @${s.creada_por} · ${fecha}`,

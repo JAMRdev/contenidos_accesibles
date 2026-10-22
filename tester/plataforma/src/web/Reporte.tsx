@@ -23,7 +23,7 @@ function Lectura({ titulo, texto, mono = false }: { titulo: string; texto: strin
     return (
         <>
             <h4 className="qa-subtitle">{titulo}</h4>
-            {texto?.trim() ? <p className={`qa-pre${mono ? " qa-evidence-text" : ""}`}>{texto}</p> : <p className="admin-muted">Sin completar.</p>}
+            {texto?.trim() ? <p className={`${mono ? "qa-snippet" : "qa-pre"}`}>{texto}</p> : <p className="admin-muted">Sin completar.</p>}
         </>
     );
 }
@@ -57,7 +57,7 @@ export function ReporteBug({ bug, alCambiar }: { bug: BugDetalle; alCambiar: () 
 
     return (
         <section className="qa-card" aria-labelledby="bug-reporte">
-            <div className="qa-actions" style={{ justifyContent: "space-between" }}>
+            <div className="qa-card-head">
                 <h3 className="qa-card-title" id="bug-reporte">Reporte</h3>
                 {yo.permisos.escribir && !form && (
                     <button type="button" className="btn btn-sm btn-outline-secondary" onClick={editar}>
@@ -117,10 +117,11 @@ export function ReporteBug({ bug, alCambiar }: { bug: BugDetalle; alCambiar: () 
     );
 }
 
-type ResultadoPublicacion = { accion: "creado" | "vinculado" | "duplicado" | "ya_publicado"; issue: { numero: number; url: string }; comentarios: number; avisos: string[] };
+type ResultadoPublicacion = { accion: "creado" | "actualizado" | "vinculado" | "duplicado" | "ya_publicado"; issue: { numero: number; url: string }; comentarios: number; avisos: string[] };
 
 const MENSAJE_PUBLICACION: Record<ResultadoPublicacion["accion"], (n: number) => string> = {
     creado: (n) => `Publicado en GitHub como #${n}.`,
+    actualizado: (n) => `Issue #${n} actualizado con el reporte y las evidencias actuales.`,
     vinculado: (n) => `Ya había un issue abierto de este caso (#${n}): se comentó ahí y el bug quedó vinculado.`,
     duplicado: (n) => `Ya había un bug abierto de este caso: se comentó en #${n} y este quedó descartado como duplicado.`,
     ya_publicado: (n) => `El bug ya estaba publicado en #${n}.`,
@@ -168,11 +169,16 @@ export function PublicarBug({ bug, alPublicar }: { bug: BugDetalle; alPublicar: 
         return (
             <>
                 {resultadoAlerta}
-                {pendientes > 0 && yo.permisos.escribir && (
-                    <div className="alert alert-info" role="status">
-                        <p className="mb-2">Hay {pendientes} comentario(s) marcados para GitHub que todavía no se enviaron al issue #{bug.issue.numero}.</p>
+                {yo.permisos.escribir && (
+                    <div className="alert alert-info qa-alert-action" role="status">
+                        <p className="mb-0">
+                            Publicado en <a href={bug.issue.url} target="_blank" rel="noopener">#{bug.issue.numero}</a>.{" "}
+                            {pendientes > 0
+                                ? `Hay ${pendientes} comentario(s) marcados para GitHub que todavía no se enviaron.`
+                                : "Si agregaste evidencias o cambiaste el reporte, actualizá el issue para que GitHub lo refleje."}
+                        </p>
                         <button type="button" className="btn btn-sm btn-primary" disabled={publicando} onClick={() => void publicar()}>
-                            <Icon name="send" /> Enviar a GitHub
+                            {publicando ? <span className="spinner-border spinner-border-sm" aria-hidden="true" /> : <Icon name="sync" />} Actualizar en GitHub
                         </button>
                     </div>
                 )}
@@ -224,7 +230,7 @@ export function VistaPreviaIssue({ bugId, version }: { bugId: number; version: s
             <button type="button" className="btn btn-sm btn-outline-secondary" aria-expanded={abierta} onClick={() => setAbierta(!abierta)}>
                 <Icon name={abierta ? "expand_less" : "expand_more"} /> {abierta ? "Ocultar" : "Ver"} el cuerpo en Markdown
             </button>
-            {abierta && <pre className="qa-evidence-text mt-2">{p.cuerpo}</pre>}
+            {abierta && <pre className="qa-snippet mt-3">{p.cuerpo}</pre>}
         </section>
     );
 }

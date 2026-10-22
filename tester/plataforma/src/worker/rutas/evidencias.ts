@@ -9,7 +9,7 @@
 // - GET    /api/evidencias/:id/archivo         → el archivo (cualquier rol)
 // - DELETE /api/evidencias/:id                 → borra archivo y metadatos (admin)
 //
-// Las imágenes y los videos se validan por su firma (no alcanza con la extensión). El texto se
+// Las imágenes, los videos y los PDF se validan por su firma (no alcanza con la extensión). El texto se
 // guarda con los datos sensibles ocultos (redactar.ts). Desde GitHub se enlaza la página
 // /evidencias/:id de la web, que pide login: el repo es público y las evidencias no.
 import { Hono } from "hono";
@@ -20,10 +20,11 @@ import type { Env } from "../env";
 import { redactar } from "../redactar";
 import { error, idDe, leerBody } from "../validar";
 
-type Tipo = "imagen" | "video" | "texto";
+type Tipo = "imagen" | "video" | "texto" | "pdf";
 
 const MB = 1024 * 1024;
-export const LIMITES: Record<Tipo, number> = { imagen: 10 * MB, video: 50 * MB, texto: 2 * MB };
+const NOMBRE_TIPO: Record<Tipo, string> = { imagen: "imágenes", video: "videos", texto: "texto", pdf: "PDF" };
+export const LIMITES: Record<Tipo, number> = { imagen: 10 * MB, video: 50 * MB, texto: 2 * MB, pdf: 10 * MB };
 
 // Content-Type permitido → tipo de evidencia
 const TIPOS: Record<string, Tipo> = {
@@ -33,6 +34,7 @@ const TIPOS: Record<string, Tipo> = {
     "image/gif": "imagen",
     "video/mp4": "video",
     "video/webm": "video",
+    "application/pdf": "pdf",
     "application/json": "texto",
     "text/plain": "texto",
     "application/har+json": "texto",
@@ -56,6 +58,8 @@ export function firmaValida(contentType: string, bytes: Uint8Array): boolean {
             return new TextDecoder().decode(bytes.slice(4, 8)) === "ftyp";
         case "video/webm":
             return hex(bytes, 0, 4) === "1a45dfa3";
+        case "application/pdf":
+            return new TextDecoder().decode(bytes.slice(0, 5)) === "%PDF-";
         default:
             return true;
     }
@@ -158,10 +162,10 @@ evidencias.post("/", requiereRol("qa"), async (c) => {
     const d = await destino(c.env, c.req.query("resultado"), c.req.query("bug"));
     const contentType = (c.req.header("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
     const tipo = TIPOS[contentType];
-    if (!tipo) throw error(422, "Tipo de archivo no admitido: subí PNG, JPEG, WebP, GIF, MP4, WebM, JSON, HAR o texto.");
+    if (!tipo) throw error(422, "Tipo de archivo no admitido: subí PNG, JPEG, WebP, GIF, MP4, WebM, PDF, JSON, HAR o texto.");
     const largo = Number(c.req.header("Content-Length"));
     if (!largo) throw error(422, "El archivo está vacío o falta Content-Length.");
-    if (largo > LIMITES[tipo]) throw error(422, `El archivo supera el límite de ${LIMITES[tipo] / MB} MB para ${tipo === "texto" ? "texto" : `${tipo}s`}.`);
+    if (largo > LIMITES[tipo]) throw error(422, `El archivo supera el límite de ${LIMITES[tipo] / MB} MB para ${NOMBRE_TIPO[tipo]}.`);
     const nombre = decodeURIComponent(c.req.header("X-Nombre") ?? "evidencia").slice(0, 200);
     const etiqueta = c.req.header("X-Etiqueta") ? decodeURIComponent(c.req.header("X-Etiqueta")!).slice(0, 60) : null;
     const autor = c.get("usuario").github;
@@ -177,7 +181,7 @@ evidencias.post("/", requiereRol("qa"), async (c) => {
         return c.json(await guardar(c.env, d, { tipo, etiqueta, nombre, contentType, bytes, clave, ocultos, autor }), 201);
     }
 
-    // Imágenes y videos van directo al bucket (sin cargarlos en memoria) y después se valida la firma
+    // Imágenes, videos y PDF van directo al bucket (sin cargarlos en memoria) y después se valida la firma
     if (!c.req.raw.body) throw error(422, "El archivo está vacío.");
     const subida = new FixedLengthStream(largo);
     const copia = c.req.raw.body.pipeTo(subida.writable);
@@ -217,7 +221,7 @@ evidencias.get("/uso", requiereRol("admin"), async (c) => {
         n: number;
         bytes: number;
     }>();
-    const porTipo = Object.fromEntries((["imagen", "video", "texto"] as const).map((t) => [t, { cantidad: 0, bytes: 0 }])) as Record<Tipo, { cantidad: number; bytes: number }>;
+    const porTipo = Object.fromEntries((["imagen", "video", "texto", "pdf"] as const).map((t) => [t, { cantidad: 0, bytes: 0 }])) as Record<Tipo, { cantidad: number; bytes: number }>;
     for (const r of results) porTipo[r.kind] = { cantidad: r.n, bytes: r.bytes };
     const total = Object.values(porTipo).reduce((a, t) => ({ cantidad: a.cantidad + t.cantidad, bytes: a.bytes + t.bytes }), { cantidad: 0, bytes: 0 });
     return c.json({ total, por_tipo: porTipo });

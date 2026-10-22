@@ -59,12 +59,15 @@ describe("publicar un bug", () => {
         expect(detalle.historial.at(-1)).toMatchObject({ a: "abierto", nota: "Publicado en GitHub como #100" });
     });
 
-    it("publicar de nuevo no duplica", async () => {
+    it("publicar de nuevo no duplica: actualiza el issue con las evidencias nuevas", async () => {
         const id = await bugCompleto(await sesion(), "QA-4.3-01");
         await publicarBug(id);
+        expect(gh.issues[0].body).toContain("_Este bug no tiene evidencias adjuntas en la plataforma de QA._");
+        await api("user_qa", "/api/evidencias/texto", { method: "POST", ...body({ bug_id: id, etiqueta: "Response", texto: '{"detail":"x"}' }) });
         const r = await (await publicarBug(id)).json<ResultadoBug>();
-        expect(r.accion).toBe("ya_publicado");
+        expect(r.accion).toBe("actualizado");
         expect(gh.issues).toHaveLength(1);
+        expect(gh.issues[0].body).toContain("**1 evidencia adjunta**");
     });
 
     it("con un repo personal no toca el tablero de la organización", async () => {
@@ -93,6 +96,9 @@ describe("publicar un bug", () => {
         expect(r).toMatchObject({ accion: "vinculado", issue: { numero: 77 }, bug: { estado: "abierto", issue: { numero: 77 } } });
         expect(gh.issues).toHaveLength(1);
         expect(gh.issues[0].comments).toHaveLength(1);
+        // Un issue ajeno (vinculado) no se reescribe al publicar de nuevo
+        expect((await (await publicarBug(id)).json<ResultadoBug>()).accion).toBe("ya_publicado");
+        expect(gh.issues[0].body).toBe("<!-- qa-case: QA-4.3-01 -->\nAlgo");
     });
 
     it("envía los comentarios marcados para GitHub una sola vez", async () => {
@@ -193,7 +199,7 @@ describe("publicar una sesión", () => {
         await api("user_qa", `/api/bugs/${incompleto}`, { method: "PATCH", ...body({ pasos: "Enviar el texto" }) });
         const r2 = await (await api("user_qa", `/api/sesiones/${s}/publicar`, { method: "POST" })).json<{ ejecucion: { numero: number }; bugs: { accion: string }[] }>();
         expect(r2.ejecucion.numero).toBe(r.ejecucion.numero);
-        expect(r2.bugs.map((b) => b.accion)).toEqual(["creado"]);
+        expect(r2.bugs.map((b) => b.accion)).toEqual(["creado", "actualizado"]);
         expect(gh.issues.filter((i) => i.title.includes("Ejecución"))).toHaveLength(1);
         expect(gh.issues).toHaveLength(3);
     });

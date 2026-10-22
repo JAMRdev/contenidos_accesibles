@@ -88,8 +88,8 @@ function NuevaSesion({ alCancelar }: { alCancelar: () => void }) {
                         <div className="form-label-container">
                             <label className="form-label" htmlFor="ses-version">Versión del backend</label>
                         </div>
-                        <div className="qa-actions">
-                            <input className="form-control" id="ses-version" value={datos.version} placeholder="0.1.0" onChange={(e) => setDatos({ ...datos, version: e.target.value })} style={{ flex: 1 }} />
+                        <div className="qa-input-action">
+                            <input className="form-control" id="ses-version" value={datos.version} placeholder="0.1.0" onChange={(e) => setDatos({ ...datos, version: e.target.value })} />
                             <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void detectarVersion()} disabled={detectando}>
                                 <Icon name="manage_search" /> Detectar
                             </button>

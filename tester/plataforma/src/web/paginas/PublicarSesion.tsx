@@ -23,7 +23,7 @@ type Resultado = {
     avisos: string[];
 };
 
-const ACCION = { creado: "creado", vinculado: "comentado en el issue existente", duplicado: "duplicado: comentado en el issue existente", ya_publicado: "ya estaba publicado" } as const;
+const ACCION = { creado: "creado", actualizado: "issue actualizado", vinculado: "comentado en el issue existente", duplicado: "duplicado: comentado en el issue existente", ya_publicado: "ya estaba publicado" } as const;
 
 export function PublicarSesion({ id }: { id: string }) {
     const api = useApi();
@@ -96,7 +96,7 @@ export function PublicarSesion({ id }: { id: string }) {
             )}
 
             <div className="qa-two-cols">
-                <div>
+                <div className="qa-stack">
                     <section className="qa-card" aria-labelledby="pub-bugs">
                         <h2 className="qa-card-title" id="pub-bugs">Bugs en borrador</h2>
                         {!p.bugs.length && <p className="admin-muted mb-0">No hay bugs en borrador en esta sesión.</p>}
@@ -125,7 +125,7 @@ export function PublicarSesion({ id }: { id: string }) {
                         <p className="admin-muted small mb-0">Si ya hay un issue abierto del mismo caso, se comenta en él en lugar de crear otro.</p>
                     </section>
                 </div>
-                <div>
+                <div className="qa-stack">
                     <section className="qa-card" aria-labelledby="pub-otros">
                         <h2 className="qa-card-title" id="pub-otros">Además</h2>
                         <ul className="mb-0">

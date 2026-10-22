@@ -31,9 +31,17 @@ describe("plantilla del issue", () => {
         expect(issue.cuerpo).toContain("**Entorno:** Producción · `https://api.example.com/api/v1` · backend v0.1.0");
         expect(issue.cuerpo).toContain("1. Enviar el texto\n2. Mirar la respuesta");
         expect(issue.cuerpo).toContain('```\n500\n{"detail": "Internal Server Error"}\n```');
-        expect(issue.cuerpo).toContain("- [Response](https://qa.test/evidencias/12) (texto, response.json)");
+        expect(issue.cuerpo).toContain("> [!IMPORTANT]\n> **Reporte completo en la plataforma de QA:** [bug #7](https://qa.test/bugs/7). Ahí se ven la evidencia adjunta");
+        expect(issue.cuerpo).toContain("**1 evidencia adjunta** en la plataforma de QA");
+        expect(issue.cuerpo).toContain("- 📄 texto: [Response · response.json](https://qa.test/evidencias/12)");
         expect(issue.cuerpo).toContain("[plataforma de QA](https://qa.test/bugs/7) (sesión #3)");
         expect(issue.cuerpo).not.toContain("### Notas");
+    });
+
+    it("sin evidencias lo dice explícitamente", () => {
+        const issue = armarIssue(REPORTE, buscarCaso("QA-4.3-01")!, [], "https://qa.test");
+        expect(issue.cuerpo).toContain("### Evidencias\n_Este bug no tiene evidencias adjuntas en la plataforma de QA._");
+        expect(issue.cuerpo).toContain("Ahí se ven el detalle");
     });
 
     it("informa qué falta para publicar", () => {
@@ -83,8 +91,9 @@ describe("reporte de un bug", () => {
         await api("user_qa", "/api/evidencias/texto", { method: "POST", ...body({ resultado_id: r!.id, etiqueta: "curl", texto: "curl $API/documents/process-text" }) });
         await api("user_qa", "/api/evidencias/texto", { method: "POST", ...body({ bug_id: bug.id, etiqueta: "Response", texto: '{"detail":"x"}' }) });
         const previa = await (await api("user_qa", `/api/bugs/${bug.id}/vista-previa`)).json<{ cuerpo: string }>();
-        expect(previa.cuerpo).toMatch(/- \[curl\]\(https:\/\/qa\.test\/evidencias\/\d+\)/);
-        expect(previa.cuerpo).toMatch(/- \[Response\]\(https:\/\/qa\.test\/evidencias\/\d+\)/);
+        expect(previa.cuerpo).toMatch(/\[curl · curl\.txt\]\(https:\/\/qa\.test\/evidencias\/\d+\)/);
+        expect(previa.cuerpo).toMatch(/\[Response · response\.json\]\(https:\/\/qa\.test\/evidencias\/\d+\)/);
+        expect(previa.cuerpo).toContain("**2 evidencias adjuntas**");
     });
 });
 

@@ -173,7 +173,7 @@ export function BugDetallePagina({ id }: { id: string }) {
             <PublicarBug bug={b} alPublicar={bug.recargar} />
 
             <div className="qa-two-cols">
-                <div>
+                <div className="qa-stack">
                     <ReporteBug bug={b} alCambiar={bug.recargar} />
 
                     <section className="qa-card" aria-labelledby="bug-evidencias">
@@ -187,7 +187,7 @@ export function BugDetallePagina({ id }: { id: string }) {
                     </section>
                 </div>
 
-                <div>
+                <div className="qa-stack">
                     {/* actualizado_en cambia con cada edición: la vista previa se vuelve a pedir */}
                     <VistaPreviaIssue bugId={b.id} version={b.actualizado_en} />
                     <PosiblesDuplicados bugId={b.id} />

@@ -39,7 +39,7 @@ export function EvidenciaPagina({ id }: { id: string }) {
                 </button>
             </div>
             <div className="qa-card">
-                <Vista ev={e} completa />
+                <Vista ev={e} />
             </div>
         </>
     );

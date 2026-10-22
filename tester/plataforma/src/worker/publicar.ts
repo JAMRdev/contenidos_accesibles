@@ -109,7 +109,7 @@ async function enviarComentarios(env: Env, bugId: number, issue: number, actor: 
 
 export type ResultadoBug = {
     bug_id: number;
-    accion: "creado" | "vinculado" | "duplicado" | "ya_publicado";
+    accion: "creado" | "actualizado" | "vinculado" | "duplicado" | "ya_publicado";
     issue: { numero: number; url: string };
     comentarios: number;
     avisos: string[];
@@ -134,8 +134,21 @@ async function issueDelCaso(env: Env, bug: FilaBug): Promise<{ numero: number; u
 export async function publicarBug(env: Env, bug: FilaBug, actor: string, origen: string): Promise<ResultadoBug> {
     exigirGithub(env);
     if (bug.issue_number) {
+        // Si el issue lo creó este bug (no se vinculó a uno existente con un comentario), se actualiza
+        // su cuerpo con el reporte actual: así toma las evidencias y cambios posteriores
+        let accion: ResultadoBug["accion"] = "ya_publicado";
+        const propio = await env.DB.prepare("SELECT comment_id FROM qa_publications WHERE key = ? AND kind = 'issue' AND status = 'ok'")
+            .bind(`bug:${bug.id}:issue`)
+            .first<{ comment_id: number | null }>();
+        const caso = buscarCaso(bug.case_id);
+        if (propio && propio.comment_id === null && caso) {
+            const { reporte, evidencias } = await datosDelIssue(env, bug);
+            await editarIssue(env, bug.issue_number, armarIssue(reporte, caso, evidencias, origen));
+            await auditar(env, actor, "github.actualizar_bug", { bug: bug.id, issue: bug.issue_number, evidencias: evidencias.length });
+            accion = "actualizado";
+        }
         const comentarios = await enviarComentarios(env, bug.id, bug.issue_number, actor, origen);
-        return { bug_id: bug.id, accion: "ya_publicado", issue: { numero: bug.issue_number, url: bug.issue_url! }, comentarios, avisos: [] };
+        return { bug_id: bug.id, accion, issue: { numero: bug.issue_number, url: bug.issue_url! }, comentarios, avisos: [] };
     }
     if (bug.status !== "borrador") throw error(409, "Solo se publican bugs en borrador.");
     const caso = buscarCaso(bug.case_id);
@@ -350,17 +363,14 @@ export async function publicarSesion(env: Env, id: number, actor: string, origen
         }
     }
 
-    // 3. Comentarios pendientes de bugs ya publicados de la sesión
-    const { results: publicados } = await env.DB.prepare("SELECT id, issue_number FROM qa_bugs WHERE session_id = ? AND issue_number IS NOT NULL").bind(s.id).all<{
-        id: number;
-        issue_number: number;
-    }>();
-    const yaContados = new Set(resultado.bugs.map((b) => b.bug_id));
-    for (const b of publicados.filter((x) => !yaContados.has(x.id))) {
+    // 3. Bugs de la sesión ya publicados antes: se actualiza su issue y se envían sus comentarios pendientes
+    const { results: publicados } = await env.DB.prepare("SELECT * FROM qa_bugs WHERE session_id = ? AND issue_number IS NOT NULL ORDER BY id").bind(s.id).all<FilaBug>();
+    const yaPublicados = new Set(resultado.bugs.map((b) => b.bug_id));
+    for (const b of publicados.filter((x) => !yaPublicados.has(x.id))) {
         try {
-            resultado.comentarios += await enviarComentarios(env, b.id, b.issue_number, actor, origen);
+            resultado.bugs.push(await publicarBug(env, b, actor, origen));
         } catch (e) {
-            resultado.errores.push(`Comentarios del bug #${b.id}: ${(e as Error).message}`);
+            resultado.errores.push(`Bug #${b.id}: ${(e as Error).message}`);
         }
     }
     resultado.comentarios += resultado.bugs.reduce((t, b) => t + b.comentarios, 0);
