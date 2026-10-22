@@ -1,0 +1,91 @@
+# Plataforma de QA (tester/plataforma, Issue #124): typecheck, build y tests en cada PR y en cada
+# push a main; en main, además, migraciones de D1 y deploy a Cloudflare.
+# Los tests corren en Miniflare (D1 y R2 simulados): no usan secretos ni la cuenta de Cloudflare.
+name: Plataforma de QA
+
+on:
+  pull_request:
+    paths:
+      - "tester/**"
+      - ".github/workflows/tester-plataforma.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tester/**"
+      - ".github/workflows/tester-plataforma.yml"
+  workflow_dispatch:
+
+# Un push nuevo al mismo PR cancela la corrida anterior; los deploys de main no se cancelan entre sí.
+concurrency:
+  group: tester-plataforma-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: tester/plataforma
+
+jobs:
+  test:
+    name: typecheck y tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 trae npm 11 (npm 10 no resuelve el árbol de @cloudflare/vitest-plugin)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tester/plataforma/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # `pretest` hace el build de la web (los tests la sirven desde dist/web)
+      - name: Tests
+        run: npm test
+
+  deploy:
+    name: deploy a Cloudflare
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Token de API de Cloudflare con permisos de Workers, D1 y R2 sobre la cuenta del proyecto.
+      # Mientras no esté cargado como secret del repo, el deploy se hace a mano (ver el README).
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Sin CLOUDFLARE_API_TOKEN
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        working-directory: .
+        run: echo "::notice::Falta el secret CLOUDFLARE_API_TOKEN; se omite el deploy (hacerlo a mano con npm run deploy)."
+
+      - uses: actions/checkout@v4
+        if: env.CLOUDFLARE_API_TOKEN != ''
+
+      - uses: actions/setup-node@v4
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tester/plataforma/package-lock.json
+
+      - name: Instalar dependencias
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: npm ci
+
+      - name: Migraciones de D1
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: npm run migrate:remote
+
+      - name: Deploy
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: npm run deploy

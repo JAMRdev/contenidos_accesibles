@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.wrangler/
+# Secretos en local (wrangler dev): nunca se versionan
+.dev.vars

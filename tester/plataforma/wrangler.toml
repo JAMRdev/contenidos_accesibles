@@ -1,0 +1,50 @@
+# Plataforma de QA del backend (Issue #123): un solo Worker sirve la API (/api/*, /health)
+# y la web de QA (assets estáticos de dist/web). Todo vive en Cloudflare, separado del
+# backend de Railway y de su D1/R2: una caída o un deploy de uno no afecta al otro.
+name = "innovalab-qa"
+main = "src/worker/index.ts"
+# Cuenta de Cloudflare del proyecto (la de producción): fija el destino aunque wrangler tenga otra sesión abierta
+account_id = "6e7b0cfffb1955599281e4ae7cdadf0e"
+compatibility_date = "2026-10-01"
+
+# Sin dominio propio: el Worker responde en innovalab-qa.<subdominio>.workers.dev
+workers_dev = true
+
+[observability]
+enabled = true
+
+# La web (Vite → dist/web). Las rutas de la API pasan primero por el Worker; el resto son
+# archivos de la web, y una ruta desconocida devuelve index.html (la web resuelve sus rutas).
+[assets]
+directory = "./dist/web"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/health"]
+
+# id y etiqueta del deploy, para mostrar en /health qué versión está publicada
+[version_metadata]
+binding = "CF_VERSION"
+
+# D1 propio de QA: sesiones, resultados, bugs y comentarios. No es el D1 de producción.
+# Creada con `npm run d1:create` (región ENAM). En local, `npm run dev` y los tests usan
+# una copia simulada en .wrangler/ y no tocan esta base.
+[[d1_databases]]
+binding = "DB"
+database_name = "innovalab-qa"
+database_id = "47660a3f-acb3-417e-97f2-f17e5dc20df4"
+migrations_dir = "migrations"
+
+# R2 propio de QA para las evidencias. Privado y SIN reglas de borrado automático:
+# un bug tiene que poder ver su evidencia meses después.
+[[r2_buckets]]
+binding = "EVIDENCIAS"
+bucket_name = "innovalab-qa-evidencias"
+
+# Sincronización con GitHub (#134). Hoy solo registra la corrida en qa_meta.
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Secretos (no van en este archivo). En producción: `wrangler secret put <NOMBRE>`;
+# en local se leen de .dev.vars (no se versiona). Los agregan sus issues:
+#   CLERK_SECRET_KEY  (#126)
+#   GITHUB_TOKEN      (#130)

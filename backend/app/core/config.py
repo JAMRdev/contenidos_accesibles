@@ -223,6 +223,10 @@ class Settings(BaseSettings):
     # habilitado sigue saliendo de BACKEND_CORS_ORIGINS.
     FRONTEND_URL: str | None = "https://contenidos-accesibles.vercel.app/"
 
+    # --- Plataforma de QA (tester/plataforma, Worker en Cloudflare, Issue #123) ---
+    # Solo para la pestaña Estado de /admin (chequeo de /health y URL). Vacía para no chequearla.
+    QA_PLATFORM_URL: str | None = "https://innovalab-qa.jamrdev2.workers.dev"
+
     @property
     def test_web_origin(self) -> str | None:
         """Origen (esquema + host) de la web de pruebas, o None si TEST_WEB_URL no está definida."""
