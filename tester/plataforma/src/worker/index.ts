@@ -2,18 +2,24 @@
 //
 // - GET /health      → estado de D1 y R2 (sin login, para monitoreo)
 // - GET /api/config  → publishable key de Clerk para la web (sin login)
-// - /api/*           → API de la plataforma; exige sesión de Clerk y rol (auth.ts)
+// - /api/*           → API de la plataforma; exige sesión de Clerk y rol (auth.ts):
+//                      miembros, casos, sesiones, resultados, bugs y auditoría (ver rutas/)
 // - el resto         → la web de QA; lo sirve Cloudflare desde dist/web sin pasar por acá
 //
 // El Cron Trigger (cada 10 minutos) va a sincronizar el estado de los bugs con GitHub (#134);
 // por ahora solo registra cuándo corrió.
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { listarAuditoria } from "./auditoria";
 import { requiereRol, requiereSesion, type AppEnv } from "./auth";
 import { health } from "./health";
 import { LAST_CRON_KEY, setMeta } from "./meta";
 import { alcanza } from "./roles";
+import { bugs } from "./rutas/bugs";
+import { casos } from "./rutas/casos";
 import { miembros } from "./rutas/miembros";
+import { resultados } from "./rutas/resultados";
+import { sesiones } from "./rutas/sesiones";
 
 const app = new Hono<AppEnv>();
 
@@ -36,6 +42,10 @@ app.get("/api/me", (c) => {
 });
 
 app.route("/api/miembros", miembros);
+app.route("/api/casos", casos);
+app.route("/api/sesiones", sesiones);
+app.route("/api/resultados", resultados);
+app.route("/api/bugs", bugs);
 
 app.get("/api/auditoria", requiereRol("admin"), async (c) => {
     const limite = Math.min(Math.max(Number(c.req.query("limite")) || 50, 1), 200);
@@ -49,6 +59,8 @@ app.notFound((c) =>
 );
 
 app.onError((err, c) => {
+    // Errores esperados (validación, no encontrado, conflicto): su mensaje es apto para mostrar
+    if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
     console.error(err);
     return c.json({ error: "Error interno de la plataforma de QA." }, 500);
 });

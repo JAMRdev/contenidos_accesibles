@@ -28,6 +28,21 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | `GET /api/me` | Cualquier rol | Cuenta de GitHub, rol y permisos (`escribir`, `administrar`). |
 | `GET/POST /api/miembros`, `PATCH/DELETE /api/miembros/:github` | Admin | Miembros y su rol (`{ github, rol }`, `{ rol?, habilitado? }`). |
 | `GET /api/auditoria?limite=&antes=` | Admin | Registro de auditoría, lo más reciente primero. |
+| `GET /api/casos?seccion=&etiqueta=&q=&destructivo=&mock=&ia_real=` | Cualquier rol | Catálogo de casos filtrado. |
+| `GET /api/casos/:id` | Cualquier rol | Un caso, su historial en todas las sesiones (regresiones) y sus bugs. |
+| `GET /api/sesiones?estado=&entorno=&autor=&q=&antes=&limite=` | Cualquier rol | Sesiones con su avance (casos por resultado), paginadas. |
+| `POST /api/sesiones` | QA | `{ titulo, entorno, url, version?, notas? }`. Entornos: `produccion`, `staging`, `local`. |
+| `GET /api/sesiones/:id?seccion=&resultado=&q=&destructivo=&mock=&ia_real=` | Cualquier rol | La sesión, su avance y cada caso con su resultado. |
+| `PATCH /api/sesiones/:id`, `POST /api/sesiones/:id/cerrar` | QA | Editar o cerrar (solo sesiones abiertas). `POST …/reabrir`: admin. |
+| `PUT/DELETE /api/sesiones/:id/resultados/:caso` | QA | `{ estado, notas? }` con `paso`, `fallo`, `bloqueado` u `omitido`; `DELETE` lo vuelve a pendiente. |
+| `GET/POST /api/resultados/:id/comentarios` | POST: QA | Comentarios de un resultado (`{ texto, en_github? }`). |
+| `GET /api/bugs?estado=&caso=&seccion=&entorno=&severidad=&autor=&sesion=&desde=&hasta=&q=&antes=&limite=` | Cualquier rol | Bugs filtrados y paginados. |
+| `POST /api/bugs`, `PATCH /api/bugs/:id` | QA | Crear un borrador (`{ caso_id, sesion_id?, titulo, descripcion?, severidad? }`) o cambiar estado, título, descripción o severidad. |
+| `GET /api/bugs/:id`, `GET/POST /api/bugs/:id/comentarios` | POST: QA | El bug con su historial de estados y sus comentarios. |
+
+**Resultados y bugs son cosas distintas.** El resultado es lo que dio un caso en una sesión. El bug es lo que se publica en GitHub y tiene su propio estado: `borrador` → (publicar, #130) → `abierto` → `en_curso` → `resuelto` → `verificado`, más `reabierto` y `descartado`. Sin issue, un bug solo pasa entre `borrador` y `descartado`; publicado, QA puede moverlo entre los estados publicados y GitHub lo actualiza con la sincronización (#134). Cada cambio queda en el historial del bug con su origen (`qa`, `github` o `sincronizacion`).
+
+**Casos destructivos** (estrés, cambios de configuración): no se pueden registrar en una sesión de producción (409) y no cuentan en su avance.
 
 Toda la API, menos `/api/config`, exige `Authorization: Bearer <token de sesión de Clerk>`: sin token o con uno inválido responde **401**; con una cuenta sin rol, **403**. Cada usuario tiene un límite de 120 requests por minuto (**429** con `Retry-After`).
 

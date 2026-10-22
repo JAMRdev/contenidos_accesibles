@@ -5,7 +5,11 @@ import { beforeEach } from "vitest";
 
 await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 
-const TABLAS = ["qa_meta", "qa_members", "qa_users", "qa_audit"];
+// Hijas antes que padres (claves foráneas)
+const TABLAS = [
+    "qa_comments", "qa_bug_history", "qa_bugs", "qa_results", "qa_sessions",
+    "qa_meta", "qa_members", "qa_users", "qa_audit",
+];
 
 beforeEach(async () => {
     await env.DB.batch(TABLAS.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));

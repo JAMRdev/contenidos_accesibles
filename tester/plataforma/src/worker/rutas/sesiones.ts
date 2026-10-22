@@ -1,0 +1,239 @@
+// Sesiones de QA y resultados de cada caso.
+//
+// - GET    /api/sesiones?estado=&entorno=&autor=&q=&antes=&limite=   (cualquier rol)
+// - POST   /api/sesiones                                               (qa)
+// - GET    /api/sesiones/:id?seccion=&resultado=&q=&destructivo=&mock=&ia_real=   (cualquier rol)
+// - PATCH  /api/sesiones/:id                                           (qa, sesión abierta)
+// - POST   /api/sesiones/:id/cerrar                                    (qa)
+// - POST   /api/sesiones/:id/reabrir                                   (admin)
+// - PUT    /api/sesiones/:id/resultados/:caso   { estado, notas? }     (qa, sesión abierta)
+// - DELETE /api/sesiones/:id/resultados/:caso   → vuelve a pendiente   (qa, sesión abierta)
+import { Hono, type Context } from "hono";
+import { z } from "zod";
+import type { Caso } from "../../catalogo/esquema.ts";
+import { auditar } from "../auditoria";
+import { requiereRol, type AppEnv } from "../auth";
+import { aplica, buscarCaso, catalogo, ENTORNOS, filtrarCasos, type Entorno } from "../catalogo";
+import type { Env } from "../env";
+import { consultaBooleana, consultaLista, error, Filtros, idDe, leerBody, limiteDe, textoOpcional } from "../validar";
+
+export const ESTADOS_RESULTADO = ["paso", "fallo", "bloqueado", "omitido"] as const;
+type EstadoResultado = (typeof ESTADOS_RESULTADO)[number];
+
+type FilaSesion = {
+    id: number;
+    title: string;
+    environment: Entorno;
+    base_url: string;
+    backend_version: string | null;
+    notes: string | null;
+    status: "abierta" | "cerrada";
+    created_by: string;
+    created_at: string;
+    closed_by: string | null;
+    closed_at: string | null;
+};
+
+type FilaResultado = { id: number; case_id: string; status: EstadoResultado; notes: string | null; updated_by: string; updated_at: string };
+
+const altaSchema = z.strictObject({
+    titulo: z.string().trim().min(1, "Poné un título.").max(200, "Hasta 200 caracteres."),
+    entorno: z.enum(ENTORNOS),
+    url: z.url({ protocol: /^https?$/, error: "La URL tiene que empezar con http:// o https://." }),
+    version: textoOpcional(100),
+    notas: textoOpcional(5000),
+});
+
+const cambioSchema = z
+    .strictObject({ titulo: altaSchema.shape.titulo.optional(), version: textoOpcional(100), notas: textoOpcional(5000) })
+    .refine((c) => Object.keys(c).length > 0, "No hay nada para cambiar.");
+
+const resultadoSchema = z.strictObject({ estado: z.enum(ESTADOS_RESULTADO), notas: textoOpcional(10000) });
+
+function sesionJson(s: FilaSesion) {
+    return {
+        id: s.id,
+        titulo: s.title,
+        entorno: s.environment,
+        url: s.base_url,
+        version: s.backend_version,
+        notas: s.notes,
+        estado: s.status,
+        creada_por: s.created_by,
+        creada_en: s.created_at,
+        cerrada_por: s.closed_by,
+        cerrada_en: s.closed_at,
+    };
+}
+
+/** Casos aplicables en el entorno y cuántos hay en cada resultado (los que faltan, pendientes). */
+function avance(entorno: Entorno, conteos: Partial<Record<EstadoResultado, number>>) {
+    const total = catalogo.casos.filter((c) => aplica(c, entorno)).length;
+    const porEstado = Object.fromEntries(ESTADOS_RESULTADO.map((e) => [e, conteos[e] ?? 0])) as Record<EstadoResultado, number>;
+    const registrados = Object.values(porEstado).reduce((a, b) => a + b, 0);
+    return { total, pendiente: Math.max(total - registrados, 0), ...porEstado };
+}
+
+async function sesionOError(env: Env, id: number): Promise<FilaSesion> {
+    const s = await env.DB.prepare("SELECT * FROM qa_sessions WHERE id = ?").bind(id).first<FilaSesion>();
+    if (!s) throw error(404, "Sesión no encontrada.");
+    return s;
+}
+
+function exigirAbierta(s: FilaSesion) {
+    if (s.status !== "abierta") throw error(409, "La sesión está cerrada: pedile a un admin que la reabra.");
+}
+
+export const sesiones = new Hono<AppEnv>();
+
+sesiones.get("/", async (c) => {
+    const q = c.req.query();
+    const limite = limiteDe(q.limite, 20, 100);
+    const estados = consultaLista(q.estado, ["abierta", "cerrada"] as const);
+    const entornos = consultaLista(q.entorno, ENTORNOS);
+    const where = new Filtros();
+    where.en("status", estados);
+    where.en("environment", entornos);
+    if (q.autor) where.agregar("created_by = ? COLLATE NOCASE", q.autor.replace(/^@/, ""));
+    if (q.q) where.agregar("(title LIKE ? OR notes LIKE ?)", `%${q.q}%`, `%${q.q}%`);
+    if (Number(q.antes)) where.agregar("id < ?", Number(q.antes));
+
+    const { results } = await c.env.DB.prepare(`SELECT * FROM qa_sessions ${where.sql()} ORDER BY id DESC LIMIT ?`)
+        .bind(...where.valores, limite + 1)
+        .all<FilaSesion>();
+    const pagina = results.slice(0, limite);
+    const conteos = new Map<number, Partial<Record<EstadoResultado, number>>>();
+    if (pagina.length) {
+        const { results: filas } = await c.env.DB.prepare(
+            `SELECT session_id, status, COUNT(*) AS n FROM qa_results
+             WHERE session_id IN (${pagina.map(() => "?").join(",")}) GROUP BY session_id, status`,
+        )
+            .bind(...pagina.map((s) => s.id))
+            .all<{ session_id: number; status: EstadoResultado; n: number }>();
+        for (const f of filas) conteos.set(f.session_id, { ...conteos.get(f.session_id), [f.status]: f.n });
+    }
+    return c.json({
+        sesiones: pagina.map((s) => ({ ...sesionJson(s), avance: avance(s.environment, conteos.get(s.id) ?? {}) })),
+        siguiente: results.length > limite ? pagina.at(-1)!.id : null,
+    });
+});
+
+sesiones.post("/", requiereRol("qa"), async (c) => {
+    const datos = await leerBody(c, altaSchema);
+    const yo = c.get("usuario").github;
+    const s = await c.env.DB.prepare(
+        "INSERT INTO qa_sessions (title, environment, base_url, backend_version, notes, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
+    )
+        .bind(datos.titulo, datos.entorno, datos.url, datos.version ?? null, datos.notas ?? null, yo)
+        .first<FilaSesion>();
+    await auditar(c.env, yo, "sesion.crear", { id: s!.id, titulo: datos.titulo, entorno: datos.entorno });
+    return c.json({ ...sesionJson(s!), avance: avance(s!.environment, {}) }, 201);
+});
+
+sesiones.get("/:id", async (c) => {
+    const s = await sesionOError(c.env, idDe(c.req.param("id"), "Sesión"));
+    const q = c.req.query();
+    const { results } = await c.env.DB.prepare("SELECT * FROM qa_results WHERE session_id = ?").bind(s.id).all<FilaResultado>();
+    const porCaso = new Map(results.map((r) => [r.case_id, r]));
+    const conteos: Partial<Record<EstadoResultado, number>> = {};
+    for (const r of results) conteos[r.status] = (conteos[r.status] ?? 0) + 1;
+
+    const filtroResultado = consultaLista(q.resultado, ["pendiente", ...ESTADOS_RESULTADO] as const);
+    const casosSesion = filtrarCasos({
+        seccion: q.seccion,
+        etiqueta: q.etiqueta,
+        q: q.q,
+        destructivo: consultaBooleana(q.destructivo),
+        mock: consultaBooleana(q.mock),
+        ia_real: consultaBooleana(q.ia_real),
+    })
+        .map((caso: Caso) => {
+            const r = porCaso.get(caso.id);
+            return {
+                caso,
+                aplica: aplica(caso, s.environment),
+                resultado: r
+                    ? { id: r.id, estado: r.status, notas: r.notes, actualizado_por: r.updated_by, actualizado_en: r.updated_at }
+                    : null,
+            };
+        })
+        .filter((x) => !filtroResultado.length || filtroResultado.includes(x.resultado?.estado ?? "pendiente"));
+
+    return c.json({ sesion: sesionJson(s), avance: avance(s.environment, conteos), casos: casosSesion });
+});
+
+sesiones.patch("/:id", requiereRol("qa"), async (c) => {
+    const s = await sesionOError(c.env, idDe(c.req.param("id"), "Sesión"));
+    exigirAbierta(s);
+    const datos = await leerBody(c, cambioSchema);
+    const actualizada = await c.env.DB.prepare(
+        `UPDATE qa_sessions SET title = COALESCE(?, title),
+             backend_version = CASE WHEN ? THEN ? ELSE backend_version END,
+             notes = CASE WHEN ? THEN ? ELSE notes END
+         WHERE id = ? RETURNING *`,
+    )
+        .bind(
+            datos.titulo ?? null,
+            Number("version" in datos), datos.version ?? null,
+            Number("notas" in datos), datos.notas ?? null,
+            s.id,
+        )
+        .first<FilaSesion>();
+    return c.json(sesionJson(actualizada!));
+});
+
+async function cambiarEstado(c: Context<AppEnv>, estado: "abierta" | "cerrada") {
+    const s = await sesionOError(c.env, idDe(c.req.param("id")!, "Sesión"));
+    if (s.status === estado) throw error(409, `La sesión ya está ${estado}.`);
+    const yo = c.get("usuario").github;
+    const consulta =
+        estado === "cerrada"
+            ? c.env.DB.prepare(
+                  "UPDATE qa_sessions SET status = 'cerrada', closed_by = ?, closed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? RETURNING *",
+              ).bind(yo, s.id)
+            : c.env.DB.prepare("UPDATE qa_sessions SET status = 'abierta', closed_by = NULL, closed_at = NULL WHERE id = ? RETURNING *").bind(s.id);
+    const actualizada = await consulta.first<FilaSesion>();
+    await auditar(c.env, yo, estado === "cerrada" ? "sesion.cerrar" : "sesion.reabrir", { id: s.id });
+    return c.json(sesionJson(actualizada!));
+}
+
+sesiones.post("/:id/cerrar", requiereRol("qa"), (c) => cambiarEstado(c, "cerrada"));
+sesiones.post("/:id/reabrir", requiereRol("admin"), (c) => cambiarEstado(c, "abierta"));
+
+function casoDeLaSesion(s: FilaSesion, casoId: string): Caso {
+    const caso = buscarCaso(casoId);
+    if (!caso) throw error(404, `El caso ${casoId} no está en el catálogo.`);
+    if (!aplica(caso, s.environment)) throw error(409, `${caso.id} es destructivo: solo se prueba en local o staging.`);
+    return caso;
+}
+
+sesiones.put("/:id/resultados/:caso", requiereRol("qa"), async (c) => {
+    const s = await sesionOError(c.env, idDe(c.req.param("id"), "Sesión"));
+    exigirAbierta(s);
+    const caso = casoDeLaSesion(s, c.req.param("caso"));
+    const datos = await leerBody(c, resultadoSchema);
+    const r = await c.env.DB.prepare(
+        `INSERT INTO qa_results (session_id, case_id, status, notes, updated_by) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (session_id, case_id) DO UPDATE SET status = excluded.status, notes = excluded.notes,
+             updated_by = excluded.updated_by, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         RETURNING *`,
+    )
+        .bind(s.id, caso.id, datos.estado, datos.notas ?? null, c.get("usuario").github)
+        .first<FilaResultado>();
+    return c.json({ id: r!.id, caso_id: caso.id, estado: r!.status, notas: r!.notes, actualizado_por: r!.updated_by, actualizado_en: r!.updated_at });
+});
+
+sesiones.delete("/:id/resultados/:caso", requiereRol("qa"), async (c) => {
+    const s = await sesionOError(c.env, idDe(c.req.param("id"), "Sesión"));
+    exigirAbierta(s);
+    const r = await c.env.DB.prepare("SELECT id FROM qa_results WHERE session_id = ? AND case_id = ?")
+        .bind(s.id, c.req.param("caso"))
+        .first<{ id: number }>();
+    if (!r) throw error(404, "Ese caso todavía no tiene resultado en la sesión.");
+    // Sus comentarios se van con él
+    await c.env.DB.batch([
+        c.env.DB.prepare("DELETE FROM qa_comments WHERE target_type = 'resultado' AND target_id = ?").bind(r.id),
+        c.env.DB.prepare("DELETE FROM qa_results WHERE id = ?").bind(r.id),
+    ]);
+    return c.json({ caso_id: c.req.param("caso"), estado: "pendiente" });
+});
