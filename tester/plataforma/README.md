@@ -3,6 +3,7 @@
 Web y API para que el equipo de QA registre las rondas de prueba del backend, junte evidencias, siga el estado de los bugs y los publique en GitHub ([#123](https://github.com/e18-innovalab/contenidos_accesibles/issues/123)).
 
 - **Producción:** <https://innovalab-qa.jamrdev2.workers.dev> (`/health` sin login)
+- **Guía de uso para QA:** [GUIA.md](GUIA.md) (también en la web, en **Guía** del menú). Las capturas están en `src/web/public/guia/` y salen del entorno de capturas (`npm run capturas`).
 - **Cuenta de Cloudflare:** la del proyecto (`6e7b0cff…`, ja.monsalve.otros), con recursos propios de QA.
 
 ## Arquitectura

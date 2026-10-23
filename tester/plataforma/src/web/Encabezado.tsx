@@ -12,11 +12,12 @@ const SECCIONES = [
     { href: "/bugs", icon: "bug_report", texto: "Bugs" },
     { href: "/casos", icon: "fact_check", texto: "Catálogo" },
     { href: "/miembros", icon: "group", texto: "Miembros", soloAdmin: true },
+    { href: "/guia", icon: "help", texto: "Guía" },
 ];
 
 // Herramientas del equipo, en el menú de usuario
 const ENLACES = [
-    { href: "https://github.com/e18-innovalab/contenidos_accesibles/blob/main/tester/GUIA_QA_BACKEND.md", icon: "menu_book", texto: "Guía de QA" },
+    { href: "https://github.com/e18-innovalab/contenidos_accesibles/blob/main/tester/GUIA_QA_BACKEND.md", icon: "menu_book", texto: "Casos del backend" },
     { href: "https://innovalab-educacion-e18-test.up.railway.app/docs", icon: "api", texto: "Swagger" },
     { href: "https://innovalab-web-pruebas.onrender.com/", icon: "science", texto: "Web de pruebas" },
     { href: "https://innovalab-educacion-e18-test.up.railway.app/admin", icon: "admin_panel_settings", texto: "Panel de administración" },
