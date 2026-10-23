@@ -2,7 +2,17 @@
 // GraphQL del tablero. Se instala con githubSimulado() de clerk-simulado.ts.
 import { githubSimulado } from "./clerk-simulado";
 
-export type IssueSimulado = { number: number; title: string; body: string; labels: string[]; state: "open" | "closed"; comments: { id: number; body: string }[] };
+export type IssueSimulado = {
+    number: number;
+    title: string;
+    body: string;
+    labels: string[];
+    state: "open" | "closed";
+    comments: { id: number; body: string; autor?: string }[];
+    // Para la sincronización (#134)
+    stateReason?: "COMPLETED" | "NOT_PLANNED" | "DUPLICATE" | "REOPENED" | null;
+    tablero?: string | null;
+};
 
 export class GithubFalso {
     issues: IssueSimulado[] = [];
@@ -59,6 +69,22 @@ export class GithubFalso {
         }
         if (url.pathname === "/graphql") {
             const query: string = body.query;
+            if (query.includes("repository(")) {
+                const repository: Record<string, unknown> = {};
+                for (const [, n] of query.matchAll(/i(\d+): issue\(number: \d+\)/g)) {
+                    const issue = this.issues.find((i) => i.number === Number(n));
+                    repository[`i${n}`] = issue
+                        ? {
+                              number: issue.number,
+                              state: issue.state.toUpperCase(),
+                              stateReason: issue.stateReason ?? null,
+                              comments: { nodes: issue.comments.map((c) => ({ databaseId: c.id, body: c.body, createdAt: "2026-10-22T20:00:00Z", author: { login: c.autor ?? "JAMRdev" } })) },
+                              projectItems: { nodes: issue.tablero ? [{ project: { number: 3 }, fieldValueByName: { name: issue.tablero } }] : [] },
+                          }
+                        : null;
+                }
+                return Response.json({ data: { repository } });
+            }
             if (query.includes("organization(")) {
                 return Response.json({ data: { organization: { projectV2: { id: "P_3", field: { id: "F_QA", options: [{ id: "O_FALLO", name: "Falló" }] } } } } });
             }

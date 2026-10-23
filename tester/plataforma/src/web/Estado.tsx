@@ -8,6 +8,7 @@ type Health = {
     d1: string;
     r2: string;
     ultima_cron: string | null;
+    ultima_sincronizacion: string | null;
     casos: number;
 };
 
@@ -95,9 +96,9 @@ export function Estado() {
                         <Tarjeta
                             titulo="Sincronización"
                             plataforma="GitHub · Cron cada 10 min"
-                            estado={state.health.ultima_cron ? "ok" : "pendiente"}
-                            detalle={state.health.ultima_cron ? `Última corrida: ${fecha.format(new Date(state.health.ultima_cron))}` : "Todavía no corrió"}
-                            descripcion="Trae los cambios de estado de los bugs publicados."
+                            estado={state.health.ultima_sincronizacion ? "ok" : "pendiente"}
+                            detalle={state.health.ultima_sincronizacion ? `Última: ${fecha.format(new Date(state.health.ultima_sincronizacion))}` : "Todavía no corrió"}
+                            descripcion="Trae de GitHub el estado, el Status del tablero y los comentarios de los bugs publicados."
                         />
                     </div>
                 </>

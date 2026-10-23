@@ -4,6 +4,7 @@ import type { Context } from "hono";
 import { catalogo } from "./catalogo";
 import type { Env } from "./env";
 import { getMeta, LAST_CRON_KEY } from "./meta";
+import { ULTIMA_SINCRONIZACION } from "./sincronizacion";
 
 type Probe = { ok: true; value: string | null } | { ok: false; error: string };
 
@@ -17,10 +18,11 @@ async function probe(fn: () => Promise<string | null>): Promise<Probe> {
 }
 
 export async function health(c: Context<{ Bindings: Env }>) {
-    const [d1, r2] = await Promise.all([
+    const [d1, r2, sincronizacion] = await Promise.all([
         probe(() => getMeta(c.env, LAST_CRON_KEY)),
         // HEAD de una clave que no existe: confirma acceso al bucket sin leer evidencias
         probe(async () => ((await c.env.EVIDENCIAS.head("health")) ? "existe" : null)),
+        probe(() => getMeta(c.env, ULTIMA_SINCRONIZACION)),
     ]);
     const ok = d1.ok && r2.ok;
     c.header("Cache-Control", "no-store");
@@ -32,6 +34,7 @@ export async function health(c: Context<{ Bindings: Env }>) {
             d1: d1.ok ? "ok" : d1.error,
             r2: r2.ok ? "ok" : r2.error,
             ultima_cron: d1.ok ? d1.value : null,
+            ultima_sincronizacion: sincronizacion.ok ? sincronizacion.value : null,
             casos: catalogo.casos.length,
         },
         ok ? 200 : 503,

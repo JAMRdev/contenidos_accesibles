@@ -1,5 +1,5 @@
 // Bugs: listado con filtros y detalle con reporte, estado, historial y comentarios.
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi, useDatos, useYo } from "../api";
 import { Comentarios } from "../Comentarios";
 import { Evidencias } from "../Evidencias";
@@ -26,6 +26,24 @@ export function Bugs() {
     const lista = useDatos<{ bugs: Bug[]; siguiente: number | null }>(`/api/bugs?limite=100&${consulta}`);
     const secciones = useDatos<{ secciones: Seccion[] }>(`/api/casos/secciones?area=${f.area || "backend"}`);
     const estadoConocido = FILTRO_ESTADO.some(([v]) => v === f.estado);
+    const api = useApi();
+    const yo = useYo();
+    const toast = useToast();
+    const [sincronizando, setSincronizando] = useState(false);
+
+    async function sincronizarTodo() {
+        setSincronizando(true);
+        try {
+            const r = await api<ResultadoSync>("/api/sincronizar", { method: "POST" });
+            if (r.errores.length) toast(r.errores[0], "error");
+            else toast(resumenSync(r) ?? `Sin cambios en GitHub (${r.bugs} bug(s) revisados).`);
+            lista.recargar();
+        } catch (e) {
+            toast((e as Error).message, "error");
+        } finally {
+            setSincronizando(false);
+        }
+    }
 
     return (
         <>
@@ -33,9 +51,15 @@ export function Bugs() {
                 <div>
                     <h2 className="admin-h2">Bugs</h2>
                     <p className="admin-muted admin-section-lead">
-                        Los bugs se crean desde un caso que falló en una sesión. Publicados en GitHub, su estado se actualiza solo cuando cambia allá.
+                        Los bugs se crean desde un caso que falló en una sesión. Publicados en GitHub, su estado y sus comentarios se traen solos cada 10
+                        minutos, al abrir cada bug o con el botón.
                     </p>
                 </div>
+                {yo.permisos.escribir && (
+                    <button type="button" className="btn btn-outline-primary" onClick={() => void sincronizarTodo()} disabled={sincronizando}>
+                        {sincronizando ? <span className="spinner-border spinner-border-sm" aria-hidden="true" /> : <Icon name="sync" />} Sincronizar con GitHub
+                    </button>
+                )}
             </div>
 
             <div className="table-filters qa-filters">
@@ -117,12 +141,61 @@ export function Bugs() {
     );
 }
 
+type ResultadoSync = { bugs: number; cambios: { bug: number; de: EstadoBug; a: EstadoBug; motivo: string }[]; comentarios: number; errores: string[] };
+
+/** Resumen de una sincronización para mostrar en un aviso, o null si no cambió nada. */
+export function resumenSync(r: ResultadoSync): string | null {
+    const partes: string[] = [];
+    if (r.cambios.length === 1) partes.push(`el estado pasó a ${BUG_INFO[r.cambios[0].a].label} (${r.cambios[0].motivo})`);
+    else if (r.cambios.length) partes.push(`${r.cambios.length} bugs cambiaron de estado`);
+    if (r.comentarios) partes.push(`${r.comentarios} comentario(s) nuevo(s)`);
+    return partes.length ? `Desde GitHub: ${partes.join(" y ")}.` : null;
+}
+
+/** Al abrir un bug publicado, trae de GitHub su estado y sus comentarios (y recarga si cambió algo). */
+function useSincronizarAlAbrir(bugId: string, publicado: boolean, alCambiar: () => void) {
+    const api = useApi();
+    const toast = useToast();
+    const hecho = useRef(false);
+    const [sincronizando, setSincronizando] = useState(false);
+
+    const sincronizar = useCallback(
+        async (manual: boolean) => {
+            setSincronizando(true);
+            try {
+                const r = await api<ResultadoSync>(`/api/bugs/${bugId}/sincronizar`, { method: "POST" });
+                const resumen = resumenSync(r);
+                if (resumen) {
+                    toast(resumen);
+                    alCambiar();
+                } else if (manual) {
+                    toast(r.errores.length ? r.errores[0] : "Sin cambios en GitHub.", r.errores.length ? "error" : "exito");
+                }
+            } catch (e) {
+                if (manual) toast((e as Error).message, "error");
+            } finally {
+                setSincronizando(false);
+            }
+        },
+        [api, bugId, alCambiar, toast],
+    );
+
+    useEffect(() => {
+        if (!publicado || hecho.current) return;
+        hecho.current = true;
+        void sincronizar(false);
+    }, [publicado, sincronizar]);
+
+    return { sincronizando, sincronizar: () => void sincronizar(true) };
+}
+
 export function BugDetallePagina({ id }: { id: string }) {
     const api = useApi();
     const yo = useYo();
     const toast = useToast();
     const bug = useDatos<BugDetalle>(`/api/bugs/${id}`);
     const [error, setError] = useState<string | null>(null);
+    const sync = useSincronizarAlAbrir(id, Boolean(bug.datos?.issue), bug.recargar);
 
     if (bug.error && !bug.datos) return <Alerta tipo="danger">{bug.error}</Alerta>;
     if (!bug.datos) return <Cargando />;
@@ -184,7 +257,7 @@ export function BugDetallePagina({ id }: { id: string }) {
 
                     <section className="qa-card" aria-labelledby="bug-comentarios">
                         <h3 className="qa-card-title" id="bug-comentarios">Comentarios</h3>
-                        <Comentarios ruta={`/api/bugs/${b.id}/comentarios`} iniciales={b.comentarios} conGithub />
+                        <Comentarios key={b.comentarios.length} ruta={`/api/bugs/${b.id}/comentarios`} iniciales={b.comentarios} conGithub />
                     </section>
                 </div>
 
@@ -194,7 +267,14 @@ export function BugDetallePagina({ id }: { id: string }) {
                     <PosiblesDuplicados bugId={b.id} />
 
                     <section className="qa-card" aria-labelledby="bug-github">
-                        <h3 className="qa-card-title" id="bug-github">GitHub</h3>
+                        <div className="qa-card-head">
+                            <h3 className="qa-card-title" id="bug-github">GitHub</h3>
+                            {b.issue && (
+                                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={sync.sincronizar} disabled={sync.sincronizando}>
+                                    {sync.sincronizando ? <span className="spinner-border spinner-border-sm" aria-hidden="true" /> : <Icon name="sync" />} Sincronizar
+                                </button>
+                            )}
+                        </div>
                         {b.issue ? (
                             <dl className="status-facts">
                                 <dt>Issue</dt>
@@ -204,7 +284,7 @@ export function BugDetallePagina({ id }: { id: string }) {
                                 <dt>Tablero</dt>
                                 <dd>{b.issue.tablero ?? "—"}</dd>
                                 <dt>Sincronizado</dt>
-                                <dd>{fecha(b.sincronizado_en)}</dd>
+                                <dd>{sync.sincronizando ? "sincronizando…" : fecha(b.sincronizado_en)}</dd>
                             </dl>
                         ) : (
                             <p className="admin-muted mb-0">Todavía no se publicó.</p>

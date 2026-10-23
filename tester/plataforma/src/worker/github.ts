@@ -92,7 +92,7 @@ export async function comentarIssue(env: Env, numero: number, cuerpo: string): P
     return { id: c.id, url: c.html_url };
 }
 
-async function graphql<T>(env: Env, query: string, variables: Record<string, unknown>): Promise<T> {
+export async function graphql<T>(env: Env, query: string, variables: Record<string, unknown>): Promise<T> {
     const r = await github<{ data?: T; errors?: { message: string }[] }>(env, "/graphql", { method: "POST", body: JSON.stringify({ query, variables }) });
     if (r.errors?.length || !r.data) throw new GithubError(`GitHub (GraphQL): ${r.errors?.map((e) => e.message).join("; ") ?? "sin datos"}.`);
     return r.data;

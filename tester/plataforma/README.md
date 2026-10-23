@@ -15,7 +15,7 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 | API | Worker `innovalab-qa` (`src/worker`) | Hono. Atiende `/api/*` y `/health`. |
 | Datos | D1 `innovalab-qa` | Migraciones en `migrations/`. No es el D1 de producción. |
 | Evidencias | R2 `innovalab-qa-evidencias` | Privado y **sin borrado automático**. |
-| Sincronización con GitHub | Cron Trigger cada 10 min | Por ahora solo registra la corrida (`ultima_cron` en `/health`); la sincronización llega con #134. |
+| Sincronización con GitHub | Cron Trigger cada 10 min | Trae el estado, el Status del tablero y los comentarios de los bugs publicados (#134). |
 
 **Por qué un solo Worker con assets y no Pages:** la web y la API quedan en el mismo origen (sin CORS), se despliegan juntas con un solo `wrangler deploy` y Cloudflare recomienda Workers con assets para proyectos nuevos.
 
@@ -54,6 +54,12 @@ Todo corre en Cloudflare, separado del backend de Railway y de su D1/R2: si Rail
 - **Una sesión:** publica sus bugs en borrador (omite los incompletos), propone cerrar con un comentario los bugs abiertos de casos que ahora pasaron, envía los comentarios pendientes y crea o actualiza el issue de ejecución `[QA - Issue] Ejecución <fecha> · <entorno> · <título>` con la tabla de casos, sus bugs y sus evidencias.
 - **Idempotente:** cada publicación queda en `qa_publications` con una clave única (`bug:7:issue`, `comentario:12`, `sesion:3:ejecucion`, `sesion:3:propuesta:9`). Publicar de nuevo no duplica; si GitHub falla a mitad de camino, la API responde 502, lo hecho queda registrado y el reintento sigue desde ahí (un issue creado sin guardar se recupera por la marca `<!-- qa-bug: … -->`).
 - **Tablero:** solo se usa si `GITHUB_REPO` es de la misma organización que `GITHUB_PROJECT_OWNER`. En local, con un repo personal en `.dev.vars`, el tablero de la org no se toca. El campo "Estado QA" (Pasó / Falló / Bloqueado / Omitido) se crea a mano una vez en el tablero; si no existe, se avisa y el issue se agrega igual.
+
+**Sincronización desde GitHub (#134).** El Cron (cada 10 minutos), el botón **Sincronizar con GitHub** (`POST /api/sincronizar`, QA) y la página de cada bug publicado (`POST /api/bugs/:id/sincronizar`, al abrirla) traen de GitHub, con una consulta GraphQL por cada 50 bugs:
+
+- **Estado:** cerrado como completado → `resuelto`; cerrado como no planificado o duplicado → `descartado`; reabierto → `reabierto`; Status del tablero "In progress" o "In review" → `en_curso`, "Done" → `resuelto`. Cada cambio queda en el historial del bug con origen `github` (botón o página) o `sincronizacion` (Cron).
+- **Comentarios:** los nuevos del issue se importan una sola vez (índice único por `github_comment_id`); los que publicó la propia plataforma no se reimportan.
+- En local el Cron no corre solo: usá el botón, abrí el bug o `curl "http://127.0.0.1:8788/cdn-cgi/handler/scheduled?cron=*/10+*+*+*+*"`.
 
 **Reporte de un bug (#129).** Campos: título, severidad, URL y versión probadas, pasos, resultado esperado, resultado obtenido y notas. Al crear un bug desde una sesión se precargan los pasos y el esperado del catálogo, la URL y la versión de la sesión y el obtenido de las notas del resultado. El issue sale de una sola plantilla (`src/worker/reporte.ts`): título `[QA - Issue] <caso> · <título>`, marca oculta `<!-- qa-case: <caso> -->`, etiquetas `[QA - Issue]`, `bug`, `testing` y `backend`, y enlaces a las evidencias del bug y del resultado. Para publicar no puede faltar título, pasos, esperado ni obtenido.
 

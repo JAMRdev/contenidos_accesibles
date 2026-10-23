@@ -6,12 +6,13 @@
 //                      miembros, casos, sesiones, resultados, bugs y auditoría (ver rutas/)
 // - el resto         → la web de QA; lo sirve Cloudflare desde dist/web sin pasar por acá
 //
-// El Cron Trigger (cada 10 minutos) va a sincronizar el estado de los bugs con GitHub (#134);
-// por ahora solo registra cuándo corrió.
+// El Cron Trigger (cada 10 minutos) sincroniza con GitHub el estado y los comentarios de los bugs
+// publicados (#134).
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { listarAuditoria } from "./auditoria";
-import { requiereRol, requiereSesion, type AppEnv } from "./auth";
+import { limitePublicar, requiereRol, requiereSesion, type AppEnv } from "./auth";
+import { sincronizar } from "./sincronizacion";
 import { GithubError } from "./github";
 import { health } from "./health";
 import { LAST_CRON_KEY, setMeta } from "./meta";
@@ -50,6 +51,11 @@ app.route("/api/resultados", resultados);
 app.route("/api/bugs", bugs);
 app.route("/api/evidencias", evidencias);
 
+// "Sincronizar ahora": trae de GitHub el estado y los comentarios de todos los bugs publicados
+app.post("/api/sincronizar", requiereRol("qa"), limitePublicar, async (c) =>
+    c.json(await sincronizar(c.env, { origen: "github", actor: c.get("usuario").github })),
+);
+
 app.get("/api/auditoria", requiereRol("admin"), async (c) => {
     const limite = Math.min(Math.max(Number(c.req.query("limite")) || 50, 1), 200);
     const antes = Number(c.req.query("antes")) || undefined;
@@ -73,6 +79,12 @@ app.onError((err, c) => {
 export default {
     fetch: app.fetch,
     async scheduled(controller, env, ctx) {
-        ctx.waitUntil(setMeta(env, LAST_CRON_KEY, new Date(controller.scheduledTime).toISOString()));
+        ctx.waitUntil(
+            (async () => {
+                await setMeta(env, LAST_CRON_KEY, new Date(controller.scheduledTime).toISOString());
+                const r = await sincronizar(env, { origen: "sincronizacion" });
+                if (r.errores.length) console.warn("Sincronización con GitHub:", r.errores.join(" | "));
+            })(),
+        );
     },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

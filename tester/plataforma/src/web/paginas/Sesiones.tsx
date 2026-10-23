@@ -143,7 +143,7 @@ export function Sesiones() {
             <div className="admin-section-head">
                 <div>
                     <h2 className="admin-h2">Sesiones</h2>
-                    <p className="admin-muted admin-section-lead">Cada sesión es una ronda de pruebas contra un entorno y una versión del backend.</p>
+                    <p className="admin-muted admin-section-lead">Cada sesión es una ronda de pruebas de un área (backend o frontend) contra un entorno y una versión.</p>
                 </div>
                 {yo.permisos.escribir && !f.nueva && (
                     <button type="button" className="btn btn-primary" onClick={() => setF({ nueva: "1" })}>

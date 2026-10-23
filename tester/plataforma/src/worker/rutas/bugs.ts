@@ -9,6 +9,7 @@
 // - GET   /api/bugs/:id/vista-previa  → el issue tal como se publicaría y qué le falta (#129)
 // - GET   /api/bugs/:id/duplicados    → bugs activos del mismo caso e issues abiertos en GitHub (#129)
 // - POST  /api/bugs/:id/publicar      → publica en GitHub o comenta en el issue del caso (qa, #130)
+// - POST  /api/bugs/:id/sincronizar   → trae de GitHub el estado y los comentarios de este bug (#134)
 // - GET/POST /api/bugs/:id/comentarios                                           (POST: qa)
 //
 // Estados: borrador → (publicar en GitHub, #130) → abierto → en_curso → resuelto → verificado,
@@ -20,6 +21,7 @@ import { SEVERIDADES } from "../../catalogo/esquema.ts";
 import { auditar } from "../auditoria";
 import { limitePublicar, requiereRol, type AppEnv } from "../auth";
 import { publicarBug } from "../publicar";
+import { sincronizar } from "../sincronizacion";
 import { ENTORNOS } from "../catalogo";
 import { AREAS, cargarCasos, obtenerCaso, type CasoQA } from "../casos";
 import { comentarioSchema, crearComentario, listarComentarios } from "../comentarios";
@@ -264,6 +266,14 @@ bugs.post("/:id/publicar", requiereRol("qa"), limitePublicar, async (c) => {
     const b = await bugOError(c.env, idDe(c.req.param("id"), "Bug"));
     const resultado = await publicarBug(c.env, b, c.get("usuario").github, new URL(c.req.url).origin);
     return c.json({ ...resultado, bug: bugJson(await bugOError(c.env, b.id), await obtenerCaso(c.env, b.case_id)) });
+});
+
+// Sincroniza solo este bug con GitHub (la web lo llama al abrir un bug publicado)
+bugs.post("/:id/sincronizar", async (c) => {
+    const b = await bugOError(c.env, idDe(c.req.param("id"), "Bug"));
+    if (!b.issue_number) throw error(409, "El bug todavía no está publicado en GitHub.");
+    const r = await sincronizar(c.env, { bugs: [b.id], origen: "github", actor: c.get("usuario").github });
+    return c.json(r);
 });
 
 bugs.get("/:id/comentarios", async (c) => {

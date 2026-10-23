@@ -170,16 +170,18 @@ export function PublicarBug({ bug, alPublicar }: { bug: BugDetalle; alPublicar: 
             <>
                 {resultadoAlerta}
                 {yo.permisos.escribir && (
-                    <div className="alert alert-info qa-alert-action" role="status">
-                        <p className="mb-0">
-                            Publicado en <a href={bug.issue.url} target="_blank" rel="noopener">#{bug.issue.numero}</a>.{" "}
-                            {pendientes > 0
-                                ? `Hay ${pendientes} comentario(s) marcados para GitHub que todavía no se enviaron.`
-                                : "Si agregaste evidencias o cambiaste el reporte, actualizá el issue para que GitHub lo refleje."}
-                        </p>
-                        <button type="button" className="btn btn-sm btn-primary" disabled={publicando} onClick={() => void publicar()}>
-                            {publicando ? <span className="spinner-border spinner-border-sm" aria-hidden="true" /> : <Icon name="sync" />} Actualizar en GitHub
-                        </button>
+                    <div className="alert alert-info" role="status">
+                        <div className="qa-alert-action">
+                            <p>
+                                Publicado en <a href={bug.issue.url} target="_blank" rel="noopener">#{bug.issue.numero}</a>.{" "}
+                                {pendientes > 0
+                                    ? `Hay ${pendientes} comentario(s) marcados para GitHub que todavía no se enviaron.`
+                                    : "Si agregaste evidencias o cambiaste el reporte, actualizá el issue para que GitHub lo refleje."}
+                            </p>
+                            <button type="button" className="btn btn-sm btn-primary" disabled={publicando} onClick={() => void publicar()}>
+                                {publicando ? <span className="spinner-border spinner-border-sm" aria-hidden="true" /> : <Icon name="sync" />} Actualizar en GitHub
+                            </button>
+                        </div>
                     </div>
                 )}
                 {error && <Alerta tipo="danger">{error}</Alerta>}
@@ -190,18 +192,22 @@ export function PublicarBug({ bug, alPublicar }: { bug: BugDetalle; alPublicar: 
 
     const faltan = previa.datos?.faltan ?? [];
     return (
-        <div className="alert alert-info" role="status">
-            <p className="mb-2">
-                <strong>Este bug todavía no está en GitHub.</strong>{" "}
-                {faltan.length ? `Para publicarlo falta completar: ${faltan.join(", ")}.` : `Está listo para publicarse en ${previa.datos?.repo ?? "GitHub"} con la etiqueta [QA - Issue].`}
-            </p>
-            {yo.permisos.escribir && (
-                <button type="button" className="btn btn-sm btn-primary" disabled={publicando || !previa.datos || faltan.length > 0} onClick={() => void publicar()}>
-                    {publicando ? <span className="spinner-border spinner-border-sm me-1" aria-hidden="true" /> : <Icon name="publish" />} Publicar en GitHub
-                </button>
-            )}
-            {error && <div className="mt-2"><Alerta tipo="danger">{error}</Alerta></div>}
-        </div>
+        <>
+            <div className="alert alert-info" role="status">
+                <div className="qa-alert-action">
+                    <p>
+                        <strong>Este bug todavía no está en GitHub.</strong>{" "}
+                        {faltan.length ? `Para publicarlo falta completar: ${faltan.join(", ")}.` : `Está listo para publicarse en ${previa.datos?.repo ?? "GitHub"} con la etiqueta [QA - Issue].`}
+                    </p>
+                    {yo.permisos.escribir && (
+                        <button type="button" className="btn btn-sm btn-primary" disabled={publicando || !previa.datos || faltan.length > 0} onClick={() => void publicar()}>
+                            {publicando ? <span className="spinner-border spinner-border-sm" aria-hidden="true" /> : <Icon name="publish" />} Publicar en GitHub
+                        </button>
+                    )}
+                </div>
+            </div>
+            {error && <Alerta tipo="danger">{error}</Alerta>}
+        </>
     );
 }
 
