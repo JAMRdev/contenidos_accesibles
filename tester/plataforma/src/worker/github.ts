@@ -84,6 +84,14 @@ export async function editarIssue(env: Env, numero: number, datos: { titulo: str
     return { numero: i.number, url: i.html_url, nodeId: i.node_id };
 }
 
+/** Reabre un issue cerrado (QA lo volvió a probar y sigue fallando). La plataforma nunca cierra issues. */
+export async function reabrirIssue(env: Env, numero: number): Promise<void> {
+    await github(env, `/repos/${env.GITHUB_REPO}/issues/${numero}`, {
+        method: "PATCH",
+        body: JSON.stringify({ state: "open", state_reason: "reopened" }),
+    });
+}
+
 export async function comentarIssue(env: Env, numero: number, cuerpo: string): Promise<{ id: number; url: string }> {
     const c = await github<{ id: number; html_url: string }>(env, `/repos/${env.GITHUB_REPO}/issues/${numero}/comments`, {
         method: "POST",

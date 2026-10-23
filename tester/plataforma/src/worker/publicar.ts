@@ -21,11 +21,13 @@ import {
     editarIssue,
     GithubError,
     githubDisponible,
+    reabrirIssue,
     tableroAplica,
 } from "./github";
 import {
     armarEjecucion,
     armarIssue,
+    comentarioEstadoQa,
     comentarioInterno,
     comentarioPropuestaCierre,
     comentarioReincidencia,
@@ -414,4 +416,36 @@ export async function publicarSesion(env: Env, id: number, actor: string, origen
         errores: resultado.errores.length,
     });
     return resultado;
+}
+
+/** Estados que QA puede poner a mano en un bug publicado; cada uno tiene su efecto en GitHub. */
+export const ESTADOS_QA_PUBLICADO = ["reabierto", "verificado", "descartado"] as const;
+export type EstadoQaPublicado = (typeof ESTADOS_QA_PUBLICADO)[number];
+
+/**
+ * Lleva a GitHub el estado que QA puso en un bug publicado (#134):
+ *   - reabierto  → reabre el issue (si estaba cerrado) y comenta que sigue fallando
+ *   - verificado → comenta que el arreglo funciona (si el issue sigue abierto, propone cerrarlo)
+ *   - descartado → comenta proponiendo cerrarlo como no planificado
+ * La plataforma nunca cierra issues. Devuelve la nota para el historial del bug.
+ */
+export async function estadoHaciaGithub(env: Env, bug: FilaBug, estado: EstadoQaPublicado, actor: string, origen: string): Promise<string> {
+    exigirGithub(env);
+    const numero = bug.issue_number!;
+    const abierto = bug.github_state !== "closed";
+    let nota: string;
+    if (estado === "reabierto" && !abierto) {
+        await reabrirIssue(env, numero);
+        await env.DB.prepare("UPDATE qa_bugs SET github_state = 'open', github_state_reason = 'reopened' WHERE id = ?").bind(bug.id).run();
+        nota = `Reabierto también en GitHub (#${numero})`;
+    } else {
+        nota = estado === "reabierto" ? `Comentado en GitHub (#${numero}): el issue ya estaba abierto` : `Comentado en GitHub (#${numero})`;
+    }
+    const c = await comentarIssue(env, numero, comentarioEstadoQa(estado, { bugId: bug.id, actor, abierto: estado === "reabierto" || abierto, origenWeb: origen }));
+    // Registrado como publicación: la sincronización no lo importa como comentario de GitHub
+    await env.DB.prepare("INSERT INTO qa_publications (key, kind, bug_id, issue_number, comment_id, status, actor) VALUES (?, 'comentario', ?, ?, ?, 'ok', ?)")
+        .bind(`bug:${bug.id}:estado:${crypto.randomUUID()}`, bug.id, numero, c.id, actor)
+        .run();
+    await auditar(env, actor, "github.estado_qa", { bug: bug.id, issue: numero, estado });
+    return nota;
 }

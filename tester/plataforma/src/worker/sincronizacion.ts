@@ -57,7 +57,7 @@ export function estadoSegunGithub(
     if ((tablero === "in progress" || tablero === "in review") && (actual === "abierto" || actual === "reabierto")) {
         return { estado: "en_curso", motivo: `En el tablero: ${gh.tablero}` };
     }
-    if (tablero === "done" && actual !== "resuelto" && actual !== "verificado") {
+    if (tablero === "done" && !terminado) {
         return { estado: "resuelto", motivo: "En el tablero: Done" };
     }
     return null;

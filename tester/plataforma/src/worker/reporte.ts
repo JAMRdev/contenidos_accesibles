@@ -143,6 +143,20 @@ export function comentarioPropuestaCierre(caso: Caso, sesion: { id: number; titu
     ].join("\n");
 }
 
+/** Comentario cuando QA cambia el estado de un bug publicado (#134): reabierto, verificado o descartado. */
+export function comentarioEstadoQa(estado: "reabierto" | "verificado" | "descartado", opciones: { bugId: number; actor: string; abierto: boolean; origenWeb: string }): string {
+    const quien = `@${opciones.actor} desde la [plataforma de QA](${opciones.origenWeb}/bugs/${opciones.bugId})`;
+    if (estado === "reabierto") {
+        return `**QA lo volvió a probar y sigue fallando** (${quien}). Se reabrió el issue.`;
+    }
+    if (estado === "verificado") {
+        return opciones.abierto
+            ? `**QA verificó el arreglo** (${quien}). Propongo cerrar este issue; la plataforma de QA no cierra issues sola.`
+            : `**QA verificó el arreglo** (${quien}).`;
+    }
+    return `**QA propone descartar este bug** (${quien}): no se va a corregir o no es un bug. Propongo cerrarlo como no planificado; la plataforma de QA no cierra issues sola.`;
+}
+
 export function comentarioInterno(autor: string, texto: string, bugId: number, origenWeb: string): string {
     const cita = texto.trim().split("\n").map((l) => `> ${l}`).join("\n");
     return `**@${autor}** comentó desde la [plataforma de QA](${origenWeb}/bugs/${bugId}):\n\n${cita}`;

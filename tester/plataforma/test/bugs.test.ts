@@ -87,19 +87,16 @@ describe("estado de un bug", () => {
         expect((await cambiar("borrador")).status).toBe(200);
     });
 
-    it("publicado, QA mueve el estado y queda en el historial y la auditoría", async () => {
+    it("publicado, los estados de GitHub no se ponen a mano y sin GitHub configurado no cambia nada", async () => {
         const bug = await crearBug({ caso_id: "QA-4.3-01" });
         await publicar(bug.id, 321);
         const cambiar = (estado: string) => api("user_qa", `/api/bugs/${bug.id}`, { method: "PATCH", ...body({ estado }) });
         expect((await cambiar("borrador")).status).toBe(409);
-        expect(await (await cambiar("verificado")).json()).toMatchObject({ estado: "verificado", issue: { numero: 321 } });
-        expect((await cambiar("reabierto")).status).toBe(200);
-
-        const detalle = await (await api("user_viewer", `/api/bugs/${bug.id}`)).json<{ historial: { de: string | null; a: string; actor: string }[] }>();
-        // publicar() de este test no deja historial (el de #130 sí): el primer cambio de QA sale de "abierto"
-        expect(detalle.historial.map((h) => [h.de, h.a])).toEqual([[null, "borrador"], ["abierto", "verificado"], ["verificado", "reabierto"]]);
-        const { entradas } = await (await api("user_admin", "/api/auditoria")).json<{ entradas: { accion: string }[] }>();
-        expect(entradas.filter((e) => e.accion === "bug.estado")).toHaveLength(2);
+        expect((await cambiar("en_curso")).status).toBe(409);
+        expect((await cambiar("resuelto")).status).toBe(409);
+        // Reabrir, verificar o descartar van a GitHub: sin token, 409 y el estado sigue igual
+        expect((await cambiar("verificado")).status).toBe(409);
+        expect((await (await api("user_qa", `/api/bugs/${bug.id}`)).json<{ estado: string }>()).estado).toBe("abierto");
     });
 
     it("editar título, descripción y severidad sin cambiar el estado", async () => {
@@ -111,7 +108,9 @@ describe("estado de un bug", () => {
 
     it("reglas de transición", () => {
         expect(motivoTransicion({ status: "borrador", issue_number: null }, "borrador")).toMatch(/ya está/);
-        expect(motivoTransicion({ status: "abierto", issue_number: 1 }, "en_curso")).toBeNull();
+        expect(motivoTransicion({ status: "abierto", issue_number: 1 }, "en_curso")).toMatch(/lo toma de GitHub/);
+        expect(motivoTransicion({ status: "resuelto", issue_number: 1 }, "reabierto")).toBeNull();
+        expect(motivoTransicion({ status: "resuelto", issue_number: 1 }, "verificado")).toBeNull();
         expect(motivoTransicion({ status: "resuelto", issue_number: 1 }, "borrador")).toMatch(/no vuelve a borrador/);
     });
 });

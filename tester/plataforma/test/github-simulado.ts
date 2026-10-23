@@ -65,6 +65,7 @@ export class GithubFalso {
             const issue = this.issues.find((i) => i.number === Number(edicion[1]));
             if (!issue) return Response.json({ message: "Not Found" }, { status: 404 });
             Object.assign(issue, { title: body.title ?? issue.title, body: body.body ?? issue.body });
+            if (body.state) Object.assign(issue, { state: body.state, stateReason: body.state_reason ? body.state_reason.toUpperCase() : null });
             return Response.json(this.issueJson(issue));
         }
         if (url.pathname === "/graphql") {

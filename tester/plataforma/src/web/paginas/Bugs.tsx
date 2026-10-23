@@ -18,6 +18,15 @@ const FILTRO_ESTADO = [
     ...ESTADOS.map((e) => [e, BUG_INFO[e].label] as const),
 ] as const;
 
+// Qué pasa en GitHub cuando QA cambia el estado de un bug publicado (lo confirma antes)
+const EFECTO_EN_GITHUB = {
+    reabierto: (n: number, cerrado: boolean) =>
+        cerrado ? `se va a reabrir el issue #${n} en GitHub con un comentario de que sigue fallando.` : `se va a comentar en el issue #${n} que sigue fallando (ya está abierto).`,
+    verificado: (n: number, cerrado: boolean) =>
+        cerrado ? `se va a comentar en el issue #${n} que el arreglo funciona.` : `se va a comentar en el issue #${n} que el arreglo funciona, proponiendo cerrarlo (no se cierra solo).`,
+    descartado: (n: number) => `se va a comentar en el issue #${n} proponiendo cerrarlo como no planificado (no se cierra solo).`,
+} as const;
+
 const ORIGEN_TEXTO = { qa: "QA", github: "GitHub", sincronizacion: "Sincronización" } as const;
 
 export function Bugs() {
@@ -201,7 +210,17 @@ export function BugDetallePagina({ id }: { id: string }) {
     if (!bug.datos) return <Cargando />;
     const b = bug.datos;
     // Mismas reglas que el Worker: sin issue, borrador ↔ descartado; publicado, entre los estados publicados
-    const posibles = b.issue ? ESTADOS.filter((e) => e !== "borrador") : (["borrador", "descartado"] as EstadoBug[]);
+    // Mismas reglas que el Worker: sin issue, borrador ↔ descartado; publicado, QA solo reabre, verifica o descarta
+    // (abierto, en curso y resuelto los toma de GitHub)
+    const posibles: EstadoBug[] = b.issue ? ["reabierto", "verificado", "descartado"] : ["borrador", "descartado"];
+
+    function cambiarEstado(estado: EstadoBug) {
+        if (b.issue) {
+            const efecto = EFECTO_EN_GITHUB[estado as keyof typeof EFECTO_EN_GITHUB](b.issue.numero, b.issue.estado === "closed");
+            if (!window.confirm(`${BUG_INFO[estado].label}: ${efecto} ¿Seguir?`)) return;
+        }
+        void cambiar({ estado }, b.issue ? `El bug pasó a ${BUG_INFO[estado].label} y se avisó en GitHub (#${b.issue.numero}).` : `El bug pasó a ${BUG_INFO[estado].label}.`);
+    }
 
     async function cambiar(cambios: Record<string, unknown>, ok: string) {
         try {
@@ -238,7 +257,7 @@ export function BugDetallePagina({ id }: { id: string }) {
                             chico
                             valor={b.estado}
                             opciones={[[b.estado, `Cambiar estado…`] as const, ...posibles.filter((e) => e !== b.estado).map((e) => [e, BUG_INFO[e].label] as const)]}
-                            onChange={(estado) => void cambiar({ estado }, `El bug pasó a ${BUG_INFO[estado].label}.`)}
+                            onChange={cambiarEstado}
                         />
                     )}
                 </div>

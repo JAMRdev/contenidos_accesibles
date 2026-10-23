@@ -85,7 +85,15 @@ La plataforma sirve para el backend y para el frontend. Los casos del repo (`tes
 - Cada **sesión** prueba un área y lista solo sus casos vigentes (más los archivados que ya tengan resultado en esa sesión).
 - Cada **bug** hereda el área de su caso: el issue lleva la etiqueta `backend` o `frontend`, y el issue de ejecución, el área en el título.
 
-**Resultados y bugs son cosas distintas.** El resultado es lo que dio un caso en una sesión. El bug es lo que se publica en GitHub y tiene su propio estado: `borrador` → (publicar, #130) → `abierto` → `en_curso` → `resuelto` → `verificado`, más `reabierto` y `descartado`. Sin issue, un bug solo pasa entre `borrador` y `descartado`; publicado, QA puede moverlo entre los estados publicados y GitHub lo actualiza con la sincronización (#134). Cada cambio queda en el historial del bug con su origen (`qa`, `github` o `sincronizacion`).
+**Resultados y bugs son cosas distintas.** El resultado es lo que dio un caso en una sesión. El bug es lo que se publica en GitHub y tiene su propio estado: `borrador` → (publicar, #130) → `abierto` → `en_curso` → `resuelto` → `verificado`, más `reabierto` y `descartado`. Sin issue, un bug solo pasa entre `borrador` y `descartado`. Publicado, `abierto`, `en_curso` y `resuelto` los toma de GitHub (sincronización, #134) y QA puede ponerlo a mano solo en estos, cada uno con su efecto en GitHub:
+
+| QA lo pasa a | En GitHub |
+| :--- | :--- |
+| `reabierto` (volvió a fallar) | Reabre el issue (si estaba cerrado) y comenta que sigue fallando. |
+| `verificado` (el arreglo funciona) | Comenta que se verificó; si el issue sigue abierto, propone cerrarlo. |
+| `descartado` | Comenta proponiendo cerrarlo como no planificado. |
+
+La plataforma nunca cierra issues. Si GitHub falla, el estado no cambia en la plataforma (502). La sincronización respeta lo que decidió QA: no pisa un `verificado` o `descartado` con el Status del tablero, y un issue reabierto desde la plataforma queda abierto en GitHub. Cada cambio queda en el historial del bug con su origen (`qa`, `github` o `sincronizacion`).
 
 **Casos destructivos** (estrés, cambios de configuración): no se pueden registrar en una sesión de producción (409) y no cuentan en su avance.
 

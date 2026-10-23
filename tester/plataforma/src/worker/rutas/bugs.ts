@@ -13,14 +13,15 @@
 // - GET/POST /api/bugs/:id/comentarios                                           (POST: qa)
 //
 // Estados: borrador → (publicar en GitHub, #130) → abierto → en_curso → resuelto → verificado,
-// más reabierto y descartado. Sin issue, solo se pasa entre borrador y descartado; con issue,
-// QA puede mover el estado entre los publicados y GitHub lo actualiza con la sincronización (#134).
+// más reabierto y descartado. Sin issue, solo se pasa entre borrador y descartado. Publicado,
+// abierto, en curso y resuelto los toma de GitHub (sincronización, #134) y QA puede reabrirlo,
+// verificarlo o descartarlo: cada uno tiene su efecto en GitHub (publicar.ts, estadoHaciaGithub).
 import { Hono } from "hono";
 import { z } from "zod";
 import { SEVERIDADES } from "../../catalogo/esquema.ts";
 import { auditar } from "../auditoria";
 import { limitePublicar, requiereRol, type AppEnv } from "../auth";
-import { publicarBug } from "../publicar";
+import { ESTADOS_QA_PUBLICADO, estadoHaciaGithub, publicarBug, type EstadoQaPublicado } from "../publicar";
 import { sincronizar } from "../sincronizacion";
 import { ENTORNOS } from "../catalogo";
 import { AREAS, cargarCasos, obtenerCaso, type CasoQA } from "../casos";
@@ -31,7 +32,6 @@ import { armarIssue, faltantes } from "../reporte";
 import { datosDelIssue, ESTADOS_BUG, type EstadoBug, type FilaBug } from "../bugs-datos";
 import { consultaLista, error, Filtros, idDe, leerBody, limiteDe, textoOpcional } from "../validar";
 
-const PUBLICADOS: readonly EstadoBug[] = ["abierto", "en_curso", "resuelto", "verificado", "reabierto", "descartado"];
 
 
 /** Mensaje de por qué no se puede pasar al estado pedido, o null si se puede. */
@@ -42,7 +42,11 @@ export function motivoTransicion(bug: Pick<FilaBug, "status" | "issue_number">, 
         if (nuevo !== "borrador" && nuevo !== "descartado") return "Sin issue en GitHub, un bug solo puede estar en borrador o descartado.";
         return null;
     }
-    if (!PUBLICADOS.includes(nuevo)) return "Un bug publicado en GitHub no vuelve a borrador.";
+    if (nuevo === "borrador") return "Un bug publicado en GitHub no vuelve a borrador.";
+    // En un bug publicado, abierto, en curso y resuelto los decide GitHub (quién lo trabaja y cuándo se cierra)
+    if (!(ESTADOS_QA_PUBLICADO as readonly EstadoBug[]).includes(nuevo)) {
+        return "En un bug publicado, ese estado lo toma de GitHub. QA puede reabrirlo, verificarlo o descartarlo.";
+    }
     return null;
 }
 
@@ -192,6 +196,11 @@ bugs.patch("/:id", requiereRol("qa"), async (c) => {
         if (motivo) throw error(409, motivo);
     }
     const yo = c.get("usuario").github;
+    // Bug publicado: primero se lleva el estado a GitHub; si GitHub falla, no cambia nada acá
+    let nota: string | null = null;
+    if (datos.estado && b.issue_number) {
+        nota = await estadoHaciaGithub(c.env, b, datos.estado as EstadoQaPublicado, yo, new URL(c.req.url).origin);
+    }
     const consultas = [
         c.env.DB.prepare(
             `UPDATE qa_bugs SET status = COALESCE(?, status), title = COALESCE(?, title), description = COALESCE(?, description),
@@ -212,8 +221,8 @@ bugs.patch("/:id", requiereRol("qa"), async (c) => {
     ];
     if (datos.estado) {
         consultas.push(
-            c.env.DB.prepare("INSERT INTO qa_bug_history (bug_id, from_status, to_status, source, actor) VALUES (?, ?, ?, 'qa', ?)").bind(
-                b.id, b.status, datos.estado, yo,
+            c.env.DB.prepare("INSERT INTO qa_bug_history (bug_id, from_status, to_status, source, actor, note) VALUES (?, ?, ?, 'qa', ?, ?)").bind(
+                b.id, b.status, datos.estado, yo, nota,
             ),
         );
     }
