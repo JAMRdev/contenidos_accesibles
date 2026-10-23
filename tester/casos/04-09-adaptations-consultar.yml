@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.9"
+titulo: "Consultar propuestas"
+casos:
+  - id: QA-4.9-01
+    titulo: Se listan las propuestas de un diagnóstico
+    endpoint: GET /api/v1/adaptations?analysis_id=
+    pasos:
+      - Listar con un analysis_id sin propuestas.
+      - Pedir una propuesta y volver a listar.
+    esperado: Primero una lista vacía; después la lista con la propuesta.
+    severidad: media
+    etiquetas: [adaptaciones]
+
+  - id: QA-4.9-02
+    titulo: Se consulta una propuesta por id
+    endpoint: GET /api/v1/adaptations/{proposal_id}
+    pasos:
+      - Consultar una propuesta existente.
+      - Consultar un proposal_id inventado.
+    esperado: 200 con la propuesta; 404 si no existe o venció.
+    severidad: media
+    etiquetas: [adaptaciones]

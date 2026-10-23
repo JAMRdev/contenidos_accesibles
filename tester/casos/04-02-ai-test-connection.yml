@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.2"
+titulo: "POST /ai/test-connection (y /ai/test-gemini, obsoleto)"
+casos:
+  - id: QA-4.2-01
+    titulo: Con IA configurada y con cuota responde proveedor, modelo y texto
+    endpoint: POST /api/v1/ai/test-connection
+    pasos:
+      - Llamar una sola vez a POST /api/v1/ai/test-connection.
+    esperado: 200 con proveedor, modelo y el texto que respondió la IA.
+    severidad: alta
+    etiquetas: [ia]
+    ia_real: true
+
+  - id: QA-4.2-02
+    titulo: Sin conexiones de IA responde 400
+    endpoint: POST /api/v1/ai/test-connection
+    precondiciones:
+      - Backend local sin conexiones de IA cargadas en /admin.
+    pasos:
+      - Llamar a POST /api/v1/ai/test-connection.
+    esperado: 400 con un detail que explica que no hay conexiones de IA.
+    severidad: media
+    etiquetas: [ia]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-4.2-03
+    titulo: Con todas las conexiones agotadas responde 429
+    endpoint: POST /api/v1/ai/test-connection
+    precondiciones:
+      - Backend local o staging con todas las conexiones agotadas o en pausa.
+    pasos:
+      - Llamar a POST /api/v1/ai/test-connection.
+    esperado: "429."
+    severidad: media
+    etiquetas: [ia, rate-limit]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-4.2-04
+    titulo: Con proveedores caídos o mal configurados responde 503
+    endpoint: POST /api/v1/ai/test-connection
+    precondiciones:
+      - Backend local o staging con conexiones de URL o key inválidas.
+    pasos:
+      - Llamar a POST /api/v1/ai/test-connection.
+    esperado: "503."
+    severidad: media
+    etiquetas: [ia]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-4.2-05
+    titulo: Más de 5 llamadas en un minuto desde la misma IP responde 429
+    endpoint: POST /api/v1/ai/test-connection
+    precondiciones:
+      - Backend local o staging con una API key de prueba.
+    pasos:
+      - Hacer 6 llamadas seguidas a POST /api/v1/ai/test-connection.
+    esperado: Las 5 primeras responden; la 6.ª responde 429 con header Retry-After.
+    severidad: media
+    etiquetas: [ia, rate-limit]
+    ia_real: true
+    destructivo: true

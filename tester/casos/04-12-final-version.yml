@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.12"
+titulo: "GET /adaptations/final-version?analysis_id="
+casos:
+  - id: QA-4.12-01
+    titulo: Sin propuestas, la versión adaptada es igual al original
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    pasos:
+      - Consultar la versión final de un diagnóstico sin propuestas.
+    esperado: 200 con adapted_text igual a original_text.
+    severidad: media
+    etiquetas: [version-final]
+
+  - id: QA-4.12-02
+    titulo: Una propuesta aceptada reemplaza el fragmento
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    precondiciones:
+      - Una propuesta aceptada.
+    pasos:
+      - Consultar la versión final.
+    esperado: El proposed_text de la propuesta reemplaza el fragmento original.
+    severidad: alta
+    etiquetas: [version-final]
+
+  - id: QA-4.12-03
+    titulo: Una propuesta editada aparece textual
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    precondiciones:
+      - Una propuesta editada.
+    pasos:
+      - Consultar la versión final.
+    esperado: El texto del docente aparece textual en adapted_text.
+    severidad: alta
+    etiquetas: [version-final]
+
+  - id: QA-4.12-04
+    titulo: Las descartadas y pendientes no cambian el fragmento
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    precondiciones:
+      - Una propuesta descartada y otra pendiente.
+    pasos:
+      - Consultar la versión final.
+    esperado: Los fragmentos originales quedan iguales.
+    severidad: alta
+    etiquetas: [version-final]
+
+  - id: QA-4.12-05
+    titulo: Dos propuestas sobre el mismo fragmento
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    precondiciones:
+      - Dos propuestas aplicadas (una editada) sobre el mismo fragmento.
+    pasos:
+      - Consultar la versión final.
+    esperado: Gana la editada (o la decisión más reciente) y hay un warning de "solapamiento".
+    severidad: media
+    etiquetas: [version-final]
+
+  - id: QA-4.12-06
+    titulo: Deshacer y volver a pedir quita el cambio
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    precondiciones:
+      - Una propuesta aceptada.
+    pasos:
+      - Deshacer la propuesta y pedir otra para la misma barrera.
+      - Consultar la versión final.
+    esperado: El cambio de la propuesta deshecha desaparece.
+    severidad: media
+    etiquetas: [version-final, decisiones]
+
+  - id: QA-4.12-07
+    titulo: original_text siempre es el material original
+    endpoint: GET /api/v1/adaptations/final-version?analysis_id=
+    pasos:
+      - Consultar la versión final después de varias decisiones.
+    esperado: original_text es siempre igual al material original.
+    severidad: alta
+    etiquetas: [version-final]

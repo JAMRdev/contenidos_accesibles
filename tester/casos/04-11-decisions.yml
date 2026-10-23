@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.11"
+titulo: "GET /adaptations/decisions?analysis_id="
+casos:
+  - id: QA-4.11-01
+    titulo: El registro de decisiones es cronológico y completo
+    endpoint: GET /api/v1/adaptations/decisions?analysis_id=
+    precondiciones:
+      - Un diagnóstico con decisiones y al menos un deshacer.
+    pasos:
+      - Consultar el registro del diagnóstico.
+      - Consultarlo con un analysis_id inventado.
+    esperado: Una entrada por decisión y por deshacer, en orden, con barrier_id, adaptation_type, action, from_status, to_status, edited_text y created_at; 404 si el diagnóstico no existe.
+    severidad: media
+    etiquetas: [decisiones, informe]

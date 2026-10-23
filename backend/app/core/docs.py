@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.admin import session
 
 LOGIN_URL = "/admin/login"
+# Mismo logo que el panel /admin (app/admin/static/favicon.svg)
+FAVICON_URL = "/admin/static/favicon.svg"
 
 
 def setup_protected_docs(app: FastAPI, openapi_url: str) -> None:
@@ -32,10 +34,10 @@ def setup_protected_docs(app: FastAPI, openapi_url: str) -> None:
     def swagger_ui(request: Request):
         if session.current_admin(request) is None:
             return _login(request)
-        return get_swagger_ui_html(openapi_url=openapi_url, title=f"{app.title} - Swagger UI")
+        return get_swagger_ui_html(openapi_url=openapi_url, title=f"{app.title} - Swagger UI", swagger_favicon_url=FAVICON_URL)
 
     @app.get("/redoc", include_in_schema=False)
     def redoc(request: Request):
         if session.current_admin(request) is None:
             return _login(request)
-        return get_redoc_html(openapi_url=openapi_url, title=f"{app.title} - ReDoc")
+        return get_redoc_html(openapi_url=openapi_url, title=f"{app.title} - ReDoc", redoc_favicon_url=FAVICON_URL)

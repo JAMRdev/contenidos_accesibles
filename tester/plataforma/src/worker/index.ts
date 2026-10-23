@@ -1,0 +1,90 @@
+// Worker de la plataforma de QA (Issue #123).
+//
+// - GET /health      → estado de D1 y R2 (sin login, para monitoreo)
+// - GET /api/config  → publishable key de Clerk para la web (sin login)
+// - /api/*           → API de la plataforma; exige sesión de Clerk y rol (auth.ts):
+//                      miembros, casos, sesiones, resultados, bugs y auditoría (ver rutas/)
+// - el resto         → la web de QA; lo sirve Cloudflare desde dist/web sin pasar por acá
+//
+// El Cron Trigger (cada 10 minutos) sincroniza con GitHub el estado y los comentarios de los bugs
+// publicados (#134).
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { listarAuditoria } from "./auditoria";
+import { limitePublicar, requiereRol, requiereSesion, type AppEnv } from "./auth";
+import { sincronizar } from "./sincronizacion";
+import { GithubError } from "./github";
+import { health } from "./health";
+import { LAST_CRON_KEY, setMeta } from "./meta";
+import { alcanza } from "./roles";
+import { bugs } from "./rutas/bugs";
+import { casos } from "./rutas/casos";
+import { evidencias } from "./rutas/evidencias";
+import { miembros } from "./rutas/miembros";
+import { resultados } from "./rutas/resultados";
+import { sesiones } from "./rutas/sesiones";
+
+const app = new Hono<AppEnv>();
+
+app.get("/health", health);
+
+app.get("/api/config", (c) => c.json({ clerk_publishable_key: c.env.CLERK_PUBLISHABLE_KEY }));
+
+// De acá en adelante, toda la API exige sesión
+app.use("/api/*", requiereSesion);
+
+app.get("/api/me", (c) => {
+    const u = c.get("usuario");
+    return c.json({
+        github: u.github,
+        nombre: u.nombre,
+        avatar_url: u.avatarUrl,
+        rol: u.rol,
+        permisos: { escribir: alcanza(u.rol, "qa"), administrar: alcanza(u.rol, "admin") },
+    });
+});
+
+app.route("/api/miembros", miembros);
+app.route("/api/casos", casos);
+app.route("/api/sesiones", sesiones);
+app.route("/api/resultados", resultados);
+app.route("/api/bugs", bugs);
+app.route("/api/evidencias", evidencias);
+
+// "Sincronizar ahora": trae de GitHub el estado y los comentarios de todos los bugs publicados
+app.post("/api/sincronizar", requiereRol("qa"), limitePublicar, async (c) =>
+    c.json(await sincronizar(c.env, { origen: "github", actor: c.get("usuario").github })),
+);
+
+app.get("/api/auditoria", requiereRol("admin"), async (c) => {
+    const limite = Math.min(Math.max(Number(c.req.query("limite")) || 50, 1), 200);
+    const antes = Number(c.req.query("antes")) || undefined;
+    return c.json({ entradas: await listarAuditoria(c.env, limite, antes) });
+});
+
+// Fuera de /api, lo que llega acá es de la web (Cloudflare suele servirlo antes, desde los assets)
+app.notFound((c) =>
+    c.req.path.startsWith("/api/") ? c.json({ error: "No existe ese endpoint." }, 404) : c.env.ASSETS.fetch(c.req.raw),
+);
+
+app.onError((err, c) => {
+    // Errores esperados (validación, no encontrado, conflicto): su mensaje es apto para mostrar
+    if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
+    // GitHub caído o rechazando el pedido: lo publicado hasta ahí queda registrado y se puede reintentar
+    if (err instanceof GithubError) return c.json({ error: `${err.message} Lo que se alcanzó a publicar quedó registrado: podés reintentar.` }, 502);
+    console.error(err);
+    return c.json({ error: "Error interno de la plataforma de QA." }, 500);
+});
+
+export default {
+    fetch: app.fetch,
+    async scheduled(controller, env, ctx) {
+        ctx.waitUntil(
+            (async () => {
+                await setMeta(env, LAST_CRON_KEY, new Date(controller.scheduledTime).toISOString());
+                const r = await sincronizar(env, { origen: "sincronizacion" });
+                if (r.errores.length) console.warn("Sincronización con GitHub:", r.errores.join(" | "));
+            })(),
+        );
+    },
+} satisfies ExportedHandler<AppEnv["Bindings"]>;

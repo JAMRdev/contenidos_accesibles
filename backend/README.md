@@ -129,7 +129,7 @@ Para evitar caídas de servicio cuando se agota la capa gratuita de los proveedo
 - **Cargar y priorizar múltiples conexiones de IA**, cada una con sus propios umbrales configurables.
 - **Rotación automática**: cuando la key activa se acerca a cualquiera de sus umbrales o recibe un error de cuota (`429`/`503`), el backend cambia automáticamente a la siguiente conexión disponible.
 - **Administrar el acceso**: qué usuarios de GitHub entran y con qué rol.
-- **Ver el estado de los servicios** (pestaña **Estado**): API, base de datos, Worker de D1, conexiones de IA, Clerk (panel y docentes), web de pruebas y frontend, más las URLs del proyecto.
+- **Ver el estado de los servicios** (pestaña **Estado**): API, base de datos, Worker de D1, conexiones de IA, Clerk (panel y docentes), web de pruebas, plataforma de QA (`QA_PLATFORM_URL`) y frontend, más las URLs del proyecto.
 
 **Pestaña Estado.** Es una página de estado liviana (`app/services/status_service.py`, `GET /admin/api/status`):
 

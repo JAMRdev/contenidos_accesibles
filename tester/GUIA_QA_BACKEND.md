@@ -264,6 +264,8 @@ Resumen (todos bajo `/api/v1`, salvo los marcados):
 | GET | `/export/content?analysis_id=&format=` | Descargar el material adaptado (`docx`, `pdf`, `md`, `txt`) | – | – |
 | GET | `/export/report?analysis_id=&format=` | Descargar el informe (`pdf`, `md`, `txt`) | – (0 tokens) | – |
 
+> **IDs de los casos.** Cada caso de prueba de esta guía tiene un ID estable (por ejemplo `QA-4.8-03`). El detalle de cada caso (precondiciones, pasos, datos, resultado esperado, severidad, si usa mock, si consume IA real y si es solo para local) vive en el catálogo [`tester/casos/`](casos/), que es la fuente de verdad y la que usa la plataforma de QA. Si cambiás un caso, cambialo en el catálogo; la CI controla que los IDs de la guía y del catálogo coincidan. Un caso borrado no se renumera: su ID va a [`casos/ids-retirados.txt`](casos/ids-retirados.txt).
+
 ### 4.1 `GET /` y `GET /api/v1/health`
 
 Bienvenida (entorno activo y enlaces a la documentación) y chequeo de estado. Railway usa `/health` para saber si el servicio está vivo.
@@ -273,7 +275,10 @@ curl "$API/health"
 # 200 {"status":"online","environment":"production","version":"0.1.0", ...}
 ```
 
-Probar: responde 200 en menos de 1 s; si el servicio estaba dormido, la primera llamada puede tardar más.
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.1-01` | `GET /` | 200 con el entorno activo y los enlaces a la documentación |
+| `QA-4.1-02` | `GET /api/v1/health` | 200 en menos de 1 s; si el servicio estaba dormido, la primera llamada puede tardar más |
 
 ### 4.2 `POST /ai/test-connection` (y `/ai/test-gemini`, obsoleto)
 
@@ -283,13 +288,13 @@ Manda un prompt corto a la conexión de IA activa y devuelve proveedor, modelo y
 curl -X POST "$API/ai/test-connection"
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| IA configurada y con cuota | 200 con proveedor, modelo y texto |
-| Sin conexiones de IA | 400 |
-| Todas las conexiones agotadas | 429 |
-| Proveedores caídos o mal configurados | 503 |
-| Más de 5 llamadas en un minuto desde tu IP | 429 + `Retry-After` |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.2-01` | IA configurada y con cuota | 200 con proveedor, modelo y texto |
+| `QA-4.2-02` | Sin conexiones de IA | 400 |
+| `QA-4.2-03` | Todas las conexiones agotadas | 429 |
+| `QA-4.2-04` | Proveedores caídos o mal configurados | 503 |
+| `QA-4.2-05` | Más de 5 llamadas en un minuto desde tu IP | 429 + `Retry-After` |
 
 ### 4.3 `POST /documents/process-text`
 
@@ -300,12 +305,12 @@ curl -X POST "$API/documents/process-text" -H "Content-Type: application/json" \
   -d '{"text": "Leé el texto y respondé las preguntas."}'
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| Texto válido | 200, `source_type = "text"`, `word_count = 7` |
-| Menos de 10 caracteres | 422 `string_too_short` |
-| Más de 50.000 caracteres | 422 `string_too_long` |
-| Sin body o sin `text` | 422 |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.3-01` | Texto válido | 200, `source_type = "text"`, `word_count = 7` |
+| `QA-4.3-02` | Menos de 10 caracteres | 422 `string_too_short` |
+| `QA-4.3-03` | Más de 50.000 caracteres | 422 `string_too_long` |
+| `QA-4.3-04` | Sin body o sin `text` | 422 |
 
 ### 4.4 `POST /documents/upload-pdf` y `POST /documents/upload`
 
@@ -317,19 +322,19 @@ curl -X POST "$API/documents/upload" -F "file=@guia.docx"
 
 Campos a revisar: `source_type` (`pdf`/`docx`/`pptx`), `page_count` (en PowerPoint son diapositivas visibles), `word_count`, `image_count`, `images_with_alt_text` (solo Word/PowerPoint), `is_scanned_pdf`, `structure.headings`, `structure.list_items_count`, `warnings`.
 
-| Caso | Esperado |
-| :--- | :--- |
-| PDF con texto | 200, `raw_text` con el contenido |
-| Word con estilos de título | 200, `structure.headings` con nivel y texto |
-| PowerPoint | 200, títulos de diapositiva como encabezados; diapositivas ocultas y notas del orador **no** aparecen |
-| Imagen con texto alternativo en Word/PowerPoint | cuenta en `images_with_alt_text` |
-| Extensión no admitida (`.txt`, `.doc`) | 400 |
-| Content-Type incorrecto (ej. `image/png`) | 400 |
-| Contenido que no corresponde a la extensión | 400 |
-| PDF o Office protegido con contraseña | 400 con mensaje claro |
-| Office con macros (`.docm`/`.pptm`) | 400 |
-| Archivo vacío | 400 |
-| Archivo de más de 10 MB | 413 |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.4-01` | PDF con texto | 200, `raw_text` con el contenido |
+| `QA-4.4-02` | Word con estilos de título | 200, `structure.headings` con nivel y texto |
+| `QA-4.4-03` | PowerPoint | 200, títulos de diapositiva como encabezados; diapositivas ocultas y notas del orador **no** aparecen |
+| `QA-4.4-04` | Imagen con texto alternativo en Word/PowerPoint | cuenta en `images_with_alt_text` |
+| `QA-4.4-05` | Extensión no admitida (`.txt`, `.doc`) | 400 |
+| `QA-4.4-06` | Content-Type incorrecto (ej. `image/png`) | 400 |
+| `QA-4.4-07` | Contenido que no corresponde a la extensión | 400 |
+| `QA-4.4-08` | PDF o Office protegido con contraseña | 400 con mensaje claro |
+| `QA-4.4-09` | Office con macros (`.docm`/`.pptm`) | 400 |
+| `QA-4.4-10` | Archivo vacío | 400 |
+| `QA-4.4-11` | Archivo de más de 10 MB | 413 |
 
 ### 4.5 `POST /analysis/sample`
 
@@ -347,17 +352,17 @@ Parámetros: `mock` (bool), `dismissed` (repetible, ids de datos personales a de
 
 Respuesta 200: `analysis_id`, `expires_at`, `estimated_score`, `summary`, `dimensions[]` (semáforo por categoría), `strengths[]`, `barriers[]`, `warnings[]`, `score_breakdown`, `metadata` (proveedor, modelo, tokens, palabras analizadas, `is_truncated`).
 
-| Caso | Esperado |
-| :--- | :--- |
-| Material con barreras | 200 con barreras de oración extensa, consigna múltiple y referencia visual |
-| Texto en `text/plain` con saltos de línea | 200 |
-| Menos de 10 caracteres / más de 20.000 | 422 |
-| JSON mal formado o body vacío | 422 `json_invalid` |
-| Texto que no es UTF-8 | 422 `unicode_decode` |
-| Solo espacios | 422 "no contiene texto analizable" |
-| Con datos personales | 422 `sensitive_data_detected` |
-| Mismo texto con todos los `dismissed` | 200 y un warning de que el docente descartó hallazgos |
-| Sin mock, 6.ª llamada en el mismo minuto | 429 + `Retry-After` |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.5-01` | Material con barreras | 200 con barreras de oración extensa, consigna múltiple y referencia visual |
+| `QA-4.5-02` | Texto en `text/plain` con saltos de línea | 200 |
+| `QA-4.5-03` | Menos de 10 caracteres / más de 20.000 | 422 |
+| `QA-4.5-04` | JSON mal formado o body vacío | 422 `json_invalid` |
+| `QA-4.5-05` | Texto que no es UTF-8 | 422 `unicode_decode` |
+| `QA-4.5-06` | Solo espacios | 422 "no contiene texto analizable" |
+| `QA-4.5-07` | Con datos personales | 422 `sensitive_data_detected` |
+| `QA-4.5-08` | Mismo texto con todos los `dismissed` | 200 y un warning de que el docente descartó hallazgos |
+| `QA-4.5-09` | Sin mock, 6.ª llamada en el mismo minuto | 429 + `Retry-After` |
 
 ### 4.6 `POST /analysis/pdf` y `POST /analysis/file`
 
@@ -371,9 +376,9 @@ Parámetros extra: `confirm_images_without_personal_data` (bool). Si el archivo 
 
 Además de lo de 4.5, revisar:
 
-- `alt_text_proposals[]`: una propuesta por imagen relevante **sin** texto alternativo (hasta 5), con `location_description` (`"Página 1, sector superior"`, `"Diapositiva 3, sector inferior"` o `"Imagen 1, sección «Título»"` en Word).
-- PDF escaneado: 200 con la barrera "PDF escaneado sin capa de texto" y puntaje bajo (tope 40).
-- `metadata.source_type` y `metadata.page_count`.
+- `QA-4.6-01` · `alt_text_proposals[]`: una propuesta por imagen relevante **sin** texto alternativo (hasta 5), con `location_description` (`"Página 1, sector superior"`, `"Diapositiva 3, sector inferior"` o `"Imagen 1, sección «Título»"` en Word).
+- `QA-4.6-02` · PDF escaneado: 200 con la barrera "PDF escaneado sin capa de texto" y puntaje bajo (tope 40).
+- `QA-4.6-03` · `metadata.source_type` y `metadata.page_count`.
 
 Errores: los mismos de 4.4 (400 / 413) más los de datos personales (422) y rate limit (429).
 
@@ -381,11 +386,11 @@ Errores: los mismos de 4.4 (400 / 413) más los de datos personales (422) y rate
 
 Recupera un diagnóstico guardado sin volver a analizar (0 tokens).
 
-| Caso | Esperado |
-| :--- | :--- |
-| `analysis_id` válido | 200, igual al de la respuesta original |
-| Inexistente | 404 "Diagnóstico no encontrado" |
-| Vencido (más de 24 h) | 404 "El diagnóstico ha expirado" |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.7-01` | `analysis_id` válido | 200, igual al de la respuesta original |
+| `QA-4.7-02` | Inexistente | 404 "Diagnóstico no encontrado" |
+| `QA-4.7-03` | Vencido (más de 24 h) | 404 "El diagnóstico ha expirado" |
 
 ### 4.8 `POST /adaptations`
 
@@ -403,23 +408,23 @@ curl -X POST "$API/adaptations?mock=true" -H "Content-Type: application/json" -d
 - `fragment` (opcional, máx. 6.000 caracteres): texto a adaptar escrito por el docente. **Obligatorio** en barreras globales (las que citan `[...]`).
 - Si la barrera cita un párrafo recortado con `…`, el backend recupera el párrafo completo del material.
 
-| Caso | Esperado |
-| :--- | :--- |
-| Barrera con cita | 201, `original_text`, `proposed_text`, `explanation`, `preserved_objective` |
-| Barrera global sin `fragment` | 422 indicando que hay que enviar el fragmento |
-| `fragment` con datos personales | 422 `sensitive_data_detected` (se puede usar `dismissed`) |
-| `analysis_id` inexistente o vencido | 404 |
-| `barrier_id` inexistente | 404 |
-| `adaptation_type` inválido | 422 |
-| Sin mock, por encima del rate limit | 429 |
-| Pedir otra propuesta para una barrera que ya tiene una `pendiente` | 409 con `detail.code = "pending_proposal_exists"` y el `detail.proposal_id` de la existente; con IA real no consume tokens |
-| Dos pedidos seguidos para la misma barrera (doble clic) | Uno 201 y el otro 409 ("Ya se está generando…") |
-| Pedir otra después de aceptar, editar o descartar la anterior | 201 |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.8-01` | Barrera con cita | 201, `original_text`, `proposed_text`, `explanation`, `preserved_objective` |
+| `QA-4.8-02` | Barrera global sin `fragment` | 422 indicando que hay que enviar el fragmento |
+| `QA-4.8-03` | `fragment` con datos personales | 422 `sensitive_data_detected` (se puede usar `dismissed`) |
+| `QA-4.8-04` | `analysis_id` inexistente o vencido | 404 |
+| `QA-4.8-05` | `barrier_id` inexistente | 404 |
+| `QA-4.8-06` | `adaptation_type` inválido | 422 |
+| `QA-4.8-07` | Sin mock, por encima del rate limit | 429 |
+| `QA-4.8-08` | Pedir otra propuesta para una barrera que ya tiene una `pendiente` | 409 con `detail.code = "pending_proposal_exists"` y el `detail.proposal_id` de la existente; con IA real no consume tokens |
+| `QA-4.8-09` | Dos pedidos seguidos para la misma barrera (doble clic) | Uno 201 y el otro 409 ("Ya se está generando…") |
+| `QA-4.8-10` | Pedir otra después de aceptar, editar o descartar la anterior | 201 |
 
 ### 4.9 Consultar propuestas
 
-- `GET /adaptations?analysis_id=…`: todas las propuestas del diagnóstico (lista vacía si no hay).
-- `GET /adaptations/{proposal_id}`: una propuesta (404 si no existe o venció).
+- `QA-4.9-01` · `GET /adaptations?analysis_id=…`: todas las propuestas del diagnóstico (lista vacía si no hay).
+- `QA-4.9-02` · `GET /adaptations/{proposal_id}`: una propuesta (404 si no existe o venció).
 
 ### 4.10 `POST /adaptations/{proposal_id}/decision` y `/undo`
 
@@ -430,22 +435,22 @@ curl -X POST "$API/adaptations/<proposal_id>/decision" -H "Content-Type: applica
 curl -X POST "$API/adaptations/<proposal_id>/undo"
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| Aceptar / descartar una pendiente | 200 con el nuevo estado |
-| Editar con `edited_text` | 200, `final_text` igual al texto del docente |
-| `editada` sin `edited_text` | 422 |
-| `edited_text` con otra decisión | 422 |
-| Decidir sobre una ya decidida | 409 |
-| Deshacer una decidida | 200, vuelve a `pendiente` |
-| Deshacer una pendiente | 409 |
-| Deshacer cuando la barrera ya tiene otra propuesta `pendiente` | 409 `pending_proposal_exists` (primero hay que decidir la otra) |
-| Dos decisiones simultáneas sobre la misma propuesta | una 200 y la otra 409 |
-| Propuesta inexistente | 404 |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.10-01` | Aceptar / descartar una pendiente | 200 con el nuevo estado |
+| `QA-4.10-02` | Editar con `edited_text` | 200, `final_text` igual al texto del docente |
+| `QA-4.10-03` | `editada` sin `edited_text` | 422 |
+| `QA-4.10-04` | `edited_text` con otra decisión | 422 |
+| `QA-4.10-05` | Decidir sobre una ya decidida | 409 |
+| `QA-4.10-06` | Deshacer una decidida | 200, vuelve a `pendiente` |
+| `QA-4.10-07` | Deshacer una pendiente | 409 |
+| `QA-4.10-08` | Deshacer cuando la barrera ya tiene otra propuesta `pendiente` | 409 `pending_proposal_exists` (primero hay que decidir la otra) |
+| `QA-4.10-09` | Dos decisiones simultáneas sobre la misma propuesta | una 200 y la otra 409 |
+| `QA-4.10-10` | Propuesta inexistente | 404 |
 
 ### 4.11 `GET /adaptations/decisions?analysis_id=`
 
-Registro cronológico de decisiones y deshaceres (para el informe). Cada entrada: `barrier_id`, `adaptation_type`, `action` (`decision` / `deshacer`), `from_status`, `to_status`, `edited_text`, `created_at`. 404 si el diagnóstico no existe.
+`QA-4.11-01` · Registro cronológico de decisiones y deshaceres (para el informe). Cada entrada: `barrier_id`, `adaptation_type`, `action` (`decision` / `deshacer`), `from_status`, `to_status`, `edited_text`, `created_at`. 404 si el diagnóstico no existe.
 
 ### 4.12 `GET /adaptations/final-version?analysis_id=`
 
@@ -453,27 +458,27 @@ Versión final del material aplicando **solo** propuestas `aceptada` y `editada`
 
 Respuesta: `original_text`, `adapted_text`, `total_proposals`, `applied_count`, `discarded_count`, `pending_count`, `applied_proposals[]`, `warnings[]`.
 
-| Caso | Esperado |
-| :--- | :--- |
-| Sin propuestas | 200, `adapted_text` igual a `original_text` |
-| Una aceptada | su `proposed_text` reemplaza el fragmento |
-| Una editada | el texto del docente aparece **textual** |
-| Descartadas y pendientes | el fragmento original queda igual |
-| Dos propuestas sobre el mismo fragmento | gana la editada (o la decisión más reciente) y hay un warning de "solapamiento" |
-| Deshacer y volver a pedir | el cambio desaparece |
-| `original_text` | **siempre** igual al material original |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.12-01` | Sin propuestas | 200, `adapted_text` igual a `original_text` |
+| `QA-4.12-02` | Una aceptada | su `proposed_text` reemplaza el fragmento |
+| `QA-4.12-03` | Una editada | el texto del docente aparece **textual** |
+| `QA-4.12-04` | Descartadas y pendientes | el fragmento original queda igual |
+| `QA-4.12-05` | Dos propuestas sobre el mismo fragmento | gana la editada (o la decisión más reciente) y hay un warning de "solapamiento" |
+| `QA-4.12-06` | Deshacer y volver a pedir | el cambio desaparece |
+| `QA-4.12-07` | `original_text` | **siempre** igual al material original |
 
 ### 4.13 `GET /adaptations/report?analysis_id=`
 
 Informe final: `score_before`, `score_after`, `score_delta`, `executive_summary[]`, `barriers_detail[]` (cada barrera con su decisión), conteos y `disclaimer`. No llama a la IA.
 
-| Caso | Esperado |
-| :--- | :--- |
-| Sin decisiones | `score_after == score_before` (`score_delta = 0`) |
-| Editar una oración extensa por una versión corta | `score_delta > 0`, la penalización `oraciones_extensas` baja o desaparece |
-| Word/PDF con imágenes | la penalización de imágenes se mantiene (adaptar texto no la resuelve) |
-| Barrera sin propuesta | `resolution_status = "pendiente"` |
-| Diagnóstico inexistente | 404 |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.13-01` | Sin decisiones | `score_after == score_before` (`score_delta = 0`) |
+| `QA-4.13-02` | Editar una oración extensa por una versión corta | `score_delta > 0`, la penalización `oraciones_extensas` baja o desaparece |
+| `QA-4.13-03` | Word/PDF con imágenes | la penalización de imágenes se mantiene (adaptar texto no la resuelve) |
+| `QA-4.13-04` | Barrera sin propuesta | `resolution_status = "pendiente"` |
+| `QA-4.13-05` | Diagnóstico inexistente | 404 |
 
 ### 4.14 `GET /export/content` y `GET /export/report`
 
@@ -489,42 +494,48 @@ curl -o material.docx "$API/export/content?analysis_id=$ID&format=docx"
 curl -o informe.pdf   "$API/export/report?analysis_id=$ID&format=pdf"
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| Cada formato válido | 200, `Content-Type` correcto y el archivo abre (Word, visor de PDF, editor de texto) |
-| Propuestas aceptadas, editadas y descartadas | El material incluye las aceptadas y el texto editado; nunca las descartadas |
-| Sin ninguna decisión | El material es igual al original |
-| Texto con acentos, ñ, ¿ y ¡ | Se ven bien en todos los formatos |
-| Texto con flechas, ≥, emojis o escrituras no latinas | En `md`, `txt` y `docx` se conservan; en `pdf` salen como `?` (limitación conocida, ver sección 10) |
-| `format` inválido (por ejemplo `exe`, o `docx` en el informe) | 400 |
-| Diagnóstico inexistente o vencido | 404 |
-| Con `&delivery=link` | 200 JSON con `file` (`kind: "export"`) y `download.url`; abrir esa URL descarga el mismo archivo que sin el parámetro |
-| Abrir `download.url` después de 5 minutos | 403 (la URL firmada venció; pedir otra) |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.14-01` | Cada formato válido | 200, `Content-Type` correcto y el archivo abre (Word, visor de PDF, editor de texto) |
+| `QA-4.14-02` | Propuestas aceptadas, editadas y descartadas | El material incluye las aceptadas y el texto editado; nunca las descartadas |
+| `QA-4.14-03` | Sin ninguna decisión | El material es igual al original |
+| `QA-4.14-04` | Texto con acentos, ñ, ¿ y ¡ | Se ven bien en todos los formatos |
+| `QA-4.14-05` | Texto con flechas, ≥, emojis o escrituras no latinas | En `md`, `txt` y `docx` se conservan; en `pdf` salen como `?` (limitación conocida, ver sección 10) |
+| `QA-4.14-06` | `format` inválido (por ejemplo `exe`, o `docx` en el informe) | 400 |
+| `QA-4.14-07` | Diagnóstico inexistente o vencido | 404 |
+| `QA-4.14-08` | Con `&delivery=link` | 200 JSON con `file` (`kind: "export"`) y `download.url`; abrir esa URL descarga el mismo archivo que sin el parámetro |
+| `QA-4.14-09` | Abrir `download.url` después de 5 minutos | 403 (la URL firmada venció; pedir otra) |
 
 ### 4.15 Acceso: panel `/admin`, documentación y web de pruebas
 
 El panel (`/admin`) es HTML, no forma parte de la API. Se entra en `/admin/login` con GitHub (Clerk) o, como respaldo, con el usuario de administración del backend. En QA probar el acceso y la seguridad; **no modificar conexiones en producción**.
 
-| Prueba | Esperado |
-| :--- | :--- |
-| Abrir `/admin` sin sesión | 303 a `/admin/login?next=/admin/` |
-| Entrar con una cuenta de GitHub habilitada | Vuelve al panel; arriba a la derecha se ve tu usuario y tu rol |
-| Entrar con una cuenta de GitHub **no** habilitada | Mensaje "La cuenta de GitHub @usuario no tiene acceso" y no entra |
-| 5 intentos fallidos del login de respaldo | 429 "Demasiados intentos fallidos" (se libera a los 10 min) |
-| Con solo lectura | Aviso "Modo solo lectura", sin botones de agregar, editar ni borrar y sin pestaña Usuarios |
-| `GET /admin/api/metrics` sin sesión | 401 |
-| Pestaña **Uso del producto** → Archivos y enlaces compartidos | Después de subir, exportar, descargar y abrir un enlace, los indicadores y gráficos del período lo reflejan; en la tabla de enlaces no aparecen nombres de archivo |
-| Pestaña **Estado** (cualquier rol) | Una tarjeta por servicio con su estado, el aviso general arriba y la tabla de URLs; se actualiza sola cada 30 s |
-| `GET /admin/api/status` sin sesión | 401 |
-| `GET /admin/api/status` con sesión | Ninguna key, token ni contraseña en la respuesta |
-| Con solo lectura, `POST /admin/keys…` | 403 "Tu usuario tiene acceso de solo lectura" |
-| `POST` a `/admin/...` con header `Origin` de otro dominio | 403 "Origen no permitido" |
-| Abrir `/adminv2` (ruta vieja) | 308 a `/admin/` |
-| `/docs` o `/redoc` sin sesión (fuera de desarrollo) | 303 al login; después de entrar vuelve a la documentación |
-| `GET /api/v1/openapi.json` sin sesión (fuera de desarrollo) | 401 |
-| Cerrar sesión (menú del usuario) | Vuelve al login con "Cerraste la sesión"; `/admin` vuelve a pedir login |
+| ID | Prueba | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.15-01` | Abrir `/admin` sin sesión | 303 a `/admin/login?next=/admin/` |
+| `QA-4.15-02` | Entrar con una cuenta de GitHub habilitada | Vuelve al panel; arriba a la derecha se ve tu usuario y tu rol |
+| `QA-4.15-03` | Entrar con una cuenta de GitHub **no** habilitada | Mensaje "La cuenta de GitHub @usuario no tiene acceso" y no entra |
+| `QA-4.15-04` | 5 intentos fallidos del login de respaldo | 429 "Demasiados intentos fallidos" (se libera a los 10 min) |
+| `QA-4.15-05` | Con solo lectura | Aviso "Modo solo lectura", sin botones de agregar, editar ni borrar y sin pestaña Usuarios |
+| `QA-4.15-06` | `GET /admin/api/metrics` sin sesión | 401 |
+| `QA-4.15-07` | Pestaña **Uso del producto** → Archivos y enlaces compartidos | Después de subir, exportar, descargar y abrir un enlace, los indicadores y gráficos del período lo reflejan; en la tabla de enlaces no aparecen nombres de archivo |
+| `QA-4.15-08` | Pestaña **Estado** (cualquier rol) | Una tarjeta por servicio con su estado, el aviso general arriba y la tabla de URLs; se actualiza sola cada 30 s |
+| `QA-4.15-09` | `GET /admin/api/status` sin sesión | 401 |
+| `QA-4.15-10` | `GET /admin/api/status` con sesión | Ninguna key, token ni contraseña en la respuesta |
+| `QA-4.15-11` | Con solo lectura, `POST /admin/keys…` | 403 "Tu usuario tiene acceso de solo lectura" |
+| `QA-4.15-12` | `POST` a `/admin/...` con header `Origin` de otro dominio | 403 "Origen no permitido" |
+| `QA-4.15-13` | Abrir `/adminv2` (ruta vieja) | 308 a `/admin/` |
+| `QA-4.15-14` | `/docs` o `/redoc` sin sesión (fuera de desarrollo) | 303 al login; después de entrar vuelve a la documentación |
+| `QA-4.15-15` | `GET /api/v1/openapi.json` sin sesión (fuera de desarrollo) | 401 |
+| `QA-4.15-16` | Cerrar sesión (menú del usuario) | Vuelve al login con "Cerraste la sesión"; `/admin` vuelve a pedir login |
 
-**Web de pruebas:** pide el mismo login antes de mostrarse. Desde su origen, toda llamada a `/api/v1` sin sesión responde 401 con `code: "test_web_login_required"` y la página vuelve al login. Con solo lectura, el modo mock queda fijo y una llamada de IA real responde 403. Desde curl, Postman o Bruno la API sigue respondiendo sin credenciales.
+**Web de pruebas:**
+
+| ID | Prueba | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.15-17` | Abrir la web de pruebas y, desde su origen, llamar a `/api/v1` sin sesión | Pide el mismo login antes de mostrarse; la llamada responde 401 con `code: "test_web_login_required"` y la página vuelve al login |
+| `QA-4.15-18` | Con solo lectura, una llamada de IA real | El modo mock queda fijo y la llamada responde 403 |
+| `QA-4.15-19` | Desde curl, Postman o Bruno | La API sigue respondiendo sin credenciales |
 
 ### 4.16 Archivos: subida directa con URL firmada (`/files`)
 
@@ -540,18 +551,18 @@ curl -s -X POST "$API/files/<file_id>/complete"
 curl -s "$API/files/<file_id>/download-url"
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| Flujo completo con un `.pdf`, `.docx` o `.pptx` | `upload-url` 201 (`status: "pending"`), `PUT` 200, `complete` 200 (`status: "uploaded"`) y la descarga es idéntica al original, con su nombre |
-| `upload-url` con `.exe`, sin extensión o `content_type` `text/html` | 400 |
-| `upload-url` con más de 10 MB | 413 |
-| `PUT` con un `Content-Type` distinto al de `upload.headers` | 403 (va firmado) |
-| `PUT` después de 5 minutos o con la URL modificada | 403 |
-| `complete` sin haber subido | 409 |
-| Subir un archivo de otro tamaño que el declarado | `complete` 422 y el archivo se borra (`GET /files/<id>` da 404) |
-| Subir un `.txt` renombrado a `.pdf` | `complete` 422 ("firma '%PDF-' ausente") |
-| `download-url` antes de confirmar | 404 |
-| `file_id` inventado | 404 |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.16-01` | Flujo completo con un `.pdf`, `.docx` o `.pptx` | `upload-url` 201 (`status: "pending"`), `PUT` 200, `complete` 200 (`status: "uploaded"`) y la descarga es idéntica al original, con su nombre |
+| `QA-4.16-02` | `upload-url` con `.exe`, sin extensión o `content_type` `text/html` | 400 |
+| `QA-4.16-03` | `upload-url` con más de 10 MB | 413 |
+| `QA-4.16-04` | `PUT` con un `Content-Type` distinto al de `upload.headers` | 403 (va firmado) |
+| `QA-4.16-05` | `PUT` después de 5 minutos o con la URL modificada | 403 |
+| `QA-4.16-06` | `complete` sin haber subido | 409 |
+| `QA-4.16-07` | Subir un archivo de otro tamaño que el declarado | `complete` 422 y el archivo se borra (`GET /files/<id>` da 404) |
+| `QA-4.16-08` | Subir un `.txt` renombrado a `.pdf` | `complete` 422 ("firma '%PDF-' ausente") |
+| `QA-4.16-09` | `download-url` antes de confirmar | 404 |
+| `QA-4.16-10` | `file_id` inventado | 404 |
 
 **Diagnóstico y extracción por `file_id` (#63).** Después de `complete`:
 
@@ -560,14 +571,14 @@ curl -s -X POST "$API/analysis/files/<file_id>?mock=true"
 curl -s -X POST "$API/documents/files/<file_id>"
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| Archivo confirmado (`.pdf`, `.docx` o `.pptx`) | 200, mismo diagnóstico que `/analysis/file` con ese archivo |
-| Diagnosticar dos veces el mismo `file_id` | 200 las dos, con `analysis_id` distintos |
-| Archivo sin `complete` | 409 |
-| `file_id` inventado o vencido | 404 |
-| Sin mock, por encima del rate limit | 429 (mismo límite que `/analysis/file`) |
-| `/analysis/pdf`, `/analysis/file`, `/documents/upload*` en Swagger | Aparecen tachados (deprecados), pero siguen funcionando |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.16-11` | Archivo confirmado (`.pdf`, `.docx` o `.pptx`) | 200, mismo diagnóstico que `/analysis/file` con ese archivo |
+| `QA-4.16-12` | Diagnosticar dos veces el mismo `file_id` | 200 las dos, con `analysis_id` distintos |
+| `QA-4.16-13` | Archivo sin `complete` | 409 |
+| `QA-4.16-14` | `file_id` inventado o vencido | 404 |
+| `QA-4.16-15` | Sin mock, por encima del rate limit | 429 (mismo límite que `/analysis/file`) |
+| `QA-4.16-16` | `/analysis/pdf`, `/analysis/file`, `/documents/upload*` en Swagger | Aparecen tachados (deprecados), pero siguen funcionando |
 
 
 **Compartir con enlace revocable (#65).** Con un archivo ya confirmado:
@@ -580,18 +591,18 @@ curl -s "$API/files/<file_id>/shares"           # enlaces activos y access_count
 curl -s -X DELETE "$API/files/<file_id>/shares/<share_id>"
 ```
 
-| Caso | Esperado |
-| :--- | :--- |
-| Abrir el enlace en el navegador | Descarga el archivo con su nombre original, directo desde R2 |
-| `curl -I` al enlace | 302, `Cache-Control: no-store`, `Location` en `r2.cloudflarestorage.com` |
-| Abrir la `Location` después de 5 minutos | 403 (la URL firmada venció); el enlace `/s/...` sigue sirviendo |
-| Listar los enlaces | No incluye la URL; `access_count` sube con cada apertura |
-| Revocar y volver a abrir | 204 y después 404 de inmediato |
-| Revocar dos veces | 404 la segunda |
-| `expires_in_hours` mayor que la vida del archivo | El enlace vence con el archivo |
-| Archivo sin `complete` | 409 al crear el enlace |
-| Token inventado o el `share_id` en lugar del token | 404 |
-| Más de 30 aperturas por minuto desde la misma IP | 429 con `Retry-After` |
+| ID | Caso | Esperado |
+| :--- | :--- | :--- |
+| `QA-4.16-17` | Abrir el enlace en el navegador | Descarga el archivo con su nombre original, directo desde R2 |
+| `QA-4.16-18` | `curl -I` al enlace | 302, `Cache-Control: no-store`, `Location` en `r2.cloudflarestorage.com` |
+| `QA-4.16-19` | Abrir la `Location` después de 5 minutos | 403 (la URL firmada venció); el enlace `/s/...` sigue sirviendo |
+| `QA-4.16-20` | Listar los enlaces | No incluye la URL; `access_count` sube con cada apertura |
+| `QA-4.16-21` | Revocar y volver a abrir | 204 y después 404 de inmediato |
+| `QA-4.16-22` | Revocar dos veces | 404 la segunda |
+| `QA-4.16-23` | `expires_in_hours` mayor que la vida del archivo | El enlace vence con el archivo |
+| `QA-4.16-24` | Archivo sin `complete` | 409 al crear el enlace |
+| `QA-4.16-25` | Token inventado o el `share_id` en lugar del token | 404 |
+| `QA-4.16-26` | Más de 30 aperturas por minuto desde la misma IP | 429 con `Retry-After` |
 
 ---
 
@@ -599,19 +610,19 @@ curl -s -X DELETE "$API/files/<file_id>/shares/<share_id>"
 
 Se pueden hacer desde la web de pruebas (pasos 1 a 7) o con `curl`. Siempre con mock salvo indicación.
 
-**F1. Texto completo.** Analizar el material con barreras → pedir propuestas para 3 barreras → aceptar una, editar otra y descartar la tercera → ver el registro de decisiones (3 entradas) → versión final (2 aplicadas, 1 descartada; la edición aparece textual) → informe (puntaje después ≥ antes) → exportar el material en `docx` y el informe en `pdf` y abrirlos. Deshacer la aceptada → versión final, informe y exportaciones se actualizan.
+**F1 · `QA-5-01`. Texto completo.** Analizar el material con barreras → pedir propuestas para 3 barreras → aceptar una, editar otra y descartar la tercera → ver el registro de decisiones (3 entradas) → versión final (2 aplicadas, 1 descartada; la edición aparece textual) → informe (puntaje después ≥ antes) → exportar el material en `docx` y el informe en `pdf` y abrirlos. Deshacer la aceptada → versión final, informe y exportaciones se actualizan.
 
-**F2. PDF.** Subir un PDF con texto e imágenes → revisar `alt_text_proposals` → proponer y aceptar una adaptación → versión final.
+**F2 · `QA-5-02`. PDF.** Subir un PDF con texto e imágenes → revisar `alt_text_proposals` → proponer y aceptar una adaptación → versión final.
 
-**F3. Word y PowerPoint.** Igual que F2 con `.docx` y `.pptx`; verificar títulos, listas, diapositivas ocultas excluidas e imágenes con texto alternativo que no reciben propuesta.
+**F3 · `QA-5-03`. Word y PowerPoint.** Igual que F2 con `.docx` y `.pptx`; verificar títulos, listas, diapositivas ocultas excluidas e imágenes con texto alternativo que no reciben propuesta.
 
-**F4. Datos personales.** Analizar el texto con datos ficticios → 422 con 4 hallazgos enmascarados → reenviar descartando 2 → 422 con los 2 restantes → reenviar descartando todos → 200.
+**F4 · `QA-5-04`. Datos personales.** Analizar el texto con datos ficticios → 422 con 4 hallazgos enmascarados → reenviar descartando 2 → 422 con los 2 restantes → reenviar descartando todos → 200.
 
-**F5. PDF escaneado.** Subirlo → 200 con barrera de escaneo y puntaje ≤ 40; probar con y sin `confirm_images_without_personal_data`.
+**F5 · `QA-5-05`. PDF escaneado.** Subirlo → 200 con barrera de escaneo y puntaje ≤ 40; probar con y sin `confirm_images_without_personal_data`.
 
-**F6. Vencimiento.** Guardar un `analysis_id` y consultarlo al día siguiente (más de 24 h) → 404 "expirado".
+**F6 · `QA-5-06`. Vencimiento.** Guardar un `analysis_id` y consultarlo al día siguiente (más de 24 h) → 404 "expirado".
 
-**F7. IA real (coordinado).** Una sola vez por entorno: F1 sin `?mock=true`, revisando `metadata.provider`, `metadata.total_tokens` y que las citas de las barreras tengan `fragment_found = true`.
+**F7 · `QA-5-07`. IA real (coordinado).** Una sola vez por entorno: F1 sin `?mock=true`, revisando `metadata.provider`, `metadata.total_tokens` y que las citas de las barreras tengan `fragment_found = true`.
 
 ---
 
@@ -646,15 +657,15 @@ Se pueden hacer desde la web de pruebas (pasos 1 a 7) o con `curl`. Siempre con 
 
 ### 7.2 Escenarios sugeridos
 
-| Escenario | Configuración | Qué observar |
-| :--- | :--- | :--- |
-| Carga normal | 10 a 20 usuarios simulados, 5 min | p95 < 1 s, 0 % errores |
-| Rampa | de 0 a 100 usuarios en 5 min | En qué punto suben la latencia o los errores |
-| Pico | 50 usuarios de golpe, 1 min | Que no haya 500 ni reinicios |
-| Resistencia (soak) | 15 usuarios, 30 a 60 min | Memoria estable, sin degradación con el tiempo |
-| Archivos pesados | 2, 5 y 10 archivos de 8–10 MB en simultáneo | Memoria del proceso y latencia (ver 7.4) |
-| Concurrencia de decisiones | 2 a 5 decisiones a la vez sobre la misma propuesta | Una 200 y el resto 409, nunca dos 200 |
-| Entradas en el borde | textos de 20.000 caracteres, PDFs de 100+ páginas | Tiempo de respuesta y que no haya 500 |
+| ID | Escenario | Configuración | Qué observar |
+| :--- | :--- | :--- | :--- |
+| `QA-7.2-01` | Carga normal | 10 a 20 usuarios simulados, 5 min | p95 < 1 s, 0 % errores |
+| `QA-7.2-02` | Rampa | de 0 a 100 usuarios en 5 min | En qué punto suben la latencia o los errores |
+| `QA-7.2-03` | Pico | 50 usuarios de golpe, 1 min | Que no haya 500 ni reinicios |
+| `QA-7.2-04` | Resistencia (soak) | 15 usuarios, 30 a 60 min | Memoria estable, sin degradación con el tiempo |
+| `QA-7.2-05` | Archivos pesados | 2, 5 y 10 archivos de 8–10 MB en simultáneo | Memoria del proceso y latencia (ver 7.4) |
+| `QA-7.2-06` | Concurrencia de decisiones | 2 a 5 decisiones a la vez sobre la misma propuesta | Una 200 y el resto 409, nunca dos 200 |
+| `QA-7.2-07` | Entradas en el borde | textos de 20.000 caracteres, PDFs de 100+ páginas | Tiempo de respuesta y que no haya 500 |
 
 Medir: latencia p50/p95/p99, requests por segundo, porcentaje de errores por código, memoria y CPU del proceso (en local con el administrador de tareas o `top`; en staging con las métricas de Railway).
 
@@ -790,13 +801,13 @@ Hay dos capas de límites y conviene probarlas por separado:
 
 Truco: el límite por IP corta **antes** de llamar a la IA, así que las llamadas rechazadas no gastan tokens. Solo las primeras 5 consumen.
 
-| Prueba | Pasos | Esperado |
-| :--- | :--- | :--- |
-| Límite por minuto | 6 llamadas seguidas a `POST /analysis/sample` **sin** mock | 5 × 200, la 6.ª 429 con `Retry-After` ≤ 60 |
-| Recuperación | Esperar lo que indica `Retry-After` y reintentar | 200 |
-| El mock no cuenta | Tras el 429, la misma llamada con `?mock=true` | 200 |
-| GET no cuenta | Tras el 429, `GET /analysis/{id}` | 200 |
-| Mensaje | Leer `detail` | Sugiere esperar o usar `?mock=true` |
+| ID | Prueba | Pasos | Esperado |
+| :--- | :--- | :--- | :--- |
+| `QA-8.1-01` | Límite por minuto | 6 llamadas seguidas a `POST /analysis/sample` **sin** mock | 5 × 200, la 6.ª 429 con `Retry-After` ≤ 60 |
+| `QA-8.1-02` | Recuperación | Esperar lo que indica `Retry-After` y reintentar | 200 |
+| `QA-8.1-03` | El mock no cuenta | Tras el 429, la misma llamada con `?mock=true` | 200 |
+| `QA-8.1-04` | GET no cuenta | Tras el 429, `GET /analysis/{id}` | 200 |
+| `QA-8.1-05` | Mensaje | Leer `detail` | Sugiere esperar o usar `?mock=true` |
 
 Para probar los límites diarios y globales sin gastar, pedile a Backend que levante staging con límites bajos, por ejemplo `AI_RATE_LIMIT_PER_IP_MINUTE=2`, `AI_RATE_LIMIT_PER_IP_DAY=3`, `AI_RATE_LIMIT_GLOBAL_MINUTE=4`. El límite global se prueba con dos IPs distintas (por ejemplo, una notebook y un celular con datos móviles).
 
@@ -814,13 +825,13 @@ done
 
 Requiere rol **admin** en `/admin` de staging (con solo lectura no se pueden cambiar umbrales), así que conviene hacerlo **junto con alguien de Backend**.
 
-| Prueba | Cómo | Esperado |
-| :--- | :--- | :--- |
-| Umbral de la conexión | En `/admin`, poner RPM = 2 a la conexión principal y hacer 3 análisis reales | El 3.º usa la conexión de respaldo (`metadata.connection` cambia) |
-| Sin respaldo | Dejar una sola conexión con RPM = 1 y hacer 2 análisis | 2.º → 429 "todas las conexiones agotadas" |
-| Proveedor caído | Conexión con una URL o key inválida como principal | El backend la pausa y usa la siguiente; si no hay otra, 503 |
-| Vuelta a la normalidad | Esperar 1 minuto (o el cooldown) | La conexión principal vuelve a usarse |
-| Consumo | Mirar el panel de `/admin` antes y después | Requests y tokens suben según lo enviado |
+| ID | Prueba | Cómo | Esperado |
+| :--- | :--- | :--- | :--- |
+| `QA-8.2-01` | Umbral de la conexión | En `/admin`, poner RPM = 2 a la conexión principal y hacer 3 análisis reales | El 3.º usa la conexión de respaldo (`metadata.connection` cambia) |
+| `QA-8.2-02` | Sin respaldo | Dejar una sola conexión con RPM = 1 y hacer 2 análisis | 2.º → 429 "todas las conexiones agotadas" |
+| `QA-8.2-03` | Proveedor caído | Conexión con una URL o key inválida como principal | El backend la pausa y usa la siguiente; si no hay otra, 503 |
+| `QA-8.2-04` | Vuelta a la normalidad | Esperar 1 minuto (o el cooldown) | La conexión principal vuelve a usarse |
+| `QA-8.2-05` | Consumo | Mirar el panel de `/admin` antes y después | Requests y tokens suben según lo enviado |
 
 ### 8.3 Costo de cada llamada (para planificar)
 

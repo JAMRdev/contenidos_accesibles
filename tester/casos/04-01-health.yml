@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.1"
+titulo: "GET / y GET /api/v1/health"
+casos:
+  - id: QA-4.1-01
+    titulo: La raíz responde la bienvenida con el entorno y los enlaces
+    endpoint: GET /
+    pasos:
+      - Llamar a GET / (sin /api/v1).
+    esperado: 200 con el entorno activo y los enlaces a la documentación.
+    severidad: baja
+    etiquetas: [salud]
+
+  - id: QA-4.1-02
+    titulo: Health responde online en menos de 1 s
+    endpoint: GET /api/v1/health
+    pasos:
+      - Llamar a GET /api/v1/health.
+      - Repetir la llamada si la primera tardó (el servicio puede estar dormido).
+    esperado: 200 con status "online", environment y version, en menos de 1 s.
+    severidad: alta
+    etiquetas: [salud]

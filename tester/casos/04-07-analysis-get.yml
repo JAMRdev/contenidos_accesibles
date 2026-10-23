@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.7"
+titulo: "GET /analysis/{analysis_id}"
+casos:
+  - id: QA-4.7-01
+    titulo: Un analysis_id válido devuelve el diagnóstico guardado
+    endpoint: GET /api/v1/analysis/{analysis_id}
+    precondiciones:
+      - Un analysis_id del caso QA-4.5-01.
+    pasos:
+      - Llamar a GET /api/v1/analysis/{analysis_id}.
+    esperado: 200, igual a la respuesta original del análisis.
+    severidad: media
+    etiquetas: [diagnostico]
+
+  - id: QA-4.7-02
+    titulo: Un analysis_id inexistente responde 404
+    endpoint: GET /api/v1/analysis/{analysis_id}
+    pasos:
+      - Llamar con un UUID inventado.
+    esperado: 404 "Diagnóstico no encontrado".
+    severidad: baja
+    etiquetas: [diagnostico]
+
+  - id: QA-4.7-03
+    titulo: Un diagnóstico vencido responde 404
+    endpoint: GET /api/v1/analysis/{analysis_id}
+    precondiciones:
+      - Un analysis_id de hace más de 24 h.
+    pasos:
+      - Llamar a GET /api/v1/analysis/{analysis_id}.
+    esperado: 404 "El diagnóstico ha expirado".
+    severidad: media
+    etiquetas: [diagnostico, vencimiento]

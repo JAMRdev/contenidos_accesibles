@@ -1,0 +1,89 @@
+# Plataforma de QA del backend (Issue #123): un solo Worker sirve la API (/api/*, /health)
+# y la web de QA (assets estáticos de dist/web). Todo vive en Cloudflare, separado del
+# backend de Railway y de su D1/R2: una caída o un deploy de uno no afecta al otro.
+name = "innovalab-qa"
+main = "src/worker/index.ts"
+# Cuenta de Cloudflare del proyecto (la de producción): fija el destino aunque wrangler tenga otra sesión abierta
+account_id = "6e7b0cfffb1955599281e4ae7cdadf0e"
+compatibility_date = "2026-10-01"
+
+# Sin dominio propio: el Worker responde en innovalab-qa.<subdominio>.workers.dev
+workers_dev = true
+
+[observability]
+enabled = true
+
+# La web (Vite → dist/web). Las rutas de la API pasan primero por el Worker; el resto son
+# archivos de la web, y una ruta desconocida devuelve index.html (la web resuelve sus rutas).
+[assets]
+directory = "./dist/web"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/health"]
+
+# id y etiqueta del deploy, para mostrar en /health qué versión está publicada
+[version_metadata]
+binding = "CF_VERSION"
+
+# D1 propio de QA: sesiones, resultados, bugs y comentarios. No es el D1 de producción.
+# Creada con `npm run d1:create` (región ENAM). En local, `npm run dev` y los tests usan
+# una copia simulada en .wrangler/ y no tocan esta base.
+[[d1_databases]]
+binding = "DB"
+database_name = "innovalab-qa"
+database_id = "47660a3f-acb3-417e-97f2-f17e5dc20df4"
+migrations_dir = "migrations"
+
+# R2 propio de QA para las evidencias. Privado y SIN reglas de borrado automático:
+# un bug tiene que poder ver su evidencia meses después.
+[[r2_buckets]]
+binding = "EVIDENCIAS"
+bucket_name = "innovalab-qa-evidencias"
+
+# Sincronización con GitHub (#134). Hoy solo registra la corrida en qa_meta.
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Login con Clerk (#126): la misma instancia que el panel /admin del backend. Las dos son públicas
+# (la publishable key va al navegador y la clave PEM solo verifica firmas). El secreto
+# CLERK_SECRET_KEY se carga con `wrangler secret put` (en local, en .dev.vars).
+[vars]
+CLERK_PUBLISHABLE_KEY = "pk_test_Z29vZC13b2xmLTc2ODYuY2xlcmsuYWNjb3VudHMuZGV2JA"
+CLERK_JWT_KEY = """
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6KwQYnTwvBG0chDosPlE
+eWOUaJMBCu4urxu6+LVvOAJEiZY+IxUPIbDcqvQF/joewFYxayiqkrWXO9oXg5OL
+In78bpwusYKgvIl4F3D5g5Cw5pm7xrfxtYHZXb/0mMXpPC4Hablrw7DqAt22aCtF
+3j73Dnl3xVFecBybgTzO60EbXxkVg/MTXdraDdQRlMOheVoeNyYi7qzsQJT1EM0N
+G3oJ+NXbXiADx6ujf/QNUfmPTf0fisS+62kfQDFGZj5IxtXd/l/IAVkhcDXn88My
+sHflN24gjcxUSV5guT/qWwlCMvJBHB4UPIax2eQA6Yf6LjM5zDgwYZXv/JNNa3S/
+8QIDAQAB
+-----END PUBLIC KEY-----
+"""
+# Cuentas de GitHub que son admin siempre (las mismas que ADMIN_GITHUB_ADMINS del backend).
+# El resto de los miembros se administra desde la plataforma (tabla qa_members).
+QA_ADMINS = "JAMRdev,VictoriaMackenzie,malessan4"
+# Repo donde se buscan duplicados y se publican los bugs (en local se puede apuntar a un repo de
+# prueba con GITHUB_REPO en .dev.vars). El token va como secreto: GITHUB_TOKEN.
+GITHUB_REPO = "e18-innovalab/contenidos_accesibles"
+# Tablero de la organización donde se agregan los issues publicados (campo "Estado QA" si existe).
+# Solo se usa si el repo es de la misma organización: en local, con un repo personal, no se toca.
+GITHUB_PROJECT_OWNER = "e18-innovalab"
+GITHUB_PROJECT_NUMBER = "3"
+
+# Límite de requests por usuario para toda la API
+[[ratelimits]]
+name = "LIMITE_API"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+# Límite por usuario para publicar en GitHub (cada publicación hace varias llamadas a GitHub)
+[[ratelimits]]
+name = "LIMITE_PUBLICAR"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }
+
+# Secretos (no van en este archivo). En producción: `wrangler secret put <NOMBRE>`;
+# en local se leen de .dev.vars (no se versiona). Los agregan sus issues:
+#   CLERK_SECRET_KEY  (#126)
+#   GITHUB_TOKEN      (#130)

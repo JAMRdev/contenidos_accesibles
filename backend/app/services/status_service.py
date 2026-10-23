@@ -216,6 +216,17 @@ async def check_test_web(client: httpx.AsyncClient) -> Check:
     return await _http_check(client, settings.TEST_WEB_URL.strip())
 
 
+def _qa_platform_url() -> str | None:
+    return settings.QA_PLATFORM_URL.strip().rstrip("/") if settings.QA_PLATFORM_URL else None
+
+
+async def check_qa_platform(client: httpx.AsyncClient) -> Check:
+    """Worker de la plataforma de QA: su /health responde { ok: true } si llega a su D1 y su R2."""
+    if not (url := _qa_platform_url()):
+        return Check("unconfigured", "Sin QA_PLATFORM_URL")
+    return await _http_check(client, f"{url}/health", expect_json_ok=True)
+
+
 def frontend_origins() -> list[str]:
     """FRONTEND_URL más los orígenes de CORS que no son locales ni la web de pruebas."""
     test_web = settings.test_web_origin
@@ -268,6 +279,8 @@ def _registry() -> list[Service]:
                 check_clerk_users),
         Service("test-web", "Web de pruebas", _platform(settings.TEST_WEB_URL),
                 "Web estática para probar la API.", check_test_web),
+        Service("qa-platform", "Plataforma de QA", "Cloudflare Workers",
+                "Web y API de QA con su propio D1 y R2 (/health, sin login).", check_qa_platform),
         Service("frontend", "Frontend", _platform(next(iter(frontend_origins()), None)),
                 "Aplicación para docentes.", check_frontend),
     ]
@@ -352,6 +365,9 @@ def links(base_url: str, panel_prefix: str) -> list[dict]:
                       "url": f"{settings.D1_GATEWAY_URL.rstrip('/')}/health"})
     if settings.TEST_WEB_URL:
         items.append({"group": "Web", "label": "Web de pruebas", "url": settings.TEST_WEB_URL.strip()})
+    if qa_url := _qa_platform_url():
+        items.append({"group": "Web", "label": "Plataforma de QA", "url": qa_url})
+        items.append({"group": "Cloudflare", "label": "Plataforma de QA (/health)", "url": f"{qa_url}/health"})
     for origin in frontend_origins():
         items.append({"group": "Web", "label": "Frontend", "url": origin})
     return items

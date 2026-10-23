@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.10"
+titulo: "POST /adaptations/{proposal_id}/decision y /undo"
+casos:
+  - id: QA-4.10-01
+    titulo: Aceptar o descartar una propuesta pendiente
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    precondiciones:
+      - Dos propuestas pendientes.
+    pasos:
+      - 'Enviar {"decision": "aceptada"} a una.'
+      - 'Enviar {"decision": "descartada"} a la otra.'
+    esperado: 200 con el nuevo estado en cada una.
+    severidad: media
+    etiquetas: [decisiones]
+
+  - id: QA-4.10-02
+    titulo: Editar con edited_text guarda el texto del docente
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    precondiciones:
+      - Una propuesta pendiente.
+    pasos:
+      - 'Enviar {"decision": "editada", "edited_text": "Texto final del docente."}.'
+    esperado: 200 con final_text igual al texto del docente.
+    severidad: alta
+    etiquetas: [decisiones]
+
+  - id: QA-4.10-03
+    titulo: Editada sin edited_text responde 422
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    pasos:
+      - 'Enviar {"decision": "editada"} a una propuesta pendiente.'
+    esperado: "422."
+    severidad: baja
+    etiquetas: [decisiones, validacion]
+
+  - id: QA-4.10-04
+    titulo: edited_text con otra decisión responde 422
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    pasos:
+      - 'Enviar {"decision": "aceptada", "edited_text": "x"} a una propuesta pendiente.'
+    esperado: "422."
+    severidad: baja
+    etiquetas: [decisiones, validacion]
+
+  - id: QA-4.10-05
+    titulo: Decidir sobre una propuesta ya decidida responde 409
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    precondiciones:
+      - Una propuesta aceptada.
+    pasos:
+      - 'Enviar {"decision": "descartada"} a esa propuesta.'
+    esperado: "409."
+    severidad: media
+    etiquetas: [decisiones]
+
+  - id: QA-4.10-06
+    titulo: Deshacer una propuesta decidida la vuelve a pendiente
+    endpoint: POST /api/v1/adaptations/{proposal_id}/undo
+    precondiciones:
+      - Una propuesta aceptada, editada o descartada.
+    pasos:
+      - Llamar a /undo.
+    esperado: 200 y la propuesta vuelve a pendiente.
+    severidad: media
+    etiquetas: [decisiones]
+
+  - id: QA-4.10-07
+    titulo: Deshacer una propuesta pendiente responde 409
+    endpoint: POST /api/v1/adaptations/{proposal_id}/undo
+    pasos:
+      - Llamar a /undo sobre una propuesta pendiente.
+    esperado: "409."
+    severidad: baja
+    etiquetas: [decisiones]
+
+  - id: QA-4.10-08
+    titulo: Deshacer cuando la barrera ya tiene otra propuesta pendiente responde 409
+    endpoint: POST /api/v1/adaptations/{proposal_id}/undo
+    precondiciones:
+      - Una propuesta decidida y otra pendiente para la misma barrera.
+    pasos:
+      - Llamar a /undo sobre la decidida.
+    esperado: 409 con pending_proposal_exists (primero hay que decidir la otra).
+    severidad: media
+    etiquetas: [decisiones, concurrencia]
+
+  - id: QA-4.10-09
+    titulo: Dos decisiones simultáneas sobre la misma propuesta
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    pasos:
+      - Mandar dos decisiones a la vez sobre la misma propuesta pendiente.
+    esperado: Una responde 200 y la otra 409; nunca dos 200.
+    severidad: alta
+    etiquetas: [decisiones, concurrencia]
+
+  - id: QA-4.10-10
+    titulo: Una propuesta inexistente responde 404
+    endpoint: POST /api/v1/adaptations/{proposal_id}/decision
+    pasos:
+      - Decidir y deshacer sobre un proposal_id inventado.
+    esperado: 404 en los dos casos.
+    severidad: baja
+    etiquetas: [decisiones]

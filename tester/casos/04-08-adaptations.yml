@@ -1,0 +1,116 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.8"
+titulo: "POST /adaptations"
+casos:
+  - id: QA-4.8-01
+    titulo: Una barrera con cita recibe una propuesta pendiente
+    endpoint: POST /api/v1/adaptations
+    precondiciones:
+      - Material con barreras analizado (QA-4.5-01) y el id de una barrera que cita texto.
+    pasos:
+      - Pedir una propuesta lenguaje_claro para esa barrera con ?mock=true.
+    esperado: 201 con estado pendiente, original_text, proposed_text, explanation y preserved_objective.
+    severidad: media
+    etiquetas: [adaptaciones]
+    mock: true
+
+  - id: QA-4.8-02
+    titulo: Una barrera global sin fragment responde 422
+    endpoint: POST /api/v1/adaptations
+    precondiciones:
+      - Un diagnóstico con una barrera global (las que citan [...]).
+    pasos:
+      - Pedir una propuesta para esa barrera sin fragment, con ?mock=true.
+    esperado: 422 indicando que hay que enviar el fragmento.
+    severidad: media
+    etiquetas: [adaptaciones, validacion]
+    mock: true
+
+  - id: QA-4.8-03
+    titulo: Un fragment con datos personales responde 422
+    endpoint: POST /api/v1/adaptations
+    pasos:
+      - Pedir una propuesta para una barrera global con un fragment que tiene datos personales ficticios, con ?mock=true.
+      - Repetir con dismissed para todos los hallazgos.
+    datos: Datos personales ficticios (sección 3.1).
+    esperado: Primero 422 sensitive_data_detected; con todos los dismissed, 201.
+    severidad: alta
+    etiquetas: [adaptaciones, datos-personales, privacidad]
+    mock: true
+
+  - id: QA-4.8-04
+    titulo: Un analysis_id inexistente o vencido responde 404
+    endpoint: POST /api/v1/adaptations
+    pasos:
+      - Pedir una propuesta con un analysis_id inventado, con ?mock=true.
+    esperado: "404."
+    severidad: baja
+    etiquetas: [adaptaciones]
+    mock: true
+
+  - id: QA-4.8-05
+    titulo: Un barrier_id inexistente responde 404
+    endpoint: POST /api/v1/adaptations
+    pasos:
+      - Pedir una propuesta con barrier_id "bar-999", con ?mock=true.
+    esperado: "404."
+    severidad: baja
+    etiquetas: [adaptaciones]
+    mock: true
+
+  - id: QA-4.8-06
+    titulo: Un adaptation_type inválido responde 422
+    endpoint: POST /api/v1/adaptations
+    pasos:
+      - Pedir una propuesta con adaptation_type "resumir", con ?mock=true.
+    esperado: "422."
+    severidad: baja
+    etiquetas: [adaptaciones, validacion]
+    mock: true
+
+  - id: QA-4.8-07
+    titulo: Sin mock, por encima del rate limit responde 429
+    endpoint: POST /api/v1/adaptations
+    precondiciones:
+      - Backend local o staging con una API key de prueba.
+    pasos:
+      - Pedir propuestas sin ?mock=true hasta superar el límite por minuto.
+    esperado: 429 con header Retry-After.
+    severidad: media
+    etiquetas: [adaptaciones, rate-limit, ia]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-4.8-08
+    titulo: Otra propuesta para una barrera con una pendiente responde 409
+    endpoint: POST /api/v1/adaptations
+    precondiciones:
+      - Una propuesta pendiente (QA-4.8-01).
+    pasos:
+      - Pedir otra propuesta para la misma barrera, con ?mock=true.
+    esperado: 409 con detail.code "pending_proposal_exists" y el detail.proposal_id de la existente (con IA real no consume tokens).
+    severidad: media
+    etiquetas: [adaptaciones, concurrencia]
+    mock: true
+
+  - id: QA-4.8-09
+    titulo: Dos pedidos seguidos para la misma barrera crean una sola propuesta
+    endpoint: POST /api/v1/adaptations
+    pasos:
+      - Mandar dos pedidos casi simultáneos para la misma barrera sin propuesta (doble clic), con ?mock=true.
+    esperado: Uno responde 201 y el otro 409 ("Ya se está generando…").
+    severidad: alta
+    etiquetas: [adaptaciones, concurrencia]
+    mock: true
+
+  - id: QA-4.8-10
+    titulo: Después de decidir la anterior se puede pedir otra propuesta
+    endpoint: POST /api/v1/adaptations
+    precondiciones:
+      - Una propuesta aceptada, editada o descartada.
+    pasos:
+      - Pedir otra propuesta para la misma barrera, con ?mock=true.
+    esperado: "201."
+    severidad: media
+    etiquetas: [adaptaciones]
+    mock: true

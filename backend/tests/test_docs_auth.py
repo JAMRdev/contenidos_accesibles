@@ -73,6 +73,15 @@ def test_docs_con_sesion_devuelve_200(protected_client, path):
     assert protected_client.get(path).status_code == 200
 
 
+def test_docs_y_panel_usan_el_favicon_del_logo(protected_client):
+    _login(protected_client)
+    for path in DOC_PAGES:
+        assert "/admin/static/favicon.svg" in protected_client.get(path).text
+    favicon = protected_client.get("/admin/static/favicon.svg")
+    assert favicon.status_code == 200 and favicon.headers["content-type"].startswith("image/svg+xml")
+    assert '/admin/static/favicon.svg' in protected_client.get("/admin/login").text
+
+
 def test_solo_lectura_tambien_ve_la_documentacion(protected_client):
     members.add("Jos022", "viewer")
     protected_client.cookies.set(session.COOKIE_NAME, session.create_token(session.github_subject("Jos022")))

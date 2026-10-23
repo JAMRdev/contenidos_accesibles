@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.13"
+titulo: "GET /adaptations/report?analysis_id="
+casos:
+  - id: QA-4.13-01
+    titulo: Sin decisiones el puntaje no cambia
+    endpoint: GET /api/v1/adaptations/report?analysis_id=
+    pasos:
+      - Consultar el informe de un diagnóstico sin decisiones.
+    esperado: score_after igual a score_before (score_delta 0).
+    severidad: media
+    etiquetas: [informe]
+
+  - id: QA-4.13-02
+    titulo: Editar una oración extensa mejora el puntaje
+    endpoint: GET /api/v1/adaptations/report?analysis_id=
+    precondiciones:
+      - Material con barreras analizado.
+    pasos:
+      - Editar la propuesta de la oración extensa con una versión corta.
+      - Consultar el informe.
+    esperado: score_delta mayor que 0 y la penalización oraciones_extensas baja o desaparece.
+    severidad: media
+    etiquetas: [informe]
+
+  - id: QA-4.13-03
+    titulo: Adaptar texto no resuelve la penalización de imágenes
+    endpoint: GET /api/v1/adaptations/report?analysis_id=
+    precondiciones:
+      - Un Word o PDF con imágenes analizado y alguna propuesta decidida.
+    pasos:
+      - Consultar el informe.
+    esperado: La penalización de imágenes se mantiene.
+    severidad: media
+    etiquetas: [informe, accesibilidad]
+
+  - id: QA-4.13-04
+    titulo: Una barrera sin propuesta queda pendiente
+    endpoint: GET /api/v1/adaptations/report?analysis_id=
+    pasos:
+      - Consultar el informe de un diagnóstico con barreras sin propuesta.
+    esperado: Esas barreras tienen resolution_status "pendiente".
+    severidad: baja
+    etiquetas: [informe]
+
+  - id: QA-4.13-05
+    titulo: Un diagnóstico inexistente responde 404
+    endpoint: GET /api/v1/adaptations/report?analysis_id=
+    pasos:
+      - Consultar el informe con un analysis_id inventado.
+    esperado: "404."
+    severidad: baja
+    etiquetas: [informe]

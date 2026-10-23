@@ -28,6 +28,7 @@ def env(tmp_path, monkeypatch):
     init_db()
     monkeypatch.setattr(settings, "D1_GATEWAY_URL", "https://gw.example.workers.dev")
     monkeypatch.setattr(settings, "TEST_WEB_URL", "https://pruebas.onrender.com")
+    monkeypatch.setattr(settings, "QA_PLATFORM_URL", "https://qa.example.workers.dev/")
     # FRONTEND_URL repetido en CORS (con barra final): se chequea una sola vez
     monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.vercel.app/")
     monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["https://app.vercel.app", "http://localhost:5173"])
@@ -36,6 +37,7 @@ def env(tmp_path, monkeypatch):
     routes: dict[str, httpx.Response | Exception] = {
         "gw.example.workers.dev": httpx.Response(200, json={"ok": True}),
         "pruebas.onrender.com": httpx.Response(200, text="ok"),
+        "qa.example.workers.dev": httpx.Response(200, json={"ok": True, "d1": "ok", "r2": "ok"}),
         "app.vercel.app": httpx.Response(200, text="ok"),
     }
     calls: list[str] = []
@@ -72,11 +74,14 @@ def test_todo_en_orden(env):
     _connection()
     data = _status()
     s = _by_id(data)
-    assert [x["id"] for x in data["services"]] == ["api", "database", "d1-gateway", "storage", "ai", "clerk", "clerk-users", "test-web", "frontend"]
+    assert [x["id"] for x in data["services"]] == [
+        "api", "database", "d1-gateway", "storage", "ai", "clerk", "clerk-users", "test-web", "qa-platform", "frontend",
+    ]
     assert {k: s[k]["state"] for k in s} == {
         "api": "ok", "database": "ok", "d1-gateway": "ok", "storage": "ok", "ai": "ok",
-        "clerk": "unconfigured", "clerk-users": "unconfigured", "test-web": "ok", "frontend": "ok",
+        "clerk": "unconfigured", "clerk-users": "unconfigured", "test-web": "ok", "qa-platform": "ok", "frontend": "ok",
     }
+    assert s["qa-platform"]["url"] == "https://qa.example.workers.dev/health"
     assert data["overall"] == "ok" and data["counts"]["unconfigured"] == 2
     assert s["test-web"]["platform"] == "Render" and s["frontend"]["platform"] == "Vercel"
     assert s["frontend"]["url"] == "https://app.vercel.app"  # localhost no se chequea
@@ -103,6 +108,13 @@ def test_worker_sin_ok_y_timeout(env):
     assert s["test-web"]["state"] == "down" and "No respondió" in s["test-web"]["detail"]
 
 
+def test_plataforma_de_qa_sin_d1_o_r2(env):
+    """Issue #124: el /health del Worker de QA responde 503 con { ok: false } si no llega a D1 o R2."""
+    routes, _ = env
+    routes["qa.example.workers.dev"] = httpx.Response(503, json={"ok": False, "d1": "ok", "r2": "Error"})
+    assert _by_id(_status())["qa-platform"]["state"] == "down"
+
+
 def test_ia_sin_conexiones_o_agotadas(env):
     assert _by_id(_status())["ai"]["state"] == "unconfigured"
     key_id = _connection()
@@ -115,10 +127,12 @@ def test_ia_sin_conexiones_o_agotadas(env):
 def test_sin_configurar_no_cuenta_para_el_estado_general(env, monkeypatch):
     monkeypatch.setattr(settings, "D1_GATEWAY_URL", None)
     monkeypatch.setattr(settings, "TEST_WEB_URL", None)
+    monkeypatch.setattr(settings, "QA_PLATFORM_URL", "")
     monkeypatch.setattr(settings, "FRONTEND_URL", "")
     monkeypatch.setattr(settings, "BACKEND_CORS_ORIGINS", ["http://localhost:5173"])
     s = _by_id(_status())
     assert s["d1-gateway"]["state"] == s["test-web"]["state"] == s["frontend"]["state"] == "unconfigured"
+    assert s["qa-platform"]["state"] == "unconfigured"
 
 
 def test_login_de_docentes_con_la_api_de_clerk(env, monkeypatch):
@@ -180,6 +194,7 @@ def test_links_sin_secretos(env):
     urls = [link["url"] for link in links]
     assert "https://api.example.com/docs" in urls and "https://api.example.com/admin" in urls
     assert "https://gw.example.workers.dev/health" in urls and "https://app.vercel.app" in urls
+    assert "https://qa.example.workers.dev" in urls and "https://qa.example.workers.dev/health" in urls
     assert not any("localhost" in u for u in urls)
 
 

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "seccion": {
+      "type": "string",
+      "pattern": "^\\d+(?:\\.\\d+)?$"
+    },
+    "titulo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "casos": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^QA-(\\d+(?:\\.\\d+)?)-(\\d{2})$"
+          },
+          "titulo": {
+            "type": "string",
+            "minLength": 1
+          },
+          "endpoint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "precondiciones": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "pasos": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "datos": {
+            "type": "string",
+            "minLength": 1
+          },
+          "esperado": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severidad": {
+            "type": "string",
+            "enum": [
+              "alta",
+              "media",
+              "baja"
+            ]
+          },
+          "etiquetas": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]+$"
+            }
+          },
+          "mock": {
+            "default": false,
+            "type": "boolean"
+          },
+          "ia_real": {
+            "default": false,
+            "type": "boolean"
+          },
+          "destructivo": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "titulo",
+          "pasos",
+          "esperado",
+          "severidad"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "seccion",
+    "titulo",
+    "casos"
+  ],
+  "additionalProperties": false
+}

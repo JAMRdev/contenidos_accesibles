@@ -1,0 +1,268 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.16"
+titulo: "Archivos: subida directa con URL firmada (/files)"
+casos:
+  # Subida directa
+  - id: QA-4.16-01
+    titulo: El flujo completo de subida y descarga conserva el archivo
+    endpoint: POST /api/v1/files/upload-url
+    pasos:
+      - Pedir upload-url para un .pdf, .docx o .pptx.
+      - Subir con PUT a upload.url.
+      - Confirmar con /complete.
+      - Pedir download-url y descargar.
+    datos: Archivos de la sección 3.2.
+    esperado: upload-url 201 (status "pending"), PUT 200, complete 200 (status "uploaded") y la descarga es idéntica al original, con su nombre.
+    severidad: alta
+    etiquetas: [archivos, r2]
+
+  - id: QA-4.16-02
+    titulo: upload-url rechaza extensiones y tipos no admitidos
+    endpoint: POST /api/v1/files/upload-url
+    pasos:
+      - Pedir upload-url para un .exe.
+      - Pedir upload-url para un archivo sin extensión.
+      - Pedir upload-url con content_type text/html.
+    esperado: 400 en los tres casos.
+    severidad: alta
+    etiquetas: [archivos, validacion, seguridad]
+
+  - id: QA-4.16-03
+    titulo: upload-url con más de 10 MB responde 413
+    endpoint: POST /api/v1/files/upload-url
+    pasos:
+      - Pedir upload-url con size_bytes de 11000000.
+    esperado: "413."
+    severidad: media
+    etiquetas: [archivos, limites]
+
+  - id: QA-4.16-04
+    titulo: Un PUT con otro Content-Type responde 403
+    endpoint: PUT <upload.url>
+    pasos:
+      - Subir con un Content-Type distinto al de upload.headers.
+    esperado: 403 (la URL va firmada).
+    severidad: media
+    etiquetas: [archivos, seguridad]
+
+  - id: QA-4.16-05
+    titulo: Un PUT vencido o con la URL modificada responde 403
+    endpoint: PUT <upload.url>
+    pasos:
+      - Subir después de 5 minutos.
+      - Subir con la URL modificada.
+    esperado: 403 en los dos casos.
+    severidad: media
+    etiquetas: [archivos, seguridad]
+
+  - id: QA-4.16-06
+    titulo: complete sin haber subido responde 409
+    endpoint: POST /api/v1/files/{file_id}/complete
+    pasos:
+      - Pedir upload-url y llamar a /complete sin subir.
+    esperado: "409."
+    severidad: media
+    etiquetas: [archivos]
+
+  - id: QA-4.16-07
+    titulo: Un archivo de otro tamaño que el declarado se rechaza y se borra
+    endpoint: POST /api/v1/files/{file_id}/complete
+    pasos:
+      - Declarar un tamaño y subir un archivo de otro tamaño.
+      - Llamar a /complete.
+      - Consultar GET /files/{file_id}.
+    esperado: complete 422 y el archivo se borra (GET responde 404).
+    severidad: alta
+    etiquetas: [archivos, validacion, seguridad]
+
+  - id: QA-4.16-08
+    titulo: Un .txt renombrado a .pdf se rechaza al confirmar
+    endpoint: POST /api/v1/files/{file_id}/complete
+    pasos:
+      - Subir un .txt renombrado a .pdf y llamar a /complete.
+    esperado: complete 422 ("firma '%PDF-' ausente").
+    severidad: alta
+    etiquetas: [archivos, validacion, seguridad]
+
+  - id: QA-4.16-09
+    titulo: download-url antes de confirmar responde 404
+    endpoint: GET /api/v1/files/{file_id}/download-url
+    pasos:
+      - Pedir download-url de un archivo sin /complete.
+    esperado: "404."
+    severidad: media
+    etiquetas: [archivos]
+
+  - id: QA-4.16-10
+    titulo: Un file_id inventado responde 404
+    endpoint: GET /api/v1/files/{file_id}
+    pasos:
+      - Consultar un file_id inventado.
+    esperado: "404."
+    severidad: baja
+    etiquetas: [archivos]
+
+  # Diagnóstico y extracción por file_id (#63)
+  - id: QA-4.16-11
+    titulo: Un archivo confirmado se diagnostica por file_id
+    endpoint: POST /api/v1/analysis/files/{file_id}
+    precondiciones:
+      - Un .pdf, .docx o .pptx confirmado.
+    pasos:
+      - Llamar a /analysis/files/{file_id} con ?mock=true.
+      - Llamar a /documents/files/{file_id}.
+    esperado: 200, mismo diagnóstico que /analysis/file con ese archivo.
+    severidad: media
+    etiquetas: [archivos, diagnostico]
+    mock: true
+
+  - id: QA-4.16-12
+    titulo: Diagnosticar dos veces el mismo file_id
+    endpoint: POST /api/v1/analysis/files/{file_id}
+    pasos:
+      - Diagnosticar dos veces el mismo archivo con ?mock=true.
+    esperado: 200 las dos veces, con analysis_id distintos.
+    severidad: media
+    etiquetas: [archivos, diagnostico]
+    mock: true
+
+  - id: QA-4.16-13
+    titulo: Un archivo sin complete responde 409
+    endpoint: POST /api/v1/analysis/files/{file_id}
+    pasos:
+      - Diagnosticar un archivo sin /complete con ?mock=true.
+    esperado: "409."
+    severidad: media
+    etiquetas: [archivos, diagnostico]
+    mock: true
+
+  - id: QA-4.16-14
+    titulo: Un file_id inventado o vencido responde 404
+    endpoint: POST /api/v1/analysis/files/{file_id}
+    pasos:
+      - Diagnosticar un file_id inventado con ?mock=true.
+    esperado: "404."
+    severidad: baja
+    etiquetas: [archivos, diagnostico]
+    mock: true
+
+  - id: QA-4.16-15
+    titulo: Sin mock, por encima del rate limit responde 429
+    endpoint: POST /api/v1/analysis/files/{file_id}
+    precondiciones:
+      - Backend local o staging con una API key de prueba.
+    pasos:
+      - Diagnosticar sin ?mock=true hasta superar el límite por minuto.
+    esperado: 429 (mismo límite que /analysis/file).
+    severidad: media
+    etiquetas: [archivos, rate-limit, ia]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-4.16-16
+    titulo: Los endpoints deprecados aparecen tachados y funcionan
+    endpoint: Swagger (/docs)
+    pasos:
+      - Abrir Swagger y buscar /analysis/pdf, /analysis/file y /documents/upload*.
+      - Probar uno con ?mock=true.
+    esperado: Aparecen tachados (deprecados), pero siguen funcionando.
+    severidad: baja
+    etiquetas: [archivos, documentacion]
+    mock: true
+
+  # Compartir con enlace revocable (#65)
+  - id: QA-4.16-17
+    titulo: El enlace descarga el archivo con su nombre original
+    endpoint: GET /s/{token}
+    precondiciones:
+      - Un archivo confirmado y un enlace creado con POST /files/{file_id}/shares.
+    pasos:
+      - Abrir el enlace en el navegador.
+    esperado: Descarga el archivo con su nombre original, directo desde R2.
+    severidad: media
+    etiquetas: [archivos, compartir]
+
+  - id: QA-4.16-18
+    titulo: El enlace redirige a R2 sin caché
+    endpoint: GET /s/{token}
+    pasos:
+      - curl -I al enlace.
+    esperado: 302 con Cache-Control no-store y Location en r2.cloudflarestorage.com.
+    severidad: media
+    etiquetas: [archivos, compartir, seguridad]
+
+  - id: QA-4.16-19
+    titulo: La Location vence a los 5 minutos, el enlace no
+    endpoint: GET /s/{token}
+    pasos:
+      - Abrir la Location después de 5 minutos.
+      - Volver a abrir el enlace /s/...
+    esperado: La Location responde 403; el enlace sigue sirviendo.
+    severidad: media
+    etiquetas: [archivos, compartir, seguridad]
+
+  - id: QA-4.16-20
+    titulo: La lista de enlaces no expone la URL y cuenta accesos
+    endpoint: GET /api/v1/files/{file_id}/shares
+    pasos:
+      - Abrir el enlace dos veces.
+      - Listar los enlaces del archivo.
+    esperado: La lista no incluye la URL y access_count sube con cada apertura.
+    severidad: media
+    etiquetas: [archivos, compartir, seguridad]
+
+  - id: QA-4.16-21
+    titulo: Un enlace revocado deja de funcionar al instante
+    endpoint: DELETE /api/v1/files/{file_id}/shares/{share_id}
+    pasos:
+      - Revocar el enlace.
+      - Volver a abrirlo.
+    esperado: 204 al revocar y después 404 de inmediato.
+    severidad: alta
+    etiquetas: [archivos, compartir, seguridad]
+
+  - id: QA-4.16-22
+    titulo: Revocar dos veces responde 404 la segunda
+    endpoint: DELETE /api/v1/files/{file_id}/shares/{share_id}
+    pasos:
+      - Revocar el mismo enlace dos veces.
+    esperado: 404 la segunda vez.
+    severidad: baja
+    etiquetas: [archivos, compartir]
+
+  - id: QA-4.16-23
+    titulo: El enlace no dura más que el archivo
+    endpoint: POST /api/v1/files/{file_id}/shares
+    pasos:
+      - Crear un enlace con expires_in_hours mayor que la vida del archivo.
+    esperado: El enlace vence con el archivo.
+    severidad: media
+    etiquetas: [archivos, compartir]
+
+  - id: QA-4.16-24
+    titulo: Crear un enlace de un archivo sin complete responde 409
+    endpoint: POST /api/v1/files/{file_id}/shares
+    pasos:
+      - Crear un enlace para un archivo sin /complete.
+    esperado: "409."
+    severidad: media
+    etiquetas: [archivos, compartir]
+
+  - id: QA-4.16-25
+    titulo: Un token inventado o el share_id en lugar del token responde 404
+    endpoint: GET /s/{token}
+    pasos:
+      - Abrir /s/ con un token inventado.
+      - Abrir /s/ con el share_id.
+    esperado: 404 en los dos casos.
+    severidad: alta
+    etiquetas: [archivos, compartir, seguridad]
+
+  - id: QA-4.16-26
+    titulo: Más de 30 aperturas por minuto desde la misma IP responden 429
+    endpoint: GET /s/{token}
+    pasos:
+      - Abrir el enlace 31 veces en un minuto.
+    esperado: 429 con Retry-After.
+    severidad: media
+    etiquetas: [archivos, compartir, rate-limit]

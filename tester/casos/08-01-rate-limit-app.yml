@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=./esquema.json
+# Consume IA real: en staging o local con una API key propia de prueba, y avisando antes (sección 8).
+seccion: "8.1"
+titulo: "Rate limit de la app"
+casos:
+  - id: QA-8.1-01
+    titulo: Límite por minuto
+    endpoint: POST /api/v1/analysis/sample
+    pasos:
+      - Hacer 6 llamadas seguidas sin ?mock=true (script de la sección 8.1).
+    esperado: 5 respuestas 200 y la 6.ª 429 con Retry-After de 60 o menos.
+    severidad: media
+    etiquetas: [rate-limit, ia]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-8.1-02
+    titulo: Recuperación después del límite
+    endpoint: POST /api/v1/analysis/sample
+    precondiciones:
+      - Haber recibido el 429 de QA-8.1-01.
+    pasos:
+      - Esperar lo que indica Retry-After y reintentar.
+    esperado: "200."
+    severidad: media
+    etiquetas: [rate-limit, ia]
+    ia_real: true
+    destructivo: true
+
+  - id: QA-8.1-03
+    titulo: El mock no cuenta para el límite
+    endpoint: POST /api/v1/analysis/sample
+    precondiciones:
+      - Haber recibido el 429 de QA-8.1-01.
+    pasos:
+      - Repetir la misma llamada con ?mock=true.
+    esperado: "200."
+    severidad: media
+    etiquetas: [rate-limit]
+    mock: true
+    destructivo: true
+
+  - id: QA-8.1-04
+    titulo: Los GET no cuentan para el límite
+    endpoint: GET /api/v1/analysis/{analysis_id}
+    precondiciones:
+      - Haber recibido el 429 de QA-8.1-01.
+    pasos:
+      - Llamar a GET /analysis/{id}.
+    esperado: "200."
+    severidad: media
+    etiquetas: [rate-limit]
+    destructivo: true
+
+  - id: QA-8.1-05
+    titulo: El mensaje del 429 orienta al docente
+    endpoint: POST /api/v1/analysis/sample
+    precondiciones:
+      - Haber recibido el 429 de QA-8.1-01.
+    pasos:
+      - Leer el detail de la respuesta.
+    esperado: Sugiere esperar o usar ?mock=true.
+    severidad: baja
+    etiquetas: [rate-limit]
+    ia_real: true
+    destructivo: true

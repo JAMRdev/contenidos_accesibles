@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=./esquema.json
+# Todos contra el backend local o staging, nunca contra producción, y siempre con ?mock=true (sección 7.1).
+seccion: "7.2"
+titulo: "Pruebas de estrés: escenarios"
+casos:
+  - id: QA-7.2-01
+    titulo: Carga normal
+    pasos:
+      - Correr el script de Locust (7.3) con 10 a 20 usuarios durante 5 minutos.
+    esperado: p95 menor a 1 s y 0 % de errores.
+    severidad: media
+    etiquetas: [estres]
+    mock: true
+    destructivo: true
+
+  - id: QA-7.2-02
+    titulo: Rampa
+    pasos:
+      - Subir de 0 a 100 usuarios en 5 minutos.
+    esperado: Registrar en qué punto suben la latencia o los errores.
+    severidad: media
+    etiquetas: [estres]
+    mock: true
+    destructivo: true
+
+  - id: QA-7.2-03
+    titulo: Pico
+    pasos:
+      - Lanzar 50 usuarios de golpe durante 1 minuto.
+    esperado: Sin respuestas 500 ni reinicios del servidor.
+    severidad: alta
+    etiquetas: [estres]
+    mock: true
+    destructivo: true
+
+  - id: QA-7.2-04
+    titulo: Resistencia (soak)
+    pasos:
+      - Correr 15 usuarios durante 30 a 60 minutos.
+    esperado: Memoria estable y sin degradación con el tiempo.
+    severidad: media
+    etiquetas: [estres, memoria]
+    mock: true
+    destructivo: true
+
+  - id: QA-7.2-05
+    titulo: Archivos pesados
+    pasos:
+      - Subir 2, 5 y 10 archivos de 8 a 10 MB en simultáneo a /analysis/file.
+    esperado: Registrar memoria del proceso y latencia (ver 7.4); reportar en qué cantidad se reinicia o supera 30 s.
+    severidad: alta
+    etiquetas: [estres, memoria, archivos]
+    mock: true
+    destructivo: true
+
+  - id: QA-7.2-06
+    titulo: Concurrencia de decisiones
+    pasos:
+      - Mandar 2 a 5 decisiones a la vez sobre la misma propuesta.
+    esperado: Una 200 y el resto 409, nunca dos 200.
+    severidad: alta
+    etiquetas: [estres, concurrencia, decisiones]
+    mock: true
+    destructivo: true
+
+  - id: QA-7.2-07
+    titulo: Entradas en el borde
+    pasos:
+      - Analizar textos de 20.000 caracteres y PDFs de más de 100 páginas.
+    esperado: Tiempo de respuesta razonable y sin respuestas 500.
+    severidad: media
+    etiquetas: [estres, limites]
+    mock: true
+    destructivo: true

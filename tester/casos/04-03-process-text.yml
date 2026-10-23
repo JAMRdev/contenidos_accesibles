@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=./esquema.json
+seccion: "4.3"
+titulo: "POST /documents/process-text"
+casos:
+  - id: QA-4.3-01
+    titulo: Un texto válido devuelve sus métricas
+    endpoint: POST /api/v1/documents/process-text
+    pasos:
+      - 'Enviar {"text": "Leé el texto y respondé las preguntas."}.'
+    esperado: 200 con source_type "text" y word_count 7.
+    severidad: media
+    etiquetas: [validacion]
+
+  - id: QA-4.3-02
+    titulo: Un texto de menos de 10 caracteres responde 422
+    endpoint: POST /api/v1/documents/process-text
+    pasos:
+      - 'Enviar {"text": "Hola"}.'
+    esperado: 422 con string_too_short.
+    severidad: media
+    etiquetas: [validacion, limites]
+
+  - id: QA-4.3-03
+    titulo: Un texto de más de 50.000 caracteres responde 422
+    endpoint: POST /api/v1/documents/process-text
+    pasos:
+      - Enviar un text de 50.001 caracteres.
+    esperado: 422 con string_too_long.
+    severidad: media
+    etiquetas: [validacion, limites]
+
+  - id: QA-4.3-04
+    titulo: Sin body o sin el campo text responde 422
+    endpoint: POST /api/v1/documents/process-text
+    pasos:
+      - Enviar el pedido sin body.
+      - Enviar {} (sin text).
+    esperado: 422 en los dos casos.
+    severidad: media
+    etiquetas: [validacion]
