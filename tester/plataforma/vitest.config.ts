@@ -21,6 +21,7 @@ export default defineConfig(async () => {
                     bindings: {
                         TEST_MIGRATIONS: migrations,
                         TEST_CLERK_PRIVATE_KEY: privateKey,
+                        CLERK_PUBLISHABLE_KEY: "pk_test_cWEtcHJ1ZWJhcy5jbGVyay5hY2NvdW50cy5kZXYk", // qa-pruebas.clerk.accounts.dev
                         CLERK_JWT_KEY: publicKey,
                         CLERK_SECRET_KEY: "sk_test_prueba",
                         QA_ADMINS: "admin-fijo",

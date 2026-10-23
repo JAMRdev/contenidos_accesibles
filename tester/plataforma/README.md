@@ -135,6 +135,10 @@ npm run dev             # build de la web + Worker en http://127.0.0.1:8788
 Para el login, creá `.dev.vars` (no se versiona) antes de `npm run dev`:
 
 ```ini
+CLERK_PUBLISHABLE_KEY=pk_test_...     # ADMIN_CLERK_PUBLISHABLE_KEY del .env del backend
+CLERK_JWT_KEY="-----BEGIN PUBLIC KEY-----
+...
+-----END PUBLIC KEY-----"           # ADMIN_CLERK_JWT_KEY del backend (PEM entre comillas)
 CLERK_SECRET_KEY=sk_test_...          # ADMIN_CLERK_SECRET_KEY del .env del backend
 ORIGENES_EXTRA=http://localhost:5173  # para npm run dev:web
 GITHUB_TOKEN=ghp_...                  # token clásico con public_repo (o repo) y project
@@ -158,14 +162,16 @@ Los tests del Worker corren con `@cloudflare/vitest-plugin` sobre D1 y R2 simula
 
 ## Secretos
 
-Se cargan con `wrangler secret put <NOMBRE>` (en local, en `.dev.vars`, que no se versiona). Nunca llegan al navegador.
+Se cargan con `wrangler secret put <NOMBRE>` (en local, en `.dev.vars`, que no se versiona). Ninguna clave de Clerk ni de GitHub va en `wrangler.toml`.
 
 | Secreto | Issue | Para qué |
 | :--- | :--- | :--- |
+| `CLERK_PUBLISHABLE_KEY` | #126 | Instancia de Clerk del login (`ADMIN_CLERK_PUBLISHABLE_KEY` del backend). La web la pide a `/api/config` |
+| `CLERK_JWT_KEY` | #126 | Clave pública PEM con la que se validan los tokens de sesión (`ADMIN_CLERK_JWT_KEY` del backend) |
 | `CLERK_SECRET_KEY` | #126 | Leer en la API de Clerk la cuenta de GitHub de quien inicia sesión (`ADMIN_CLERK_SECRET_KEY` del backend) |
 | `GITHUB_TOKEN` | #130 | Publicar issues y sincronizar su estado |
 
-Las variables públicas (`CLERK_PUBLISHABLE_KEY`, `CLERK_JWT_KEY`, `QA_ADMINS`, `GITHUB_REPO`) están en `[vars]` de `wrangler.toml`. Sin `GITHUB_TOKEN` la plataforma funciona igual: solo no consulta ni publica en GitHub.
+La configuración que no es secreta (`QA_ADMINS`, `GITHUB_REPO`, el tablero) está en `[vars]` de `wrangler.toml`. `CLERK_PUBLISHABLE_KEY` termina en el navegador y `CLERK_JWT_KEY` es una clave pública, pero igual se cargan como secretos para no versionar claves. Sin `GITHUB_TOKEN` la plataforma funciona igual: solo no consulta ni publica en GitHub.
 
 ## Deploy
 

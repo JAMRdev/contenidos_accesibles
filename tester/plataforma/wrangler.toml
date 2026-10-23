@@ -44,22 +44,10 @@ bucket_name = "innovalab-qa-evidencias"
 [triggers]
 crons = ["*/10 * * * *"]
 
-# Login con Clerk (#126): la misma instancia que el panel /admin del backend. Las dos son públicas
-# (la publishable key va al navegador y la clave PEM solo verifica firmas). El secreto
-# CLERK_SECRET_KEY se carga con `wrangler secret put` (en local, en .dev.vars).
+# Login con Clerk (#126): la misma instancia que el panel /admin del backend. CLERK_PUBLISHABLE_KEY,
+# CLERK_JWT_KEY (clave pública PEM) y CLERK_SECRET_KEY se cargan con `wrangler secret put` (en local,
+# en .dev.vars): no se versionan.
 [vars]
-CLERK_PUBLISHABLE_KEY = "pk_test_Z29vZC13b2xmLTc2ODYuY2xlcmsuYWNjb3VudHMuZGV2JA"
-CLERK_JWT_KEY = """
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6KwQYnTwvBG0chDosPlE
-eWOUaJMBCu4urxu6+LVvOAJEiZY+IxUPIbDcqvQF/joewFYxayiqkrWXO9oXg5OL
-In78bpwusYKgvIl4F3D5g5Cw5pm7xrfxtYHZXb/0mMXpPC4Hablrw7DqAt22aCtF
-3j73Dnl3xVFecBybgTzO60EbXxkVg/MTXdraDdQRlMOheVoeNyYi7qzsQJT1EM0N
-G3oJ+NXbXiADx6ujf/QNUfmPTf0fisS+62kfQDFGZj5IxtXd/l/IAVkhcDXn88My
-sHflN24gjcxUSV5guT/qWwlCMvJBHB4UPIax2eQA6Yf6LjM5zDgwYZXv/JNNa3S/
-8QIDAQAB
------END PUBLIC KEY-----
-"""
 # Cuentas de GitHub que son admin siempre (las mismas que ADMIN_GITHUB_ADMINS del backend).
 # El resto de los miembros se administra desde la plataforma (tabla qa_members).
 QA_ADMINS = "JAMRdev,VictoriaMackenzie,malessan4"
@@ -85,5 +73,5 @@ simple = { limit = 10, period = 60 }
 
 # Secretos (no van en este archivo). En producción: `wrangler secret put <NOMBRE>`;
 # en local se leen de .dev.vars (no se versiona). Los agregan sus issues:
-#   CLERK_SECRET_KEY  (#126)
+#   CLERK_PUBLISHABLE_KEY, CLERK_JWT_KEY y CLERK_SECRET_KEY  (#126)
 #   GITHUB_TOKEN      (#130)
