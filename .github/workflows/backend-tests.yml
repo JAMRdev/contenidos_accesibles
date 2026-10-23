@@ -6,11 +6,13 @@ on:
   pull_request:
     paths:
       - "backend/**"
+      - "pytest.ini"
       - ".github/workflows/backend-tests.yml"
   push:
     branches: [main]
     paths:
       - "backend/**"
+      - "pytest.ini"
       - ".github/workflows/backend-tests.yml"
   workflow_dispatch:
 
