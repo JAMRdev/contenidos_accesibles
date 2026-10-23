@@ -13,7 +13,7 @@ import { PublicarSesion } from "./paginas/PublicarSesion";
 import { SesionDetalle } from "./paginas/SesionDetalle";
 import { Sesiones } from "./paginas/Sesiones";
 import { Link, RutaProvider, useRuta } from "./ruta";
-import { Alerta, Icon, Marca, ToastProvider } from "./ui";
+import { Alerta, ConfirmarProvider, Icon, Marca, ToastProvider } from "./ui";
 
 // Misma apariencia que el login de /admin (backend/app/admin/static/admin.js)
 const APARIENCIA_CLERK = {
@@ -134,14 +134,16 @@ function Plataforma() {
 export function App() {
     return (
         <ToastProvider>
-            <RutaProvider>
-                <Show when="signed-out">
-                    <Login />
-                </Show>
-                <Show when="signed-in">
-                    <Plataforma />
-                </Show>
-            </RutaProvider>
+            <ConfirmarProvider>
+                <RutaProvider>
+                    <Show when="signed-out">
+                        <Login />
+                    </Show>
+                    <Show when="signed-in">
+                        <Plataforma />
+                    </Show>
+                </RutaProvider>
+            </ConfirmarProvider>
         </ToastProvider>
     );
 }

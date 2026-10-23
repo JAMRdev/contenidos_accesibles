@@ -392,3 +392,8 @@ body.modal-open { overflow: hidden; }
 .qa-select-estado.is-bloqueado { background-color: #fff3e0; outline-color: #814800; color: #814800; font-weight: 600; }
 .qa-select-estado.is-omitido { background-color: #f3f3f3; outline-color: #565656; color: #565656; font-weight: 600; }
 .qa-nowrap, .qa-nowrap .cell-sub { white-space: nowrap; }
+
+/* Texto del modal de confirmación */
+.qa-confirmar-texto { font-size: 1rem; color: var(--ink-2); }
+.qa-confirmar-texto p { margin: 0 0 0.5rem; }
+.qa-confirmar-texto p:last-child { margin-bottom: 0; }

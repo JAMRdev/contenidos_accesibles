@@ -5,7 +5,7 @@ import { Comentarios } from "../Comentarios";
 import { Evidencias } from "../Evidencias";
 import { Link, useFiltros, useRuta } from "../ruta";
 import type { Avance, Bug, Comentario, EstadoResultado, ResultadoCaso, Seccion, Sesion } from "../tipos";
-import { Alerta, AREA_TEXTO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Kpi, Marcas, RESULTADO_INFO, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
+import { Alerta, AREA_TEXTO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Kpi, Marcas, RESULTADO_INFO, Selector, SEVERIDAD_TEXTO, useConfirmar, useToast } from "../ui";
 
 type Detalle = { sesion: Sesion; avance: Avance; casos: ResultadoCaso[] };
 
@@ -99,6 +99,7 @@ export function SesionDetalle({ id }: { id: string }) {
     const api = useApi();
     const yo = useYo();
     const toast = useToast();
+    const confirmar = useConfirmar();
     const [f, setF] = useFiltros({ q: "", seccion: "", resultado: "", marcas: "" });
     const consulta = new URLSearchParams(
         Object.entries({ q: f.q, seccion: f.seccion, resultado: f.resultado, ...(f.marcas ? { [f.marcas]: "true" } : {}) }).filter(([, v]) => v),
@@ -127,7 +128,10 @@ export function SesionDetalle({ id }: { id: string }) {
     }
 
     async function cambiarEstadoSesion(accion: "cerrar" | "reabrir") {
-        if (accion === "cerrar" && !window.confirm("Cerrada la sesión, ya no se pueden cambiar resultados (un admin puede reabrirla). ¿Cerrarla?")) return;
+        if (accion === "cerrar") {
+            const ok = await confirmar({ titulo: "Cerrar la sesión", texto: "Cerrada la sesión, ya no se pueden cambiar sus resultados. Un admin puede reabrirla.", confirmar: "Cerrar sesión" });
+            if (!ok) return;
+        }
         try {
             await api(`/api/sesiones/${sesion.id}/${accion}`, { method: "POST" });
             toast(accion === "cerrar" ? "Sesión cerrada." : "Sesión reabierta.");

@@ -1,7 +1,7 @@
 // Miembros de la plataforma (solo admins), con el mismo diseño que la pestaña Usuarios del panel.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useApi, type Rol } from "./api";
-import { Alerta, Icon, ROL_INFO, RoleBadge, useToast } from "./ui";
+import { Alerta, Icon, ROL_INFO, RoleBadge, useConfirmar, useToast } from "./ui";
 
 type Miembro = { github: string; rol: Rol; habilitado: boolean; agregado_por: string | null };
 type Listado = { fijos: { github: string; rol: Rol }[]; miembros: Miembro[] };
@@ -30,6 +30,7 @@ function SelectorRol(props: { id: string; valor: Rol; onChange: (r: Rol) => void
 export function Miembros({ yo }: { yo: string }) {
     const api = useApi();
     const toast = useToast();
+    const confirmar = useConfirmar();
     const [listado, setListado] = useState<Listado | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [nuevo, setNuevo] = useState({ github: "", rol: "qa" as Rol, invalido: false });
@@ -72,8 +73,9 @@ export function Miembros({ yo }: { yo: string }) {
     const cambiar = (m: Miembro, cambios: Partial<{ rol: Rol; habilitado: boolean }>, ok: string) =>
         ejecutar(() => api<Listado>(ruta(m), { method: "PATCH", body: JSON.stringify(cambios) }), ok);
 
-    const quitar = (m: Miembro) => {
-        if (!window.confirm(`@${m.github} ya no va a poder entrar a la plataforma de QA. ¿Quitar el acceso?`)) return;
+    const quitar = async (m: Miembro) => {
+        const ok = await confirmar({ titulo: "Quitar acceso", texto: `@${m.github} ya no va a poder entrar a la plataforma de QA.`, confirmar: "Quitar acceso", peligro: true });
+        if (!ok) return;
         void ejecutar(() => api<Listado>(ruta(m), { method: "DELETE" }), `Se quitó el acceso de @${m.github}.`);
     };
 
@@ -210,7 +212,7 @@ export function Miembros({ yo }: { yo: string }) {
                                                     className="btn btn-sm btn-outline-danger btn-icon-only"
                                                     title="Quitar acceso"
                                                     aria-label={`Quitar el acceso de @${m.github}`}
-                                                    onClick={() => quitar(m)}
+                                                    onClick={() => void quitar(m)}
                                                 >
                                                     <Icon name="person_remove" />
                                                 </button>

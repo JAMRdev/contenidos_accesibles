@@ -6,7 +6,7 @@ import { Evidencias } from "../Evidencias";
 import { PosiblesDuplicados, PublicarBug, ReporteBug, VistaPreviaIssue } from "../Reporte";
 import { Link, useFiltros } from "../ruta";
 import type { Bug, BugDetalle, Entorno, EstadoBug, Seccion, Severidad } from "../tipos";
-import { Alerta, AREA_TEXTO, AREAS, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "../ui";
+import { Alerta, AREA_TEXTO, AREAS, BUG_INFO, Busqueda, Cargando, ENTORNO_TEXTO, Estado, fecha, Icon, Selector, SEVERIDAD_TEXTO, useConfirmar, useToast } from "../ui";
 
 const ESTADOS = Object.keys(BUG_INFO) as EstadoBug[];
 const SEVERIDADES = Object.keys(SEVERIDAD_TEXTO) as Severidad[];
@@ -204,6 +204,7 @@ export function BugDetallePagina({ id }: { id: string }) {
     const toast = useToast();
     const bug = useDatos<BugDetalle>(`/api/bugs/${id}`);
     const [error, setError] = useState<string | null>(null);
+    const confirmar = useConfirmar();
     const sync = useSincronizarAlAbrir(id, Boolean(bug.datos?.issue), bug.recargar);
 
     if (bug.error && !bug.datos) return <Alerta tipo="danger">{bug.error}</Alerta>;
@@ -214,10 +215,16 @@ export function BugDetallePagina({ id }: { id: string }) {
     // (abierto, en curso y resuelto los toma de GitHub)
     const posibles: EstadoBug[] = b.issue ? ["reabierto", "verificado", "descartado"] : ["borrador", "descartado"];
 
-    function cambiarEstado(estado: EstadoBug) {
+    async function cambiarEstado(estado: EstadoBug) {
         if (b.issue) {
             const efecto = EFECTO_EN_GITHUB[estado as keyof typeof EFECTO_EN_GITHUB](b.issue.numero, b.issue.estado === "closed");
-            if (!window.confirm(`${BUG_INFO[estado].label}: ${efecto} ¿Seguir?`)) return;
+            const ok = await confirmar({
+                titulo: `Pasar a ${BUG_INFO[estado].label}`,
+                texto: `En GitHub, ${efecto}`,
+                confirmar: `Pasar a ${BUG_INFO[estado].label}`,
+                peligro: estado === "descartado",
+            });
+            if (!ok) return;
         }
         void cambiar({ estado }, b.issue ? `El bug pasó a ${BUG_INFO[estado].label} y se avisó en GitHub (#${b.issue.numero}).` : `El bug pasó a ${BUG_INFO[estado].label}.`);
     }
@@ -257,7 +264,7 @@ export function BugDetallePagina({ id }: { id: string }) {
                             chico
                             valor={b.estado}
                             opciones={[[b.estado, `Cambiar estado…`] as const, ...posibles.filter((e) => e !== b.estado).map((e) => [e, BUG_INFO[e].label] as const)]}
-                            onChange={cambiarEstado}
+                            onChange={(estado) => void cambiarEstado(estado)}
                         />
                     )}
                 </div>

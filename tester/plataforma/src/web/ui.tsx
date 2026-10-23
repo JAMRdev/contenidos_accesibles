@@ -184,6 +184,86 @@ export function Alerta({ tipo, children }: { tipo: "danger" | "success" | "warni
     );
 }
 
+// Confirmaciones en un modal con el diseño del panel (en lugar de window.confirm)
+type PedidoConfirmacion = { titulo: string; texto: ReactNode; confirmar: string; peligro?: boolean };
+
+const ConfirmarContext = createContext<(p: PedidoConfirmacion) => Promise<boolean>>(async () => false);
+
+/** const confirmar = useConfirmar(); if (!(await confirmar({ titulo, texto, confirmar: "Borrar", peligro: true }))) return; */
+export function useConfirmar() {
+    return useContext(ConfirmarContext);
+}
+
+export function ConfirmarProvider({ children }: { children: ReactNode }) {
+    const [pedido, setPedido] = useState<(PedidoConfirmacion & { responder: (ok: boolean) => void }) | null>(null);
+    const confirmar = useCallback((p: PedidoConfirmacion) => new Promise<boolean>((responder) => setPedido({ ...p, responder })), []);
+
+    const cerrar = useCallback(
+        (ok: boolean) => {
+            pedido?.responder(ok);
+            setPedido(null);
+        },
+        [pedido],
+    );
+
+    useEffect(() => {
+        if (!pedido) return;
+        const previo = document.activeElement as HTMLElement | null;
+        document.body.classList.add("modal-open");
+        document.getElementById("qa-confirmar-ok")?.focus();
+        const alTeclear = (e: KeyboardEvent) => e.key === "Escape" && cerrar(false);
+        document.addEventListener("keydown", alTeclear);
+        return () => {
+            document.body.classList.remove("modal-open");
+            document.removeEventListener("keydown", alTeclear);
+            previo?.focus();
+        };
+    }, [pedido, cerrar]);
+
+    return (
+        <ConfirmarContext.Provider value={confirmar}>
+            {children}
+            {pedido && (
+                <>
+                    <div className="modal-backdrop fade show" />
+                    <div
+                        className="modal fade show d-block"
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-labelledby="qa-confirmar-titulo"
+                        aria-describedby="qa-confirmar-texto"
+                        onMouseDown={(e) => e.target === e.currentTarget && cerrar(false)}
+                    >
+                        <div className="modal-dialog modal-dialog-centered">
+                            <div className="modal-content admin-modal">
+                                <div className="modal-header">
+                                    <h2 className="admin-h2 mb-0" id="qa-confirmar-titulo">
+                                        {pedido.titulo}
+                                    </h2>
+                                    <button type="button" className="btn-close" aria-label="Cancelar" onClick={() => cerrar(false)} />
+                                </div>
+                                <div className="modal-body">
+                                    <div id="qa-confirmar-texto" className="qa-confirmar-texto">
+                                        {pedido.texto}
+                                    </div>
+                                </div>
+                                <div className="modal-footer">
+                                    <button type="button" className="btn btn-outline-secondary" onClick={() => cerrar(false)}>
+                                        Cancelar
+                                    </button>
+                                    <button id="qa-confirmar-ok" type="button" className={`btn ${pedido.peligro ? "btn-danger" : "btn-primary"}`} onClick={() => cerrar(true)}>
+                                        {pedido.confirmar}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+        </ConfirmarContext.Provider>
+    );
+}
+
 // Avisos flotantes abajo a la derecha (como el toast del panel), bien visibles y apilables
 type TipoToast = "exito" | "error";
 type Toast = { id: number; texto: string; tipo: TipoToast };

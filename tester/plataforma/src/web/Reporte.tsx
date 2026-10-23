@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useApi, useDatos, useYo } from "./api";
 import { Link } from "./ruta";
 import type { BugDetalle, Duplicados, Severidad, VistaPrevia } from "./tipos";
-import { Alerta, BUG_INFO, Cargando, Estado, Icon, Selector, SEVERIDAD_TEXTO, useToast } from "./ui";
+import { Alerta, BUG_INFO, Cargando, Estado, Icon, Selector, SEVERIDAD_TEXTO, useConfirmar, useToast } from "./ui";
 
 type Formulario = { titulo: string; severidad: Severidad; pasos: string; esperado: string; obtenido: string; url: string; version: string; descripcion: string };
 
@@ -132,6 +132,7 @@ export function PublicarBug({ bug, alPublicar }: { bug: BugDetalle; alPublicar: 
     const api = useApi();
     const yo = useYo();
     const toast = useToast();
+    const confirmar = useConfirmar();
     const previa = useDatos<VistaPrevia>(bug.issue ? null : `/api/bugs/${bug.id}/vista-previa?v=${encodeURIComponent(bug.actualizado_en)}`);
     const [publicando, setPublicando] = useState(false);
     const [resultado, setResultado] = useState<ResultadoPublicacion | null>(null);
@@ -139,7 +140,19 @@ export function PublicarBug({ bug, alPublicar }: { bug: BugDetalle; alPublicar: 
     const pendientes = bug.comentarios.filter((c) => c.en_github && !c.publicado_en_github && c.origen === "plataforma").length;
 
     async function publicar() {
-        if (!bug.issue && !window.confirm(`Se va a publicar en ${previa.datos?.repo ?? "GitHub"} (o a comentar en el issue abierto del mismo caso). ¿Seguir?`)) return;
+        if (!bug.issue) {
+            const ok = await confirmar({
+                titulo: "Publicar en GitHub",
+                texto: (
+                    <>
+                        <p>Se va a crear el issue en <code>{previa.datos?.repo ?? "GitHub"}</code> con la etiqueta [QA - Issue].</p>
+                        <p className="mb-0 admin-muted">Si ya hay un issue abierto de este mismo caso, se comenta en ese en lugar de crear otro.</p>
+                    </>
+                ),
+                confirmar: "Publicar",
+            });
+            if (!ok) return;
+        }
         setPublicando(true);
         try {
             const r = await api<ResultadoPublicacion>(`/api/bugs/${bug.id}/publicar`, { method: "POST" });

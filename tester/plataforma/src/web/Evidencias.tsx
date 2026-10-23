@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/react";
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
 import { ApiError, useApi, useDatos, useYo } from "./api";
 import { Link } from "./ruta";
-import { Alerta, Cargando, fecha, Icon, Selector, useToast } from "./ui";
+import { Alerta, Cargando, fecha, Icon, Selector, useConfirmar, useToast } from "./ui";
 
 export type Evidencia = {
     id: number;
@@ -235,6 +235,7 @@ export function Evidencias({ destino }: { destino: { resultado: number } | { bug
     const toast = useToast();
     const consulta = "resultado" in destino ? `resultado=${destino.resultado}` : `bug=${destino.bug}`;
     const lista = useDatos<{ evidencias: Evidencia[] }>(`/api/evidencias?${consulta}`);
+    const confirmar = useConfirmar();
     const [abierta, setAbierta] = useState<Evidencia | null>(null);
     const [subidas, setSubidas] = useState<Subida[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -303,7 +304,8 @@ export function Evidencias({ destino }: { destino: { resultado: number } | { bug
     }
 
     async function borrar(ev: Evidencia) {
-        if (!window.confirm(`¿Borrar ${ev.nombre}? Los enlaces desde GitHub dejan de funcionar.`)) return;
+        const ok = await confirmar({ titulo: "Borrar evidencia", texto: `Se va a borrar ${ev.nombre}. Los enlaces a esta evidencia desde GitHub dejan de funcionar.`, confirmar: "Borrar", peligro: true });
+        if (!ok) return;
         try {
             await api(`/api/evidencias/${ev.id}`, { method: "DELETE" });
             toast("Evidencia borrada.");
