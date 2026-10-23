@@ -48,7 +48,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 # Archivos estáticos del panel (públicos: los necesita el login). Solo los de esta lista.
 _static_dir = Path(__file__).parent / "static"
-STATIC_FILES = {"admin.css": "text/css", "admin.js": "text/javascript"}
+STATIC_FILES = {"admin.css": "text/css", "admin.js": "text/javascript", "favicon.svg": "image/svg+xml"}
 
 # Diagramas de arquitectura generados con Archify (fuentes en docs/diagramas/).
 # El slug de la URL solo se busca en este diccionario: nunca se arma una ruta
