@@ -23,6 +23,7 @@ El diagnóstico combina dos fuentes:
 | PDF escaneado | `accesibilidad_visual` | — | sin capa de texto seleccionable |
 | Letra chica en el cuerpo (Issue #79, solo archivos) | `accesibilidad_visual` | — | tamaño predominante del texto < 9 pt |
 | Pasaje largo en letra chica (Issue #79, solo archivos) | `accesibilidad_visual` | párrafo o bloque con 20+ palabras en < 8 pt (notas, epígrafes) | — |
+| Contraste texto/fondo (Issue #79, WCAG 1.4.3, solo archivos) | `accesibilidad_visual` | texto normal entre 3:1 y 4,5:1 | menos de 3:1 (falla incluso como texto grande) |
 
 - Las palabras se cuentan con el mismo criterio que `DocumentService` (`\b\w+\b`).
 - Se listan como máximo **3 barreras por regla** (las más extensas/relevantes). El total aparece en el comentario de la dimensión.
@@ -46,6 +47,8 @@ El diagnóstico combina dos fuentes:
 
 Las reglas viven en `app/services/legibility_rules.py` y los datos tipográficos los arma `app/services/legibility_extractor.py`, que hace su propia pasada sobre el archivo ya abierto (no modifica la extracción de texto ni la detección de títulos). El resultado queda en `ExtractedDocument.legibility`. No aplican al texto pegado (`source_type == "text"`, que no tiene tipografía) ni al PDF escaneado (ya tiene su propia barrera). No consumen tokens.
 
+**Letra chica**
+
 - **Tamaño del cuerpo**: el tamaño predominante ponderado por caracteres, entre los fragmentos con tamaño conocido. Si no se pudo medir ninguno, se usa `structure.body_font_size`.
   - **PDF**: tamaño de cada span de PyMuPDF.
   - **Word**: tamaño del run; si no lo define, el del estilo de carácter, el del estilo de párrafo (y sus estilos base) y por último `docDefaults` (Word usa 10 pt si no está). Incluye celdas de tabla.
@@ -55,6 +58,21 @@ Las reglas viven en `app/services/legibility_rules.py` y los datos tipográficos
 - Las barreras de esta regla no tienen `anchor`: una barrera de la IA sobre el mismo texto (por ejemplo, de comprensión) habla de otro problema y no debe ocultarla.
 - En los pasajes, `original_text` es el comienzo del pasaje, y la página o diapositiva va en `issue` (Word no informa páginas). En el cuerpo, `original_text` es un resumen entre corchetes y `fragment_found` es `null`, como en el resto de las barreras de documento completo.
 - Umbrales: `MIN_BODY_FONT_PT` (9) en `legibility_rules.py`; `SMALL_PASSAGE_PT` (8) y `MIN_SMALL_PASSAGE_WORDS` (20) en `legibility_extractor.py`.
+
+**Contraste (WCAG 1.4.3, nivel AA)**
+
+- Por cada fragmento de texto se calcula la relación de contraste entre su color y el de su fondo, con la fórmula de luminancia relativa de WCAG (de 1:1 a 21:1). Mínimo: **4,5:1** para texto normal y **3:1** para texto grande (18 pt o más, o 14 pt o más en negrita).
+- **Severidad**: por debajo de 3:1 el texto falla incluso como texto grande → `barrera_detectada`. Texto normal entre 3:1 y 4,5:1 → `para_revisar`.
+- **Pasaje**: el mismo bloque del PDF o párrafo de Word/PowerPoint que en la letra chica. Se marca si tiene **5 palabras o más** con bajo contraste, para no marcar un "Página 1 de 3" en gris. Se informan los 3 pasajes de peor contraste; el total va al comentario.
+- **Color del texto y del fondo por formato**:
+  - **PDF**: color de cada span de PyMuPDF. Fondo: el último rectángulo relleno (`page.get_drawings()`, opacidad ≥ 50%) que contiene el centro del texto; si no hay ninguno, blanco. El texto invisible (por ejemplo, la capa de OCR) no se evalúa.
+  - **Word**: color del run o de sus estilos (RGB, o el valor calculado que Word guarda para los colores del tema). Fondo, en este orden: resaltado del run, sombreado del run, sombreado del párrafo, sombreado de la celda, color de página y, si no hay, blanco.
+  - **PowerPoint**: casi todo usa colores del tema ("Texto 1", "Énfasis 2, más claro 40%"). Se resuelven con el tema del patrón: el `clrMap` traduce el nombre (por ejemplo, `tx1` → `dk1`; la diapositiva o el diseño pueden redefinirlo) y los modificadores `lumMod`/`lumOff` (en HSL, como PowerPoint), `tint` y `shade` lo aclaran u oscurecen. El color del texto sale del run, del párrafo o, si no lo define, se hereda en este orden: lista de estilos del cuadro, marcador de posición del diseño y del patrón, estilos de texto del patrón (título, cuerpo u otros), estilo de la forma (`fontRef`) y estilo por defecto de la presentación. Un enlace sin color toma el color de hipervínculo del tema. Fondo: relleno de la forma (propio, heredado del marcador de posición o del estilo de la forma `fillRef`) o, si no tiene, el de la diapositiva, su diseño o el patrón, incluido el fondo del tema (`bgRef`). Todo se lee del XML, sin modificar el archivo.
+- Si no se conoce el color del texto o del fondo, ese fragmento **no se evalúa** (ver limitaciones). `contrast_measured_chars` indica cuánto texto se pudo evaluar.
+- Si la lectura tipográfica falla con un archivo inesperado, el análisis sigue sin las reglas de legibilidad y se registra una advertencia en el log, en lugar de rechazar el material.
+- Si no se conoce el tamaño (PowerPoint heredado del patrón), solo se marca lo que falla incluso con el umbral de texto grande (3:1).
+- Cada barrera indica los dos colores en hexadecimal, la relación obtenida y la exigida, y la página o diapositiva.
+- Umbrales: `NORMAL_TEXT_MIN_RATIO` (4,5), `LARGE_TEXT_MIN_RATIO` (3), `LARGE_TEXT_PT` (18), `LARGE_BOLD_TEXT_PT` (14) y `MIN_LOW_CONTRAST_WORDS` (5) en `legibility_extractor.py`.
 
 ## Unión con la IA
 
@@ -83,6 +101,7 @@ rules_score = 100 − penalizaciones
   imagenes_sin_verificar   10   (solo si no es escaneado y hay imágenes sin texto alternativo conocido)
   letra_chica_cuerpo       15   (cuerpo del texto < 9 pt)
   letra_chica_pasajes      mín(15, 5 × pasajes de 20+ palabras en < 8 pt)   (no se suma si ya hay letra_chica_cuerpo)
+  contraste_insuficiente   mín(16, 8 × pasajes < 3:1 + 4 × pasajes entre 3:1 y 4,5:1)
 
 estimated_score = round(0,7 × puntaje_IA + 0,3 × rules_score)
 
@@ -119,6 +138,9 @@ Ningún fixture tiene párrafos de más de 150 palabras. Conviene sumar un mater
 - Las reglas solo miden algunos aspectos objetivos: que no detecten nada no significa que el material sea accesible. Por eso pesan 30% y la IA 70%.
 - **Letra chica en PowerPoint**: el texto que hereda el tamaño del diseño o del patrón de diapositivas (lo habitual en los marcadores de posición) no se mide. Esos fragmentos no se cuentan, en lugar de suponer un tamaño.
 - **Letra chica en Word**: todos los pasajes figuran en la página 1, porque el archivo no guarda en qué página cae cada párrafo. El tamaño de los cuadros de texto y de los encabezados y pies de página no se mide.
+- **Contraste en Word**: el color "Automático" no se evalúa, porque Word elige negro o blanco según el fondo. Los colores del tema sí: Word guarda junto a ellos el color ya calculado (`w:val`), y es el que se usa; solo un color del tema sin ese valor (raro, lo generan algunas herramientas) queda sin evaluar. Tampoco se miden los cuadros de texto ni el texto sobre imágenes.
+- **Contraste en PowerPoint**: los fondos y rellenos con degradado, imagen o trama no se evalúan (el color cambia de un punto a otro), y tampoco el texto con degradado o muy transparente. Las celdas de tabla sin relleno propio no se evalúan, porque su color sale del estilo de tabla. Si un marcador de posición redefine el color del texto con una regla que no está en estas fuentes, se usa el del patrón.
+- **Contraste en PDF**: el texto sobre una imagen (por ejemplo, una foto de fondo) se compara con blanco, porque no se analiza la imagen. Tampoco se consideran las transparencias ni el orden en que se dibujaron el texto y los rectángulos.
 - **Letra chica en PDF**: un PDF que se generó achicando páginas (por ejemplo, dos por hoja) puede tener letra legible al imprimir aunque los puntos digan otra cosa: la regla mide el tamaño declarado en el archivo.
 
 ## Próximos pasos (producto final)
@@ -127,5 +149,5 @@ Ningún fixture tiene párrafos de más de 150 palabras. Conviene sumar un mater
 2. Posición exacta de cada barrera de reglas (`char_start`/`char_end`) para resaltarla en el Frontend y adaptarla en las Semanas 5 y 6.
 3. Índice de legibilidad en español (Fernández-Huerta / INFLESZ).
 4. Más reglas de texto: siglas sin desarrollar, pasajes largos en MAYÚSCULAS, enumeraciones en línea (`a) … b) …`) y material extenso sin títulos.
-5. Reglas del PDF: falta de etiquetas de estructura o idioma, bajo contraste y tipografía poco legible (Issue #79, partes 2 y 3). La letra chica ya está implementada (Issue #79, parte 1).
+5. Reglas del PDF: falta de etiquetas de estructura o idioma, y tipografía poco legible (Issue #79, parte 3). La letra chica y el contraste ya están implementados (Issue #79, partes 1 y 2).
 6. Umbrales configurables por nivel educativo (secundario o superior).

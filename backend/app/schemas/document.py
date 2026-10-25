@@ -60,6 +60,26 @@ class LegibilityStats(BaseModel):
         description="Pasajes con letra más chica que el umbral (los primeros; ver small_text_passages_total).",
     )
     small_text_passages_total: int = Field(default=0, ge=0, description="Cantidad total de pasajes con letra chica.")
+    contrast_measured_chars: int = Field(
+        default=0, ge=0, description="Caracteres con color de texto y de fondo conocidos (evaluables por contraste)."
+    )
+    low_contrast_passages: list["LowContrastPassage"] = Field(
+        default_factory=list,
+        description="Pasajes con contraste texto/fondo insuficiente (los primeros; ver low_contrast_passages_total).",
+    )
+    low_contrast_passages_total: int = Field(default=0, ge=0, description="Cantidad total de pasajes con bajo contraste.")
+
+
+class LowContrastPassage(BaseModel):
+    """Párrafo o bloque cuyo texto no alcanza el contraste mínimo de WCAG 1.4.3 (issue #79, parte 2)."""
+    text: str = Field(description="Texto del pasaje con bajo contraste (recortado si es muy largo).")
+    page_number: int = Field(default=1, ge=1, description="Página (o diapositiva en PowerPoint). En Word siempre es 1.")
+    text_color: str = Field(description="Color del texto, en hexadecimal (#RRGGBB).")
+    background_color: str = Field(description="Color del fondo detrás del texto, en hexadecimal (#RRGGBB).")
+    contrast_ratio: float = Field(description="Relación de contraste (1 a 21), redondeada a 2 decimales.")
+    required_ratio: float = Field(description="Mínimo exigido: 4.5 para texto normal, 3 para texto grande.")
+    is_large_text: bool = Field(description="True si el texto mide 18 pt o más, o 14 pt o más en negrita.")
+    word_count: int = Field(ge=0, description="Palabras del pasaje con bajo contraste.")
 
 
 class ExtractedDocument(BaseModel):
@@ -145,6 +165,7 @@ class ExtractedImage(BaseModel):
     mime_type: str = Field(default="image/png", description="MIME type de la imagen.")
 
 
+LegibilityStats.model_rebuild()
 ExtractedDocument.model_rebuild()
 
 

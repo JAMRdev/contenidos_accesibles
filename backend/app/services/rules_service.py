@@ -20,7 +20,7 @@ from app.schemas.analysis import (
     ScorePenalty,
 )
 from app.schemas.document import ExtractedDocument
-from app.services.legibility_rules import small_text_assessment
+from app.services.legibility_rules import legibility_assessment
 
 # --- Umbrales de las reglas -------------------------------------------------
 LONG_SENTENCE_WORDS = 35  # más de 35 palabras: para_revisar
@@ -791,8 +791,8 @@ def run_rules(doc: ExtractedDocument) -> RulesResult:
     # Tarea #25: Referencias puramente visuales
     visual_ref_findings = _visual_reference_findings(doc.raw_text)
 
-    # Issue #79: legibilidad visual del archivo (letra chica). No aplica al texto pegado.
-    legibility = small_text_assessment(doc)
+    # Issue #79: legibilidad visual del archivo (letra chica y contraste). No aplica al texto pegado.
+    legibility = legibility_assessment(doc)
 
     metrics = RulesMetrics(
         analyzed_word_count=count_words(doc.raw_text),
@@ -811,6 +811,7 @@ def run_rules(doc: ExtractedDocument) -> RulesResult:
         visual_only_references=len(visual_ref_findings),
         body_font_size_pt=legibility.body_font_size,
         small_text_passages=legibility.small_text_passages,
+        low_contrast_passages=legibility.low_contrast_passages,
     )
 
     # Dimensión Comprensión

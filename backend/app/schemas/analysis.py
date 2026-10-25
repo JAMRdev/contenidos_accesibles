@@ -130,6 +130,9 @@ class RulesMetrics(BaseModel):
     small_text_passages: int = Field(
         default=0, description="Pasajes largos escritos con letra muy chica (notas, epígrafes)."
     )
+    low_contrast_passages: int = Field(
+        default=0, description="Pasajes cuyo texto no alcanza el contraste mínimo con su fondo (WCAG 1.4.3)."
+    )
 
 
 class ScorePenalty(BaseModel):
