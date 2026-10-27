@@ -20,6 +20,8 @@ from app.schemas.analysis import (
 )
 from app.schemas.document import ExtractedDocument
 from app.services.alt_text_service import alt_text_service
+from app.services.key_rotation_service import AllKeysExhaustedError
+from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
 from app.services.llm_service import llm_service
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 
@@ -458,58 +460,94 @@ async def analyze_document(
             # Las reglas no dependen de la IA: si fallan, falla el análisis antes de gastar tokens.
             rules = run_rules(doc)
 
-            result = await llm_service.generate_structured(
-                system_instruction=SYSTEM_PROMPT,
-                contents=f"Material educativo a analizar:\n\n<<<\n{text}\n>>>",
-                schema=AccessibilityDiagnostic,
-                overrides=overrides,
-            )
-            diagnostic = result.parsed
-
-            normalized_text = _normalize(text)
-            ai_barriers = [
-                {
-                    **b.model_dump(),
-                    "fragment_found": _fragment_in_text(b.original_text, normalized_text),
-                    "source": "ai",
-                }
-                for b in diagnostic.barriers[:MAX_BARRIERS]
-            ]
-            unverified = sum(1 for b in ai_barriers if not b["fragment_found"])
-
-            # El aviso de truncado ya lo genera DocumentService en doc.warnings.
-            warnings = list(doc.warnings) + alt_text_warnings
-            if unverified:
-                warnings.append(
-                    f"{unverified} fragmento(s) citados por la IA no coinciden textualmente con el "
-                    "material: revisalos antes de aplicar la recomendación."
+            try:
+                result = await llm_service.generate_structured(
+                    system_instruction=SYSTEM_PROMPT,
+                    contents=f"Material educativo a analizar:\n\n<<<\n{text}\n>>>",
+                    schema=AccessibilityDiagnostic,
+                    overrides=overrides,
                 )
+                diagnostic = result.parsed
 
-            usage = result.usage
-            response = _build_response(
-                doc,
-                _AIPart(
-                    score=diagnostic.estimated_score,
-                    summary=diagnostic.summary,
-                    dimensions=diagnostic.dimensions,
-                    strengths=diagnostic.strengths,
-                    barriers=ai_barriers,
-                ),
-                rules,
-                warnings=warnings,
-                alt_text_proposals=alt_text_proposals,
-                provider=result.provider,
-                model=result.model,
-                connection=result.connection_label,
-                latency_ms=result.latency_ms,
-                prompt_tokens=usage.prompt_tokens if usage else None,
-                output_tokens=usage.output_tokens if usage else None,
-                thinking_tokens=usage.thinking_tokens if usage else None,
-                total_tokens=usage.total_tokens if usage else None,
-                analyzed_word_count=len(text.split()),
-                is_truncated=doc.is_truncated,
-                unverified_fragments=unverified,
-            )
+                normalized_text = _normalize(text)
+                ai_barriers = [
+                    {
+                        **b.model_dump(),
+                        "fragment_found": _fragment_in_text(b.original_text, normalized_text),
+                        "source": "ai",
+                    }
+                    for b in diagnostic.barriers[:MAX_BARRIERS]
+                ]
+                unverified = sum(1 for b in ai_barriers if not b["fragment_found"])
+
+                # El aviso de truncado ya lo genera DocumentService en doc.warnings.
+                warnings = list(doc.warnings) + alt_text_warnings
+                if unverified:
+                    warnings.append(
+                        f"{unverified} fragmento(s) citados por la IA no coinciden textualmente con el "
+                        "material: revisalos antes de aplicar la recomendación."
+                    )
+
+                usage = result.usage
+                response = _build_response(
+                    doc,
+                    _AIPart(
+                        score=diagnostic.estimated_score,
+                        summary=diagnostic.summary,
+                        dimensions=diagnostic.dimensions,
+                        strengths=diagnostic.strengths,
+                        barriers=ai_barriers,
+                    ),
+                    rules,
+                    warnings=warnings,
+                    alt_text_proposals=alt_text_proposals,
+                    provider=result.provider,
+                    model=result.model,
+                    connection=result.connection_label,
+                    latency_ms=result.latency_ms,
+                    prompt_tokens=usage.prompt_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                    thinking_tokens=usage.thinking_tokens if usage else None,
+                    total_tokens=usage.total_tokens if usage else None,
+                    analyzed_word_count=len(text.split()),
+                    is_truncated=doc.is_truncated,
+                    unverified_fragments=unverified,
+                )
+            except (AllKeysExhaustedError, LLMUnavailableError, LLMInvalidResponseError, Exception) as e:
+                # Issue #42: Degradación elegante ante fallas del proveedor de IA.
+                # NUNCA se loguea el texto del material por confidencialidad (GDPR / privacidad).
+                logger.warning(
+                    "Falla al comunicar con el proveedor de IA (%s: %s). Degradando a solo reglas automáticas.",
+                    type(e).__name__,
+                    str(e),
+                )
+                fallback_warnings = list(doc.warnings) + alt_text_warnings + [
+                    "No se pudo consultar el servicio de IA. El diagnóstico se generó únicamente con el motor de reglas automáticas."
+                ]
+                fallback_part = _AIPart(
+                    score=None,
+                    summary=(
+                        "No se pudo consultar el servicio de IA. El diagnóstico se generó "
+                        "únicamente con el motor de reglas automáticas."
+                    ),
+                    dimensions=[],
+                    strengths=[],
+                    barriers=[],
+                )
+                response = _build_response(
+                    doc,
+                    fallback_part,
+                    rules,
+                    warnings=fallback_warnings,
+                    alt_text_proposals=alt_text_proposals,
+                    provider="rules",
+                    model="static-rules",
+                    connection="Motor de reglas (falla del proveedor de IA)",
+                    latency_ms=0,
+                    analyzed_word_count=len(text.split()),
+                    is_truncated=doc.is_truncated,
+                    unverified_fragments=0,
+                )
 
     if dismissed:
         response.warnings.append(

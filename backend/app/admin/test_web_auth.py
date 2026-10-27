@@ -58,7 +58,7 @@ async def require_test_web_session(request: Request, call_next):
         if principal is None:
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Iniciá sesión en la web de pruebas para usar la API.", "code": "test_web_login_required"},
+                content={"code": "test_web_login_required", "message": "Iniciá sesión en la web de pruebas para usar la API.", "detail": "Iniciá sesión en la web de pruebas para usar la API."},
             )
         request.state.test_web_principal = principal
     return await call_next(request)
