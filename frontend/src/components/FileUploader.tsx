@@ -3,74 +3,203 @@ import {
   Sparkles,
   FileUp,
   Upload,
-  Camera,
   BookOpen,
   ListTree,
   Eye,
   CheckCircle2,
   FileText,
+  FileSpreadsheet,
+  Presentation,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
+import {
+  ACCEPT_ATTRIBUTE,
+  MAX_TEXT_CHARS,
+  MIN_TEXT_CHARS,
+  formatBytes,
+  validateFile,
+  validateText,
+  type SupportedExtension,
+} from '../utils/fileValidation';
 
-interface FileUploaderProps {
-  onAnalyzePdf: (file: File, useMock: boolean) => void;
-  onAnalyzeText: (text: string, useMock: boolean) => void;
-  isLoading: boolean;
+export type UploadAnalysisStep =
+  | 'requesting_url'
+  | 'uploading'
+  | 'completing'
+  | 'analyzing';
+
+export interface UploadAnalysisProgress {
+  step: UploadAnalysisStep;
+  percent?: number;
 }
 
-export function FileUploader(props: FileUploaderProps) {
-  const [tab, setTab] = useState<'pdf' | 'text'>('pdf');
-  const [file, setFile] = useState<File | null>(null);
+export interface FileUploaderProps {
+  onAnalyzeFile: (file: File, useMock: boolean) => void;
+  onAnalyzeText: (text: string, useMock: boolean) => void;
+  isLoading: boolean;
+  progress?: UploadAnalysisProgress | null;
+}
+
+interface SelectedFileMeta {
+  file: File;
+  extension: SupportedExtension;
+  label: string;
+}
+
+const STEP_LABELS: Record<UploadAnalysisStep, string> = {
+  requesting_url: 'Solicitando enlace seguro de subida…',
+  uploading: 'Subiendo documento de forma segura…',
+  completing: 'Verificando integridad del archivo…',
+  analyzing: 'Analizando accesibilidad del material…',
+};
+
+function renderFormatIcon(extension: SupportedExtension) {
+  if (extension === '.pptx') {
+    return <Presentation size={26} strokeWidth={2} />;
+  }
+  if (extension === '.docx') {
+    return <FileSpreadsheet size={26} strokeWidth={2} />;
+  }
+  return <FileText size={26} strokeWidth={2} />;
+}
+
+export function FileUploader({
+  onAnalyzeFile,
+  onAnalyzeText,
+  isLoading,
+  progress = null,
+}: FileUploaderProps) {
+  const [tab, setTab] = useState<'file' | 'text'>('file');
+  const [selected, setSelected] = useState<SelectedFileMeta | null>(null);
   const [text, setText] = useState<string>('');
   const [useMock, setUseMock] = useState<boolean>(true);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dragDepthRef = useRef<number>(0);
+
+  function applyCandidateFile(candidate: File) {
+    const check = validateFile(candidate);
+    if (!check.ok) {
+      setSelected(null);
+      setValidationError(check.message);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    setSelected({
+      file: candidate,
+      extension: check.extension,
+      label: check.label,
+    });
+    setValidationError(null);
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setValidationError(null);
+    const chosen = e.target.files?.[0];
+    if (chosen) {
+      applyCandidateFile(chosen);
+    }
+  }
+
+  function handleRemoveFile() {
+    setSelected(null);
+    setValidationError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+
+  function handleOpenFileDialog() {
+    if (!isLoading) {
+      fileInputRef.current?.click();
+    }
+  }
+
+  function handleDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isLoading) return;
+    dragDepthRef.current += 1;
+    if (!isDragging) {
+      setIsDragging(true);
     }
   }
 
   function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
-    setIsDragging(true);
+    e.stopPropagation();
+    if (!isLoading && !isDragging) {
+      setIsDragging(true);
+    }
   }
 
   function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
-    setIsDragging(false);
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDragging(false);
+    }
   }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setTab('pdf');
-      setFile(e.dataTransfer.files[0]);
-      setValidationError(null);
+    if (isLoading) return;
+
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      setTab('file');
+      applyCandidateFile(droppedFiles[0]);
     }
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (isLoading) return;
     setValidationError(null);
 
-    if (tab === 'pdf') {
-      if (!file) {
-        setValidationError('Por favor, seleccioná un archivo para analizar.');
+    if (tab === 'file') {
+      if (!selected) {
+        setValidationError(
+          'Seleccioná o arrastrá un archivo PDF, Word (.docx) o PowerPoint (.pptx) para analizar.',
+        );
         return;
       }
-      props.onAnalyzePdf(file, useMock);
+      const check = validateFile(selected.file);
+      if (!check.ok) {
+        setValidationError(check.message);
+        return;
+      }
+      onAnalyzeFile(selected.file, useMock);
     } else {
-      if (text.trim().length < 10) {
-        setValidationError('El texto debe tener al menos 10 caracteres.');
+      const textError = validateText(text);
+      if (textError) {
+        setValidationError(textError);
         return;
       }
-      props.onAnalyzeText(text, useMock);
+      onAnalyzeText(text, useMock);
     }
   }
+
+  const trimmedLength = text.trim().length;
+  const isTextCountInvalid =
+    text.length > 0 && (trimmedLength < MIN_TEXT_CHARS || text.length > MAX_TEXT_CHARS);
+  const canSubmit =
+    tab === 'file' ? Boolean(selected) : trimmedLength >= MIN_TEXT_CHARS;
+
+  const progressLabel = progress
+    ? progress.step === 'uploading' && typeof progress.percent === 'number'
+      ? `${STEP_LABELS.uploading} ${progress.percent}%`
+      : STEP_LABELS[progress.step]
+    : 'Analizando material…';
 
   return (
     <div className="via-upload-view">
@@ -99,12 +228,15 @@ export function FileUploader(props: FileUploaderProps) {
       <div className="via-upload-toolbar">
         <div className="via-mode-tabs" role="tablist" aria-label="Modo de entrada">
           <button
+            id="via-tab-file"
             type="button"
             role="tab"
-            aria-selected={tab === 'pdf'}
-            className={`via-mode-tab ${tab === 'pdf' ? 'active' : ''}`}
+            aria-selected={tab === 'file'}
+            aria-controls="via-panel-input"
+            className={`via-mode-tab ${tab === 'file' ? 'active' : ''}`}
+            disabled={isLoading}
             onClick={() => {
-              setTab('pdf');
+              setTab('file');
               setValidationError(null);
             }}
           >
@@ -112,10 +244,13 @@ export function FileUploader(props: FileUploaderProps) {
             <span>Subir documento</span>
           </button>
           <button
+            id="via-tab-text"
             type="button"
             role="tab"
             aria-selected={tab === 'text'}
+            aria-controls="via-panel-input"
             className={`via-mode-tab ${tab === 'text' ? 'active' : ''}`}
+            disabled={isLoading}
             onClick={() => {
               setTab('text');
               setValidationError(null);
@@ -130,76 +265,129 @@ export function FileUploader(props: FileUploaderProps) {
           <input
             type="checkbox"
             checked={useMock}
+            disabled={isLoading}
             onChange={() => setUseMock(!useMock)}
           />
           <span>Modo prueba rápida (Mock)</span>
         </label>
       </div>
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} noValidate>
         <div
-          className={`via-dropzone ${isDragging ? 'dragging' : ''}`}
+          id="via-panel-input"
+          role="tabpanel"
+          aria-labelledby={tab === 'file' ? 'via-tab-file' : 'via-tab-text'}
+          className={`via-dropzone ${isDragging ? 'dragging' : ''} ${
+            selected && tab === 'file' ? 'has-file' : ''
+          }`}
+          onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {tab === 'pdf' ? (
-            <>
-              <div className="via-dropzone-icon-box" aria-hidden="true">
-                <FileUp size={30} strokeWidth={2} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPT_ATTRIBUTE}
+            onChange={handleFileChange}
+            disabled={isLoading}
+            style={{ display: 'none' }}
+            aria-label="Seleccionar archivo PDF, Word (.docx) o PowerPoint (.pptx)"
+          />
+
+          {tab === 'file' ? (
+            !selected ? (
+              <>
+                <div className="via-dropzone-icon-box" aria-hidden="true">
+                  <FileUp size={30} strokeWidth={2} />
+                </div>
+
+                <h3 className="via-dropzone-title">
+                  Arrastrá y soltá tu archivo acá
+                </h3>
+                <p className="via-dropzone-subtitle">
+                  También podés buscarlo en tu computadora.
+                </p>
+
+                <div className="via-dropzone-actions">
+                  <button
+                    type="button"
+                    className="via-btn via-btn-primary"
+                    disabled={isLoading}
+                    onClick={handleOpenFileDialog}
+                  >
+                    <Upload size={16} />
+                    <span>Seleccionar archivo</span>
+                  </button>
+                </div>
+
+                <p className="via-dropzone-formats">
+                  Formatos permitidos: PDF (.pdf), Word (.docx) y PowerPoint (.pptx) · Máximo 10 MB
+                </p>
+              </>
+            ) : (
+              <div className="via-selected-file-card" role="group" aria-label="Archivo seleccionado">
+                <div className="via-selected-file-info">
+                  <div className="via-selected-file-icon" aria-hidden="true">
+                    {renderFormatIcon(selected.extension)}
+                  </div>
+                  <div className="via-selected-file-details">
+                    <span className="via-selected-file-name" title={selected.file.name}>
+                      {selected.file.name}
+                    </span>
+                    <div className="via-selected-file-meta">
+                      <span className="via-selected-file-badge">{selected.label}</span>
+                      <span>{formatBytes(selected.file.size)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="via-selected-file-actions">
+                  <button
+                    type="button"
+                    className="via-btn via-btn-outline via-btn-sm"
+                    disabled={isLoading}
+                    onClick={handleOpenFileDialog}
+                  >
+                    <RefreshCw size={15} />
+                    <span>Cambiar archivo</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="via-btn via-btn-outline-danger via-btn-sm"
+                    disabled={isLoading}
+                    onClick={handleRemoveFile}
+                    aria-label={`Quitar archivo ${selected.file.name}`}
+                  >
+                    <Trash2 size={15} />
+                    <span>Quitar</span>
+                  </button>
+                </div>
               </div>
-
-              <h3 className="via-dropzone-title">
-                Arrastrá y soltá tu archivo acá
-              </h3>
-              <p className="via-dropzone-subtitle">
-                También podés buscarlo en tu computadora.
-              </p>
-
-              <div className="via-dropzone-actions">
-                <label className="via-btn via-btn-primary">
-                  <Upload size={16} />
-                  <span>{file ? file.name : 'Seleccionar archivo'}</span>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.doc,.docx,.ppt,.pptx"
-                    onChange={handleFileChange}
-                    style={{ display: 'none' }}
-                  />
-                </label>
-
-                <span className="via-dropzone-or" aria-hidden="true">
-                  ó
-                </span>
-
-                <button
-                  type="button"
-                  className="via-btn via-btn-yellow"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Camera size={16} />
-                  <span>Sacar foto</span>
-                </button>
-              </div>
-
-              <p className="via-dropzone-formats">
-                Formatos permitidos: PDF, DOC, DOCX, PPT y PPTX
-              </p>
-            </>
+            )
           ) : (
             <div className="via-text-input-container">
               <h3 className="via-dropzone-title">Pegá el texto a analizar</h3>
               <p className="via-dropzone-subtitle">
-                Ingresá el fragmento o actividad educativa que querés evaluar.
+                Ingresá el fragmento o actividad educativa que querés evaluar (entre {MIN_TEXT_CHARS} y{' '}
+                {MAX_TEXT_CHARS.toLocaleString('es-AR')} caracteres).
               </p>
               <textarea
                 className="via-textarea"
                 rows={6}
                 placeholder="Ingresá o pegá el texto educativo acá..."
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                disabled={isLoading}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  if (validationError) setValidationError(null);
+                }}
               />
+              <div className="via-text-counter-row">
+                <span className={`via-text-counter ${isTextCountInvalid ? 'invalid' : ''}`}>
+                  {text.length.toLocaleString('es-AR')} / {MAX_TEXT_CHARS.toLocaleString('es-AR')} caracteres
+                </span>
+              </div>
             </div>
           )}
 
@@ -209,14 +397,28 @@ export function FileUploader(props: FileUploaderProps) {
             </p>
           )}
 
-          {(file || (tab === 'text' && text.trim().length > 0)) && (
+          {isLoading && (
+            <div className="via-upload-progress" role="status" aria-live="polite">
+              <p className="via-upload-progress-label">{progressLabel}</p>
+              {progress?.step === 'uploading' && typeof progress.percent === 'number' && (
+                <progress
+                  className="via-upload-progress-bar"
+                  max={100}
+                  value={progress.percent}
+                  aria-label="Progreso de subida del archivo"
+                />
+              )}
+            </div>
+          )}
+
+          {canSubmit && (
             <div className="via-submit-row">
               <button
                 type="submit"
                 className="via-btn via-btn-primary via-btn-lg"
-                disabled={props.isLoading}
+                disabled={isLoading}
               >
-                {props.isLoading ? 'Analizando material...' : 'Iniciar análisis'}
+                {isLoading ? progressLabel : 'Iniciar análisis'}
               </button>
             </div>
           )}
@@ -228,7 +430,7 @@ export function FileUploader(props: FileUploaderProps) {
           ¿Qué analiza la herramienta?
         </h2>
         <p className="via-section-subtitle">
-          Revisamos cinco dimensiones para detectar barreras y oportunidades de
+          Revisamos tres dimensiones para detectar barreras y oportunidades de
           mejora.
         </p>
 
