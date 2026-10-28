@@ -15,6 +15,7 @@ from app.api import share_links
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.docs import setup_protected_docs
+from app.core.errors import setup_exception_handlers
 from app.admin import clerk_auth, test_web_auth
 from app.db import admin_member_repository, ai_usage_repository, analysis_repository
 from app.db.database import init_db
@@ -99,6 +100,9 @@ pide iniciar sesión en el panel.
     debug=settings.DEBUG,
     lifespan=lifespan,
 )
+
+# Formato uniforme de errores para toda la API (Issue #42)
+setup_exception_handlers(app)
 
 # La web de pruebas (TEST_WEB_URL) necesita iniciar sesión para usar la API. Se registra antes
 # que CORS para que CORS quede por fuera y también agregue sus encabezados a los 401.
