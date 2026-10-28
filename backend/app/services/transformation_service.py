@@ -21,9 +21,8 @@ import logging
 import time
 import uuid
 import wave
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Awaitable, Callable
 
 from pydantic import BaseModel, ValidationError
 
@@ -40,8 +39,6 @@ from app.schemas.transformation import (
     GeneratedFileInfo,
     InfographicResult,
     InfographicSection,
-    MindMapNode,
-    MindMapResult,
     NoImagesResult,
     TransformationDecisionRequest,
     TransformationError,
@@ -53,9 +50,11 @@ from app.services import adaptation_service, retention_service, storage_service
 from app.services.document_service import document_service
 from app.services.key_rotation_service import AllKeysExhaustedError
 from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
-from app.services.rules_service import split_paragraphs, split_sentences
+from app.services.rules_service import split_paragraphs
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 from app.services.storage_service import StorageError, new_object_key
+from app.services.transformations import mind_map
+from app.services.transformations.base import FormatSpec, GeneratedFile, Generation, clip
 
 logger = logging.getLogger(__name__)
 
@@ -64,42 +63,9 @@ INTERRUPTED_MESSAGE = "El servidor se reinició mientras se generaba la transfor
 
 
 # ---------------------------------------------------------------------------
-# Formatos
+# Formatos: los que tienen generador con IA viven en app/services/transformations/; el resto
+# tiene solo su mock hasta que su issue lo implemente (#117, #119, #122)
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class GeneratedFile:
-    data: bytes
-    content_type: str
-    extension: str  # con el punto: ".png", ".mp3"
-
-
-@dataclass(frozen=True)
-class Generation:
-    """Lo que devuelve el generador con IA de un formato."""
-
-    result: BaseModel
-    metadata: AdaptationMetadata
-    warnings: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class FormatSpec:
-    schema: type[BaseModel]
-    filename: str
-    # Resultado fijo a partir del texto, sin IA (?mock=true)
-    mock: Callable[[str], BaseModel]
-    # Generador con IA real; None hasta que el issue del formato lo implementa (responde 501)
-    generate: Callable[[str], Awaitable[Generation]] | None = None
-    # Archivo a partir del resultado (corre en un hilo). None = el formato no genera archivo
-    render: Callable[[BaseModel], GeneratedFile | None] | None = None
-    mock_render: Callable[[BaseModel], GeneratedFile | None] | None = None
-
-
-def _clip(text: str, limit: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _blocks(text: str) -> tuple[str, list[str]]:
@@ -114,25 +80,17 @@ def _mock_no_images(text: str) -> NoImagesResult:
     return NoImagesResult(text=text.strip(), omitted_images=[])
 
 
-def _mock_mind_map(text: str) -> MindMapResult:
-    title, paragraphs = _blocks(text)
-    children = [
-        MindMapNode(text=_clip((split_sentences(p) or [p])[0], 120)) for p in paragraphs[:4]
-    ]
-    return MindMapResult(root=MindMapNode(text=_clip(title, 120), children=children))
-
-
 def _mock_infographic(text: str) -> InfographicResult:
     title, paragraphs = _blocks(text)
     sections = [
-        InfographicSection(title=f"Idea {i}", text=_clip(p, 300), icon="info")
+        InfographicSection(title=f"Idea {i}", text=clip(p, 300), icon="info")
         for i, p in enumerate(paragraphs[:3], start=1)
     ]
-    return InfographicResult(title=_clip(title, 100), subtitle="[MOCK] Infografía simulada", sections=sections)
+    return InfographicResult(title=clip(title, 100), subtitle="[MOCK] Infografía simulada", sections=sections)
 
 
 def _mock_audio(text: str) -> AudioResult:
-    return AudioResult(script=_clip(text, 2000))
+    return AudioResult(script=clip(text, 2000))
 
 
 def _mock_audio_file(_result: BaseModel) -> GeneratedFile:
@@ -148,7 +106,7 @@ def _mock_audio_file(_result: BaseModel) -> GeneratedFile:
 
 FORMATS: dict[str, FormatSpec] = {
     "no_images": FormatSpec(NoImagesResult, "material_sin_imagenes", _mock_no_images),
-    "mind_map": FormatSpec(MindMapResult, "mapa_mental", _mock_mind_map),
+    "mind_map": mind_map.SPEC,
     "infographic": FormatSpec(InfographicResult, "infografia", _mock_infographic),
     "audio": FormatSpec(AudioResult, "audio", _mock_audio, mock_render=_mock_audio_file),
 }
@@ -277,8 +235,18 @@ def _load(transformation_id: str, owner: str) -> tuple[TransformationResponse, s
     return TransformationResponse.model_validate_json(record["payload_json"]), record["object_key"]
 
 
+def _with_views(t: TransformationResponse) -> TransformationResponse:
+    """Representaciones que arma el backend (Markdown, Mermaid) del resultado vigente: el final o el propuesto."""
+    spec = FORMATS[t.format]
+    current = t.final_result or (t.result if t.review_status == "pendiente" else None)
+    if spec.views is None or current is None:
+        return t
+    return t.model_copy(update={"views": spec.views(spec.schema.model_validate(current))})
+
+
 def _with_preview(t: TransformationResponse, object_key: str | None) -> TransformationResponse:
-    """URL firmada nueva en cada consulta, para revisar el archivo (no después de descartarlo)."""
+    """Vistas derivadas y URL firmada nueva en cada consulta, para revisar el archivo (no después de descartarlo)."""
+    t = _with_views(t)
     if not t.file or not object_key or t.review_status == "descartada":
         return t
     ttl = settings.FILE_DOWNLOAD_URL_TTL_S
@@ -516,6 +484,27 @@ def decide(transformation_id: str, request: TransformationDecisionRequest, *, ow
                            detail="transformation:link", user_id=owner)
     user_activity.record("transformation_decision", owner, format=t.format, detail=request.decision)
     return _with_preview(decided, stored_key)
+
+
+class ExportFormatError(ValueError):
+    """El formato no se puede exportar en esa extensión."""
+
+
+def export(transformation_id: str, extension: str, *, owner: str) -> tuple[bytes, str, str, str]:
+    """
+    Exporta el resultado aceptado o editado (solo lo aceptado se exporta). Devuelve
+    (bytes, content type, nombre de archivo, vencimiento de la transformación).
+    """
+    t, _key = _load(transformation_id, owner)
+    if t.review_status not in ("aceptada", "editada"):
+        raise TransformationStateError("Solo se exporta una transformación aceptada o editada.")
+    spec = FORMATS[t.format]
+    exporter = spec.exports.get(extension)
+    if exporter is None:
+        available = ", ".join(spec.exports) or "ninguno (el archivo generado se descarga desde /files)"
+        raise ExportFormatError(f"Formato de exportación no disponible para '{t.format}'. Opciones: {available}.")
+    data, content_type = exporter(spec.schema.model_validate(t.final_result))
+    return data, content_type, f"{spec.filename}_{t.transformation_id[:8]}.{extension}", t.expires_at
 
 
 def cleanup_expired(now: str) -> dict:

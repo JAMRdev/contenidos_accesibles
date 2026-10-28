@@ -37,15 +37,54 @@ class NoImagesResult(BaseModel):
     )
 
 
+# Mapa mental legible (Issue #118): tema central + 3 niveles, pocas ramas por nodo y textos cortos
+MIND_MAP_MAX_DEPTH = 4
+MIND_MAP_MAX_CHILDREN = 6
+MIND_MAP_TEXT_CHARS = 80
+
+
 class MindMapNode(BaseModel):
-    text: str = Field(min_length=1, max_length=120, description="Idea en pocas palabras.")
-    children: list["MindMapNode"] = Field(default_factory=list, max_length=8)
+    text: str = Field(min_length=1, max_length=MIND_MAP_TEXT_CHARS, description="Idea en pocas palabras.")
+    children: list["MindMapNode"] = Field(default_factory=list, max_length=MIND_MAP_MAX_CHILDREN)
+
+    def depth(self) -> int:
+        return 1 + max((c.depth() for c in self.children), default=0)
 
 
 class MindMapResult(BaseModel):
     """Mapa mental (Issue #118): tema central e ideas principales en jerarquía."""
 
-    root: MindMapNode = Field(description="Tema central del material, con sus ideas principales como hijos.")
+    root: MindMapNode = Field(
+        description=(
+            f"Tema central del material, con sus ideas principales como hijos. Hasta {MIND_MAP_MAX_DEPTH} niveles "
+            f"contando el tema central, {MIND_MAP_MAX_CHILDREN} hijos por nodo y {MIND_MAP_TEXT_CHARS} caracteres por nodo."
+        )
+    )
+
+    @model_validator(mode="after")
+    def _max_depth(self) -> "MindMapResult":
+        if self.root.depth() > MIND_MAP_MAX_DEPTH:
+            raise ValueError(f"El mapa mental admite hasta {MIND_MAP_MAX_DEPTH} niveles, contando el tema central.")
+        return self
+
+
+# Lo que devuelve la IA: niveles fijos en lugar de un árbol recursivo, porque los proveedores con
+# JSON Schema estricto no admiten esquemas recursivos. Sin límites de largo: se recorta al convertir.
+class MindMapAIDetail(BaseModel):
+    text: str = Field(description="Detalle de la idea, en pocas palabras (máximo 8).")
+    subdetails: list[str] = Field(
+        description="Ejemplos o datos concretos del material sobre ese detalle (0 a 3), en pocas palabras."
+    )
+
+
+class MindMapAIIdea(BaseModel):
+    text: str = Field(description="Idea principal del material, en pocas palabras (máximo 8).")
+    details: list[MindMapAIDetail] = Field(description="Detalles de la idea que están en el material (0 a 4).")
+
+
+class MindMapAIOutput(BaseModel):
+    central_topic: str = Field(description="Tema central del material, en pocas palabras (máximo 8).")
+    ideas: list[MindMapAIIdea] = Field(description="Ideas principales del material (2 a 6), en el orden en que aparecen.")
 
 
 class InfographicSection(BaseModel):
@@ -155,6 +194,13 @@ class TransformationResponse(BaseModel):
         default=None, description="Lo que se guarda según la decisión: el propuesto o el editado. None si no se aceptó."
     )
     file: GeneratedFileInfo | None = None
+    views: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Otras representaciones del resultado (el final si ya se decidió) que arma el backend. "
+            "Mapa mental: 'markdown' (lista anidada, accesible con lector de pantalla) y 'mermaid' (sintaxis mindmap)."
+        ),
+    )
     error: TransformationError | None = Field(default=None, description="Solo con 'failed'.")
     warnings: list[str] = Field(default_factory=list)
     created_at: str

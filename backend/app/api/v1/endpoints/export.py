@@ -52,7 +52,7 @@ def _analysis_expiry(analysis_id: str) -> str | None:
     return record["expires_at"] if record else None
 
 
-def _deliver(request: Request, data: bytes, content_type: str, filename: str, delivery: Delivery, owner: str,
+def deliver(request: Request, data: bytes, content_type: str, filename: str, delivery: Delivery, owner: str,
              document: str, analysis_expires_at: str | None):
     file_events.record("export", format=file_events.file_format(filename), size_bytes=len(data), detail=f"{document}:{delivery}",
                        user_id=owner)
@@ -123,7 +123,7 @@ def export_content(
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = export_service.build_filename("material_adaptado", analysis_id, format)
-    return _deliver(request, data, content_type, filename, delivery, owner, "content", _analysis_expiry(analysis_id))
+    return deliver(request, data, content_type, filename, delivery, owner, "content", _analysis_expiry(analysis_id))
 
 
 @router.get(
@@ -170,4 +170,4 @@ def export_report(
         raise HTTPException(status_code=400, detail=str(e))
 
     filename = export_service.build_filename("informe_accesibilidad", analysis_id, format)
-    return _deliver(request, data, content_type, filename, delivery, owner, "report", _analysis_expiry(analysis_id))
+    return deliver(request, data, content_type, filename, delivery, owner, "report", _analysis_expiry(analysis_id))
