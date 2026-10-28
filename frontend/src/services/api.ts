@@ -425,12 +425,22 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
 };
 
 function resolveFileContentType(file: File): string {
+  const dotIdx = file.name.lastIndexOf('.');
+  const ext = dotIdx !== -1 ? file.name.slice(dotIdx).toLowerCase() : '';
+  if (EXTENSION_MIME_MAP[ext]) {
+    return EXTENSION_MIME_MAP[ext];
+  }
   if (file.type && file.type.trim()) {
     return file.type.trim().toLowerCase();
   }
-  const dotIdx = file.name.lastIndexOf('.');
-  const ext = dotIdx !== -1 ? file.name.slice(dotIdx).toLowerCase() : '';
-  return EXTENSION_MIME_MAP[ext] || 'application/octet-stream';
+  return 'application/octet-stream';
+}
+
+export type UploadFileStage = 'requesting_url' | 'uploading' | 'completing';
+
+export interface UploadFileOptions {
+  onStage?: (stage: UploadFileStage) => void;
+  onProgress?: (percent: number) => void;
 }
 
 /**
@@ -445,6 +455,34 @@ export async function requestUploadUrl(
   });
 }
 
+function putWithXhrProgress(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  file: Blob | File,
+  onProgress: (percent: number) => void,
+): Promise<{ status: number; responseText: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    for (const [k, v] of Object.entries(headers)) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      onProgress(100);
+      resolve({ status: xhr.status, responseText: xhr.responseText || '' });
+    };
+    xhr.onerror = () => reject(new Error('network_error'));
+    xhr.ontimeout = () => reject(new Error('timeout'));
+    xhr.send(file);
+  });
+}
+
 /**
  * Sube los bytes del archivo directamente a la URL firmada devuelta por `requestUploadUrl`.
  * Envía únicamente los headers firmados requeridos por el almacenamiento (sin Authorization Bearer).
@@ -453,11 +491,48 @@ export async function uploadToPresignedUrl(
   upload: PresignedRequest | string,
   file: Blob | File,
   headers?: Record<string, string>,
+  onProgress?: (percent: number) => void,
 ): Promise<void> {
   const targetUrl = typeof upload === 'string' ? upload : upload.url;
   const method = typeof upload === 'string' ? 'PUT' : upload.method;
   const signedHeaders =
     typeof upload === 'string' ? (headers ?? {}) : upload.headers;
+
+  if (onProgress && typeof XMLHttpRequest !== 'undefined') {
+    onProgress(0);
+    let result: { status: number; responseText: string };
+    try {
+      result = await putWithXhrProgress(
+        targetUrl,
+        method,
+        signedHeaders,
+        file,
+        onProgress,
+      );
+    } catch {
+      throw new ApiError({
+        status: 0,
+        code: 'storage_upload_network_error',
+        message:
+          'No se pudo subir el archivo al almacenamiento. Verificá tu conexión e intentá nuevamente.',
+      });
+    }
+
+    if (result.status < 200 || result.status >= 300) {
+      let parsedBody: unknown = result.responseText;
+      if (result.responseText) {
+        try {
+          parsedBody = JSON.parse(result.responseText) as unknown;
+        } catch {
+          parsedBody = result.responseText;
+        }
+      } else {
+        parsedBody = null;
+      }
+      throw parseApiError(result.status, parsedBody);
+    }
+    return;
+  }
 
   let response: Response;
   try {
@@ -478,6 +553,7 @@ export async function uploadToPresignedUrl(
   if (!response.ok) {
     throw await parseErrorResponse(response);
   }
+  onProgress?.(100);
 }
 
 /**
@@ -493,13 +569,24 @@ export async function completeUpload(fileId: string): Promise<FileInfo> {
  * Flujo completo de subida directa en 3 pasos:
  * 1) `POST /files/upload-url` → 2) `PUT <presignedUrl>` → 3) `POST /files/{file_id}/complete`.
  */
-export async function uploadFile(file: File): Promise<FileInfo> {
+export async function uploadFile(
+  file: File,
+  options?: UploadFileOptions,
+): Promise<FileInfo> {
+  options?.onStage?.('requesting_url');
   const ticket = await requestUploadUrl({
     filename: file.name,
     content_type: resolveFileContentType(file),
     size_bytes: file.size,
   });
-  await uploadToPresignedUrl(ticket.upload, file);
+  options?.onStage?.('uploading');
+  await uploadToPresignedUrl(
+    ticket.upload,
+    file,
+    undefined,
+    options?.onProgress,
+  );
+  options?.onStage?.('completing');
   return completeUpload(ticket.file.file_id);
 }
 

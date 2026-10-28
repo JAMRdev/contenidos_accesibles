@@ -428,7 +428,7 @@ body {
 }
 
 /* ==========================================================================
-   VISTA "INICIAR ANÁLISIS" (Figma Issue #76 / #143)
+   VISTA "INICIAR ANÁLISIS" (Figma Issue #76 / #143 / #145)
    ========================================================================== */
 
 .via-page-heading {
@@ -554,6 +554,12 @@ body {
   border-color: var(--via-blue-primary);
 }
 
+.via-dropzone.has-file {
+  padding: 2.25rem 2rem;
+  border-style: solid;
+  border-color: var(--via-border-light);
+}
+
 .via-dropzone-icon-box {
   width: 60px;
   height: 60px;
@@ -655,6 +661,99 @@ body {
   font-size: 0.98rem;
 }
 
+.via-btn-sm {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.84rem;
+}
+
+.via-btn-outline-danger {
+  background-color: var(--via-bg-surface);
+  color: var(--via-red-danger);
+  border: 1px solid #f5c2c2;
+}
+
+.via-btn-outline-danger:hover:not(:disabled) {
+  background-color: var(--via-red-bg);
+}
+
+/* Tarjeta de archivo seleccionado */
+.via-selected-file-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 1.1rem 1.35rem;
+  background-color: #f7fafc;
+  border: 1px solid var(--via-border-light);
+  border-radius: var(--via-radius-md);
+  text-align: left;
+}
+
+.via-selected-file-info {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.via-selected-file-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background-color: var(--via-teal-soft);
+  color: var(--via-teal-900);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.via-selected-file-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.via-selected-file-name {
+  font-family: var(--via-font-heading);
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--via-navy-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.via-selected-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.82rem;
+  color: var(--via-text-secondary);
+}
+
+.via-selected-file-badge {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: 4px;
+  background-color: #e6eff8;
+  color: var(--via-navy-900);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.via-selected-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
 .via-text-input-container {
   max-width: 720px;
   margin: 0 auto;
@@ -668,6 +767,42 @@ body {
   font-family: var(--via-font-body);
   font-size: 0.95rem;
   resize: vertical;
+}
+
+.via-text-counter-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+
+.via-text-counter {
+  font-size: 0.78rem;
+  color: var(--via-text-muted);
+}
+
+.via-text-counter.invalid {
+  color: var(--via-red-danger);
+  font-weight: 600;
+}
+
+.via-upload-progress {
+  max-width: 480px;
+  margin: 1.25rem auto 0;
+}
+
+.via-upload-progress-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--via-navy-900);
+  margin: 0 0 0.45rem 0;
+}
+
+.via-upload-progress-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  accent-color: var(--via-blue-btn);
 }
 
 .via-validation-error {
