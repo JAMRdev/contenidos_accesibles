@@ -65,7 +65,7 @@ async def create_transformation(
 
     | `format` | Resultado |
     |---|---|
-    | `no_images` | Material completo con las imágenes descriptas en texto (#117) |
+    | `no_images` | Material completo con cada imagen descripta en su lugar (#117). Con `file_id`, la IA con visión describe las imágenes; con `analysis_id`, se usan los textos alternativos del diagnóstico, sin IA |
     | `mind_map` | Mapa mental: tema central e ideas principales (#118) |
     | `infographic` | Infografía con plantillas accesibles, sin generar imágenes con IA (#119) |
     | `audio` | Archivo de audio con guion revisable (#122) |

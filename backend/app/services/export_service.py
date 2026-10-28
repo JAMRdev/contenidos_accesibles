@@ -315,6 +315,81 @@ def export_content(adapted: AdaptedDocumentResponse, export_format: str) -> tupl
 
 
 # ---------------------------------------------------------------------------
+# Documento genérico: título, avisos y cuerpo (transformaciones de material, Issue #117)
+# ---------------------------------------------------------------------------
+
+def _document_as_docx(title: str, notes: list[str], body: str) -> bytes:
+    from docx import Document
+    from docx.enum.text import WD_LINE_SPACING
+    from docx.shared import Pt, RGBColor
+
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Arial"
+    style.font.size = Pt(12)
+    style.paragraph_format.space_after = Pt(8)
+
+    heading = doc.add_heading(title, level=1)
+    heading.runs[0].font.color.rgb = RGBColor(0x1F, 0x49, 0x7D)
+    if notes:
+        doc.add_heading("Avisos", level=2)
+        for note in notes:
+            doc.add_paragraph(note, style="List Bullet")
+    for line in body.splitlines():
+        if line.strip():
+            doc.add_paragraph(line.strip()).paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def _document_as_pdf(title: str, notes: list[str], body: str) -> bytes:
+    pdf = AccessiblePDF()
+    pdf.set_margins(20, 20, 20)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(31, 73, 125)
+    pdf.multi_cell(w=0, h=9, text=_clean_pdf_text(title), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    if notes:
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(80, 80, 80)
+        for note in notes:
+            pdf.multi_cell(w=0, h=5, text=_clean_pdf_text(f"- {note}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+    pdf.set_font("Helvetica", "", 11)
+    pdf.set_text_color(20, 20, 20)
+    for line in body.splitlines():
+        if not line.strip():
+            pdf.ln(3)
+            continue
+        pdf.multi_cell(w=0, h=7, text=_clean_pdf_text(line.strip()), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+    return bytes(pdf.output())
+
+
+def export_document(title: str, body: str, export_format: str, notes: list[str] | None = None) -> tuple[bytes, str]:
+    """Documento con título, avisos opcionales y cuerpo, con la misma tipografía que el material adaptado."""
+    fmt = export_format.lower()
+    if fmt not in _CONTENT_TYPES:
+        raise ValueError(f"Formato no soportado: '{fmt}'. Use pdf, docx, md o txt.")
+    notes = notes or []
+    if fmt == "pdf":
+        data = _document_as_pdf(title, notes, body)
+    elif fmt == "docx":
+        data = _document_as_docx(title, notes, body)
+    elif fmt == "md":
+        warnings = "".join(f"> - {n}\n" for n in notes)
+        data = f"# {title}\n\n{warnings + chr(10) if warnings else ''}{body}\n".encode("utf-8")
+    else:  # txt
+        warnings = "".join(f"  - {n}\n" for n in notes)
+        data = f"{title.upper()}\n{'=' * 60}\n\n{warnings + chr(10) if warnings else ''}{body}\n".encode("utf-8")
+    return data, _CONTENT_TYPES[fmt]
+
+
+# ---------------------------------------------------------------------------
 # Exportación del informe ejecutivo
 # ---------------------------------------------------------------------------
 

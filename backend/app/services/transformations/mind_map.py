@@ -17,7 +17,7 @@ from app.schemas.transformation import (
 from app.services.llm.base import LLMInvalidResponseError
 from app.services.llm_service import llm_service
 from app.services.rules_service import split_paragraphs, split_sentences
-from app.services.transformations.base import FormatSpec, Generation, clip, metadata_from, source_for_ai
+from app.services.transformations.base import FormatSpec, Generation, SourceMaterial, clip, metadata_from, source_for_ai
 
 SYSTEM_PROMPT = """
 Sos un especialista en accesibilidad de materiales educativos y en Diseño Universal para el
@@ -70,8 +70,8 @@ def from_ai(output: MindMapAIOutput) -> tuple[MindMapResult, list[str]]:
     return MindMapResult(root=MindMapNode(text=_node(output.central_topic), children=ideas)), warnings
 
 
-async def generate(text: str) -> Generation:
-    source, warnings = source_for_ai(text)
+async def generate(material: SourceMaterial) -> Generation:
+    source, warnings = source_for_ai(material.text)
     result = await llm_service.generate_structured(
         system_instruction=SYSTEM_PROMPT,
         contents=f"Material:\n<<<\n{source}\n>>>",
@@ -82,8 +82,9 @@ async def generate(text: str) -> Generation:
     return Generation(result=mind_map, metadata=metadata_from(result), warnings=[*warnings, *limit_warnings])
 
 
-def mock(text: str) -> MindMapResult:
+def mock(material: SourceMaterial) -> MindMapResult:
     """Tema central = primer renglón; ideas = la primera oración de los párrafos siguientes."""
+    text = material.text
     paragraphs = [p.strip() for p in split_paragraphs(text) if p.strip()] or [text.strip()]
     title = paragraphs[0].splitlines()[0]
     rest = paragraphs[1:] or paragraphs

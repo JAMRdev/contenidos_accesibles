@@ -25,6 +25,33 @@ FORMATS: tuple[str, ...] = ("no_images", "mind_map", "infographic", "audio")
 # ---------------------------------------------------------------------------
 
 
+class ImageDescription(BaseModel):
+    """Una imagen del material y cómo quedó en la versión sin imágenes."""
+
+    image_index: int
+    location: str = Field(description="Dónde estaba en el original (ej. 'Página 2, sector superior').")
+    role: Literal["informativa", "decorativa"] = Field(
+        description="'informativa' aporta contenido y se describe en el texto; 'decorativa' se omite."
+    )
+    description: str | None = Field(default=None, description="Descripción en texto (solo las informativas).")
+    data_table: str | None = Field(
+        default=None, description="Datos de un gráfico o tabla como tabla de texto (Markdown), si los tiene."
+    )
+    color_only: str | None = Field(
+        default=None, description="Información que la imagen transmitía solo con color (#80), si la había."
+    )
+    placement: Literal["en_su_lugar", "al_final"] | None = Field(
+        default=None,
+        description=(
+            "'en_su_lugar': la descripción quedó donde estaba la imagen. 'al_final': no se pudo ubicar y "
+            "quedó en la sección final. None para las decorativas."
+        ),
+    )
+    source: Literal["ia", "diagnostico"] = Field(
+        description="'ia': descripta ahora con un modelo con visión. 'diagnostico': el texto alternativo del diagnóstico."
+    )
+
+
 class NoImagesResult(BaseModel):
     """Material sin imágenes (Issue #117)."""
 
@@ -32,9 +59,54 @@ class NoImagesResult(BaseModel):
         min_length=1,
         description="Material completo, con cada imagen con contenido reemplazada por su descripción en texto.",
     )
+    images: list[ImageDescription] = Field(default_factory=list, description="Cada imagen y qué se hizo con ella.")
     omitted_images: list[str] = Field(
         default_factory=list, description="Imágenes decorativas omitidas, descriptas en pocas palabras."
     )
+    color_notes: list[str] = Field(
+        default_factory=list, description="Avisos de información que el original daba solo con color."
+    )
+
+
+# Lo que devuelve el modelo con visión por cada imagen. Campos de texto vacíos en lugar de nulos:
+# algunos proveedores con JSON Schema estricto no admiten campos opcionales.
+class NoImagesAIImage(BaseModel):
+    image_index: int = Field(description="Número de la imagen, el mismo que se indicó en el pedido.")
+    role: Literal["informativa", "decorativa"] = Field(
+        description=(
+            "'informativa' si aporta contenido necesario para entender el material (gráfico, esquema, mapa, "
+            "foto que se analiza, tabla); 'decorativa' si es solo estética (ilustración de adorno, logo, viñeta)."
+        )
+    )
+    description: str = Field(
+        description=(
+            "Informativa: descripción completa que reemplace a la imagen para quien no la ve (si es un gráfico, "
+            "qué muestra y sus datos y tendencias; si es un esquema, sus partes y relaciones). Decorativa: qué es, "
+            "en pocas palabras."
+        )
+    )
+    data_table: str = Field(
+        description=(
+            "Si la imagen es un gráfico o una tabla con datos, esos datos como tabla Markdown "
+            "(| encabezado | ... |). Vacío si no tiene datos."
+        )
+    )
+    color_only: str = Field(
+        description=(
+            "Si la imagen transmite información solo con color (ej. 'en rojo las provincias con sequía'), "
+            "cuál es esa información. Vacío si no."
+        )
+    )
+    insert_after: str = Field(
+        description=(
+            "Cita textual del material, de 5 a 12 palabras copiadas tal cual, del final del párrafo después del "
+            "cual estaba la imagen. Vacío si no se puede saber."
+        )
+    )
+
+
+class NoImagesAIOutput(BaseModel):
+    images: list[NoImagesAIImage] = Field(description="Una entrada por cada imagen recibida.")
 
 
 # Mapa mental legible (Issue #118): tema central + 3 niveles, pocas ramas por nodo y textos cortos
