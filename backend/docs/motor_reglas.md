@@ -24,6 +24,12 @@ El diagnóstico combina dos fuentes:
 | Letra chica en el cuerpo (Issue #79, solo archivos) | `accesibilidad_visual` | — | tamaño predominante del texto < 9 pt |
 | Pasaje largo en letra chica (Issue #79, solo archivos) | `accesibilidad_visual` | párrafo o bloque con 20+ palabras en < 8 pt (notas, epígrafes) | — |
 | Contraste texto/fondo (Issue #79, WCAG 1.4.3, solo archivos) | `accesibilidad_visual` | texto normal entre 3:1 y 4,5:1 | menos de 3:1 (falla incluso como texto grande) |
+| Cursiva en pasajes largos (Issue #79, solo archivos) | `accesibilidad_visual` | 20+ palabras en cursiva en un párrafo | — |
+| MAYÚSCULAS sostenidas (Issue #79, solo archivos) | `accesibilidad_visual` | 12+ palabras en mayúsculas que son al menos el 80% del párrafo | — |
+| Subrayado que no es enlace (Issue #79, solo archivos) | `accesibilidad_visual` | 5+ palabras subrayadas sin ser un enlace | — |
+| Fuente decorativa o manuscrita (Issue #79, solo archivos) | `accesibilidad_visual` | 15+ palabras en una fuente decorativa | la fuente predominante del texto es decorativa |
+| Texto justificado (Issue #79, Word y PowerPoint) | `accesibilidad_visual` | párrafos de 30+ palabras justificados (WCAG 1.4.8) | — |
+| Interlineado menor a 1,5 (Issue #79, Word y PowerPoint) | `accesibilidad_visual` | párrafos de 30+ palabras con interlineado < 1,5 (WCAG 1.4.8) | — |
 
 - Las palabras se cuentan con el mismo criterio que `DocumentService` (`\b\w+\b`).
 - Se listan como máximo **3 barreras por regla** (las más extensas/relevantes). El total aparece en el comentario de la dimensión.
@@ -70,9 +76,23 @@ Las reglas viven en `app/services/legibility_rules.py` y los datos tipográficos
   - **PowerPoint**: casi todo usa colores del tema ("Texto 1", "Énfasis 2, más claro 40%"). Se resuelven con el tema del patrón: el `clrMap` traduce el nombre (por ejemplo, `tx1` → `dk1`; la diapositiva o el diseño pueden redefinirlo) y los modificadores `lumMod`/`lumOff` (en HSL, como PowerPoint), `tint` y `shade` lo aclaran u oscurecen. El color del texto sale del run, del párrafo o, si no lo define, se hereda en este orden: lista de estilos del cuadro, marcador de posición del diseño y del patrón, estilos de texto del patrón (título, cuerpo u otros), estilo de la forma (`fontRef`) y estilo por defecto de la presentación. Un enlace sin color toma el color de hipervínculo del tema. Fondo: relleno de la forma (propio, heredado del marcador de posición o del estilo de la forma `fillRef`) o, si no tiene, el de la diapositiva, su diseño o el patrón, incluido el fondo del tema (`bgRef`). Todo se lee del XML, sin modificar el archivo.
 - Si no se conoce el color del texto o del fondo, ese fragmento **no se evalúa** (ver limitaciones). `contrast_measured_chars` indica cuánto texto se pudo evaluar.
 - Si la lectura tipográfica falla con un archivo inesperado, el análisis sigue sin las reglas de legibilidad y se registra una advertencia en el log, en lugar de rechazar el material.
+- **Informe final de adaptación**: las penalizaciones de legibilidad (`letra_chica_*`, `contraste_insuficiente`, `tipografia_*`) son reglas del archivo (`_FILE_RULES` en `adaptation_service.py`): adaptar el texto no cambia el formato del archivo original, así que se conservan en `score_after` y, sin cambios aplicados, el puntaje queda igual. Si una de ellas informó una barrera grave, la penalización trae `severe: true` y el informe conserva el tope de 89 (los puntos no alcanzan para saberlo: dos contrastes leves suman lo mismo que uno grave).
 - Si no se conoce el tamaño (PowerPoint heredado del patrón), solo se marca lo que falla incluso con el umbral de texto grande (3:1).
 - Cada barrera indica los dos colores en hexadecimal, la relación obtenida y la exigida, y la página o diapositiva.
 - Umbrales: `NORMAL_TEXT_MIN_RATIO` (4,5), `LARGE_TEXT_MIN_RATIO` (3), `LARGE_TEXT_PT` (18), `LARGE_BOLD_TEXT_PT` (14) y `MIN_LOW_CONTRAST_WORDS` (5) en `legibility_extractor.py`.
+
+**Tipografía poco legible**
+
+La agrupación por regla está en `app/services/legibility_typography.py`; el extractor resuelve el formato de cada fragmento y de cada párrafo. Respaldo: WCAG 1.4.8 (nivel AAA: texto no justificado e interlineado de al menos 1,5) y la [guía de estilo de la British Dyslexia Association](https://www.wigan.gov.uk/Docs/PDF/Business/Professionals/SEN/HEFA/Dyslexia-Style-Guide.pdf) (evitar cursiva, subrayado y mayúsculas sostenidas; fuentes simples; alineación a la izquierda; interlineado de 1,5).
+
+- **Una barrera por regla**, con la cantidad de párrafos afectados, el comienzo del primero como `original_text` y las páginas o diapositivas donde aparece (las primeras 10). Así un documento todo justificado no genera una barrera por párrafo.
+- **Se marcan pasajes, no palabras sueltas**: una palabra en cursiva, un "Importante:" subrayado, un título o una sigla en mayúsculas no cuentan. Los mínimos de palabras (`MIN_ITALIC_WORDS` 20, `MIN_CAPS_WORDS` 12 con `MIN_CAPS_RATIO` 80%, `MIN_UNDERLINE_WORDS` 5, `MIN_DECORATIVE_WORDS` 15, `MIN_LAYOUT_PARAGRAPH_WORDS` 30) son un punto de partida, no salen de una norma: hay que calibrarlos con materiales reales.
+- **Interlineado**: el issue proponía 1,15; el equipo eligió **1,5** (`MIN_LINE_SPACING`), que es lo que piden WCAG 1.4.8 y la British Dyslexia Association. Como Word trae 1,08 por defecto y PowerPoint 1,0 o 0,9, la regla va a aparecer en muchos materiales: por eso es `para_revisar` con una penalización chica. Sin interlineado definido, se toma sencillo (1,0), como Word y PowerPoint.
+- **Fuentes decorativas**: lista curada de fuentes de script, manuscritas o de fantasía frecuentes (`DECORATIVE_FONTS`), más los nombres que contienen "script", "handwriting" o "calligraph". Comic Sans no se marca: la guía de la British Dyslexia Association la recomienda. Si la fuente predominante del texto es decorativa → `barrera_detectada`.
+- **Por formato**:
+  - **PDF**: cursiva por la marca de la fuente o su nombre (Italic, Oblique); fuente de cada span; subrayado detectado como una línea fina dibujada justo debajo de la base del texto, que cubre al menos el 70% del fragmento y no es más ancha que el renglón (para no confundirla con el borde de una celda); los fragmentos dentro de un enlace no cuentan. El texto invisible no se evalúa. Justificado e interlineado no se evalúan: el PDF no los guarda como formato.
+  - **Word**: cursiva, subrayado, "Todo mayúsculas" y fuente del run o heredados de sus estilos; la fuente del tema (`asciiTheme`) se resuelve con el tema del documento. El texto con estilo de hipervínculo no cuenta como subrayado. Alineación (`w:jc`) e interlineado (`w:spacing`) del párrafo, de su estilo o de `docDefaults`; el interlineado exacto o mínimo en puntos se divide por el tamaño de la letra.
+  - **PowerPoint**: los mismos datos del run, del párrafo o heredados por la misma cadena que el color; la fuente del tema (`+mn-lt`, `+mj-lt`) se resuelve con el tema del patrón. Los enlaces (`hlinkClick`) no cuentan como subrayado. "Reducir el texto al desbordar" (`lnSpcReduction`) también achica el interlineado.
 
 ## Unión con la IA
 
@@ -102,6 +122,8 @@ rules_score = 100 − penalizaciones
   letra_chica_cuerpo       15   (cuerpo del texto < 9 pt)
   letra_chica_pasajes      mín(15, 5 × pasajes de 20+ palabras en < 8 pt)   (no se suma si ya hay letra_chica_cuerpo)
   contraste_insuficiente   mín(16, 8 × pasajes < 3:1 + 4 × pasajes entre 3:1 y 4,5:1)
+  tipografia_*             4 por regla (8 si la fuente principal es decorativa); entre todas, máx. 12
+                           (las barreras que superan el tope se muestran, pero no figuran en el desglose)
 
 estimated_score = round(0,7 × puntaje_IA + 0,3 × rules_score)
 
@@ -141,6 +163,9 @@ Ningún fixture tiene párrafos de más de 150 palabras. Conviene sumar un mater
 - **Contraste en Word**: el color "Automático" no se evalúa, porque Word elige negro o blanco según el fondo. Los colores del tema sí: Word guarda junto a ellos el color ya calculado (`w:val`), y es el que se usa; solo un color del tema sin ese valor (raro, lo generan algunas herramientas) queda sin evaluar. Tampoco se miden los cuadros de texto ni el texto sobre imágenes.
 - **Contraste en PowerPoint**: los fondos y rellenos con degradado, imagen o trama no se evalúan (el color cambia de un punto a otro), y tampoco el texto con degradado o muy transparente. Las celdas de tabla sin relleno propio no se evalúan, porque su color sale del estilo de tabla. Si un marcador de posición redefine el color del texto con una regla que no está en estas fuentes, se usa el del patrón.
 - **Contraste en PDF**: el texto sobre una imagen (por ejemplo, una foto de fondo) se compara con blanco, porque no se analiza la imagen. Tampoco se consideran las transparencias ni el orden en que se dibujaron el texto y los rectángulos.
+- **Tipografía en PDF**: no se evalúan justificado ni interlineado. Un subrayado hecho de otra forma (por ejemplo, como parte de la fuente o con un dibujo que no es una línea) no se detecta, y una línea dibujada justo debajo del texto por otro motivo podría tomarse como subrayado.
+- **Tipografía en Word**: no se evalúan los cuadros de texto ni los encabezados y pies de página, y el texto dentro de un hipervínculo no entra en ninguna regla de legibilidad. Las fuentes de un estilo vinculado al tema que no está en el archivo se toman como no decorativas.
+- **Fuentes decorativas**: una fuente decorativa que no está en la lista ni tiene "script", "handwriting" o "calligraph" en el nombre no se detecta.
 - **Letra chica en PDF**: un PDF que se generó achicando páginas (por ejemplo, dos por hoja) puede tener letra legible al imprimir aunque los puntos digan otra cosa: la regla mide el tamaño declarado en el archivo.
 
 ## Próximos pasos (producto final)
@@ -148,6 +173,6 @@ Ningún fixture tiene párrafos de más de 150 palabras. Conviene sumar un mater
 1. Si la IA no responde (429/503), devolver el diagnóstico solo con reglas (`degraded: true`) en lugar de un error.
 2. Posición exacta de cada barrera de reglas (`char_start`/`char_end`) para resaltarla en el Frontend y adaptarla en las Semanas 5 y 6.
 3. Índice de legibilidad en español (Fernández-Huerta / INFLESZ).
-4. Más reglas de texto: siglas sin desarrollar, pasajes largos en MAYÚSCULAS, enumeraciones en línea (`a) … b) …`) y material extenso sin títulos.
-5. Reglas del PDF: falta de etiquetas de estructura o idioma, y tipografía poco legible (Issue #79, parte 3). La letra chica y el contraste ya están implementados (Issue #79, partes 1 y 2).
+4. Más reglas de texto: siglas sin desarrollar, enumeraciones en línea (`a) … b) …`) y material extenso sin títulos. Las MAYÚSCULAS sostenidas ya se evalúan en archivos (Issue #79); en el texto pegado todavía no.
+5. Reglas del PDF: falta de etiquetas de estructura o idioma. La letra chica, el contraste y la tipografía ya están implementados (Issue #79).
 6. Umbrales configurables por nivel educativo (secundario o superior).

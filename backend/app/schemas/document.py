@@ -68,6 +68,28 @@ class LegibilityStats(BaseModel):
         description="Pasajes con contraste texto/fondo insuficiente (los primeros; ver low_contrast_passages_total).",
     )
     low_contrast_passages_total: int = Field(default=0, ge=0, description="Cantidad total de pasajes con bajo contraste.")
+    body_font_name: str | None = Field(
+        default=None, description="Fuente predominante del texto, ponderada por caracteres (si se conoce)."
+    )
+    body_font_decorative: bool = Field(
+        default=False, description="True si la fuente predominante es decorativa o manuscrita."
+    )
+    typography_issues: list["TypographyIssue"] = Field(
+        default_factory=list,
+        description="Problemas de tipografía detectados, uno por regla (cursiva, mayúsculas, subrayado, etc.).",
+    )
+
+
+class TypographyIssue(BaseModel):
+    """Una regla de tipografía poco legible y los párrafos donde aparece (issue #79, parte 3)."""
+    rule: Literal["cursiva", "mayusculas", "subrayado", "fuente_decorativa", "justificado", "interlineado"]
+    passages: int = Field(ge=1, description="Párrafos (o bloques del PDF) donde se detectó.")
+    word_count: int = Field(ge=0, description="Palabras afectadas en total.")
+    example: str = Field(description="Comienzo del primer pasaje afectado, tal como está en el texto.")
+    pages: list[int] = Field(default_factory=list, description="Páginas o diapositivas (las primeras). Vacío en Word.")
+    detail: str | None = Field(
+        default=None, description="Dato que se informa: la fuente (fuente_decorativa) o el interlineado (interlineado)."
+    )
 
 
 class LowContrastPassage(BaseModel):
