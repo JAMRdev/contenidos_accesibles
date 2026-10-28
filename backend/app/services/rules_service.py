@@ -791,7 +791,7 @@ def run_rules(doc: ExtractedDocument) -> RulesResult:
     # Tarea #25: Referencias puramente visuales
     visual_ref_findings = _visual_reference_findings(doc.raw_text)
 
-    # Issue #79: legibilidad visual del archivo (letra chica y contraste). No aplica al texto pegado.
+    # Issue #79: legibilidad visual del archivo (letra chica, contraste y tipografía). No aplica al texto pegado.
     legibility = legibility_assessment(doc)
 
     metrics = RulesMetrics(
@@ -812,6 +812,7 @@ def run_rules(doc: ExtractedDocument) -> RulesResult:
         body_font_size_pt=legibility.body_font_size,
         small_text_passages=legibility.small_text_passages,
         low_contrast_passages=legibility.low_contrast_passages,
+        typography_issues=legibility.typography_issues,
     )
 
     # Dimensión Comprensión

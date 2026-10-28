@@ -133,6 +133,10 @@ class RulesMetrics(BaseModel):
     low_contrast_passages: int = Field(
         default=0, description="Pasajes cuyo texto no alcanza el contraste mínimo con su fondo (WCAG 1.4.3)."
     )
+    typography_issues: int = Field(
+        default=0,
+        description="Reglas de tipografía poco legible que se cumplen (cursiva, mayúsculas, subrayado, etc.).",
+    )
 
 
 class ScorePenalty(BaseModel):
@@ -140,6 +144,14 @@ class ScorePenalty(BaseModel):
     category: Category
     count: int = Field(description="Cantidad de casos detectados por la regla.")
     points: int = Field(description="Puntos que la regla le resta al puntaje de reglas.")
+    severe: bool = Field(
+        default=False,
+        description=(
+            "True si la regla informó al menos una barrera_detectada. El informe final lo usa para "
+            "conservar el tope de puntaje al recalcular (los puntos no alcanzan: dos casos leves pueden "
+            "sumar lo mismo que uno grave)."
+        ),
+    )
 
 
 class ScoreBreakdown(BaseModel):

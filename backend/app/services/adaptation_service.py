@@ -662,11 +662,20 @@ def build_adapted_document(analysis_id: str, *, owner: str) -> AdaptedDocumentRe
 
 # --- Informe final (Issue #39) ------------------------------------------------
 
-# Reglas que dependen del archivo y no del texto (imágenes, escaneo, títulos del PDF/Word/PowerPoint):
-# adaptar el texto no las cambia y el texto plano no permite recalcularlas, así que se conservan.
-_FILE_RULES = {"pdf_escaneado", "imagenes_sin_verificar", "pdf_sin_titulos", "salto_jerarquia_titulos", "secciones_extensas"}
-# De esas, las que el diagnóstico informa como barrera grave (aplican el tope de puntaje).
-_SEVERE_FILE_RULES = {"pdf_sin_titulos"}
+# Reglas que dependen del archivo y no del texto (imágenes, escaneo, títulos y legibilidad visual del
+# PDF/Word/PowerPoint): adaptar el texto no las cambia y el texto plano no permite recalcularlas, así
+# que se conservan.
+_FILE_RULES = {
+    "pdf_escaneado", "imagenes_sin_verificar", "pdf_sin_titulos", "salto_jerarquia_titulos", "secciones_extensas",
+    # Issue #79: legibilidad visual del archivo (letra chica, contraste y tipografía)
+    "letra_chica_cuerpo", "letra_chica_pasajes", "contraste_insuficiente",
+    "tipografia_fuente_decorativa", "tipografia_cursiva", "tipografia_mayusculas", "tipografia_subrayado",
+    "tipografia_justificado", "tipografia_interlineado",
+}
+# De esas, las que siempre son barrera grave (aplican el tope de puntaje). Las que lo son solo a veces
+# (contraste < 3:1, fuente principal decorativa) lo indican con ScorePenalty.severe: los puntos no
+# alcanzan para saberlo, porque dos casos leves pueden sumar lo mismo que uno grave.
+_SEVERE_FILE_RULES = {"pdf_sin_titulos", "letra_chica_cuerpo"}
 
 
 def _text_doc_from_text(text: str) -> "ExtractedDocument":
@@ -695,7 +704,8 @@ def _score_after(before: "ScoreBreakdown | None", adapted_text: str) -> "ScoreBr
 
     - La IA no se vuelve a consultar: se conserva su puntaje y su peso.
     - Las reglas de texto se recalculan sobre el texto adaptado.
-    - Las reglas del archivo (_FILE_RULES) se conservan del diagnóstico original.
+    - Las reglas del archivo (_FILE_RULES), incluida la legibilidad visual del Issue #79, se conservan
+      del diagnóstico original: el material adaptado mantiene el formato del archivo original.
 
     Así la diferencia solo refleja los cambios aplicados: sin cambios, el puntaje es el mismo.
     Comparar contra un puntaje de solo reglas sobre texto plano mostraba mejoras o caídas que
@@ -707,7 +717,7 @@ def _score_after(before: "ScoreBreakdown | None", adapted_text: str) -> "ScoreBr
 
     carried = [p for p in before.penalties if p.rule in _FILE_RULES]
     findings = list(rules_after.findings)
-    if any(p.rule in _SEVERE_FILE_RULES for p in carried):
+    if any(p.rule in _SEVERE_FILE_RULES or p.severe for p in carried):
         findings.append(RuleFinding(barrier={"severity": "barrera_detectada"}))
     rules = replace(
         rules_after,
