@@ -9,18 +9,23 @@ Por cada formato se mide:
 - body_font_size: el tamaño de letra predominante, ponderado por caracteres.
 - small_text_passages: párrafos (o bloques del PDF) con muchas palabras en letra chica.
 - low_contrast_passages: párrafos cuyo texto no alcanza el contraste de WCAG 1.4.3 con su fondo.
+- typography_issues: cursiva, mayúsculas, subrayado, fuentes decorativas, justificado e interlineado
+  (las reglas de agrupación están en legibility_typography.py).
 
 Criterio general: un dato que no se conoce (tamaño o color heredado del patrón de diapositivas,
 color "automático" o de tema en Word, fondo con degradado o imagen) no se inventa. Ese
 fragmento no se evalúa: es preferible no marcar nada que marcar algo falso.
 """
 
+import bisect
 import colorsys
 import functools
 import logging
 from dataclasses import dataclass
 
 from docx.enum.dml import MSO_COLOR_TYPE as DOCX_COLOR_TYPE
+from docx.enum.text import WD_UNDERLINE
+from docx.opc.constants import RELATIONSHIP_TYPE as DOCX_RT
 from docx.oxml.ns import qn as w_qn
 from docx.table import Table
 from lxml import etree
@@ -29,6 +34,7 @@ from pptx.oxml.ns import qn as p_qn
 from pptx.shapes.group import GroupShape
 
 from app.schemas.document import LegibilityStats, LowContrastPassage, SmallTextPassage
+from app.services.legibility_typography import ParagraphFormat, TypographyCollector
 
 # Un pasaje cuenta como "letra chica" si tiene al menos MIN_SMALL_PASSAGE_WORDS palabras en menos
 # de SMALL_PASSAGE_PT. Así no se marcan números de página, pies de foto de dos palabras ni marcas
@@ -76,6 +82,12 @@ class Fragment:
     color: RGB | None = None
     background: RGB | None = None
     bold: bool = False
+    italic: bool = False
+    underline: bool = False
+    caps: bool = False  # formato "Todo mayúsculas": se ve en mayúsculas aunque el texto no lo esté
+    font: str | None = None
+    link: bool = False
+    visible: bool = True  # False: texto invisible del PDF (por ejemplo, la capa de OCR)
 
 
 # ---------------------------------------------------------------------------
@@ -132,12 +144,17 @@ class _Collector:
         self.contrast_chars = 0
         self.low_contrast: list[LowContrastPassage] = []
         self.low_contrast_total = 0
+        self.typography = TypographyCollector()
 
-    def add_paragraph(self, fragments: list[Fragment], page_number: int) -> None:
+    def add_paragraph(
+        self, fragments: list[Fragment], page_number: int, fmt: ParagraphFormat | None = None,
+        has_pages: bool = True,
+    ) -> None:
         """fragments: los trozos de un mismo párrafo (Word/PowerPoint) o bloque (PDF)."""
         page_number = max(page_number, 1)
         self._small_text(fragments, page_number)
         self._contrast(fragments, page_number)
+        self.typography.add_paragraph(fragments, page_number if has_pages else None, fmt)
 
     def _small_text(self, fragments: list[Fragment], page_number: int) -> None:
         small_texts: list[str] = []
@@ -206,6 +223,7 @@ class _Collector:
         ))
 
     def result(self) -> LegibilityStats:
+        body_font, body_font_decorative, typography_issues = self.typography.result()
         return LegibilityStats(
             body_font_size=max(self.char_counts, key=self.char_counts.get) if self.char_counts else None,
             measured_chars=sum(self.char_counts.values()),
@@ -214,6 +232,9 @@ class _Collector:
             contrast_measured_chars=self.contrast_chars,
             low_contrast_passages=self.low_contrast,
             low_contrast_passages_total=self.low_contrast_total,
+            body_font_name=body_font,
+            body_font_decorative=body_font_decorative,
+            typography_issues=typography_issues,
         )
 
 
@@ -242,16 +263,60 @@ def _float_to_rgb(fill) -> RGB | None:
     return tuple(round(max(0.0, min(1.0, v)) * 255) for v in fill)
 
 
-def _pdf_fills(page) -> list[tuple]:
-    """Rectángulos rellenos opacos de la página, en orden de dibujo: (rect, color)."""
-    fills = []
+MAX_UNDERLINE_THICKNESS = 2.0  # un rectángulo más alto que esto es un relleno, no un subrayado
+
+
+def _pdf_drawings(page) -> tuple[list[tuple], list[tuple]]:
+    """
+    Una sola pasada por los dibujos de la página:
+    - fills: rectángulos rellenos opacos, en orden de dibujo: (rect, color).
+    - segments: líneas horizontales finas (posibles subrayados), ordenadas por y: (y, x0, x1).
+    """
+    fills, segments = [], []
     for drawing in page.get_drawings():
         color = _float_to_rgb(drawing.get("fill"))
         opacity = drawing.get("fill_opacity")
-        if color is None or (opacity is not None and opacity < MIN_BACKGROUND_FILL_OPACITY):
-            continue
-        fills.append((drawing["rect"], color))
-    return fills
+        if color is not None and (opacity is None or opacity >= MIN_BACKGROUND_FILL_OPACITY):
+            fills.append((drawing["rect"], color))
+        for item in drawing.get("items", []):
+            if item[0] == "l":
+                p1, p2 = item[1], item[2]
+                if abs(p1.y - p2.y) < 0.8 and abs(p1.x - p2.x) > 2:
+                    segments.append(((p1.y + p2.y) / 2, min(p1.x, p2.x), max(p1.x, p2.x)))
+            elif item[0] == "re":
+                rect = item[1]
+                if 0 < rect.height <= MAX_UNDERLINE_THICKNESS and rect.width > 2:
+                    segments.append(((rect.y0 + rect.y1) / 2, rect.x0, rect.x1))
+    segments.sort()
+    return fills, segments
+
+
+def _pdf_underlined(span: dict, line_bbox, segments: list[tuple]) -> bool:
+    """
+    True si hay una línea fina justo debajo de la base del texto que cubre al menos el 70% del span
+    y no es más ancha que el renglón (así no se confunde con el borde de una celda de tabla).
+    """
+    x0, _, x1, _ = span["bbox"]
+    width = x1 - x0
+    if width <= 0 or not segments:
+        return False
+    baseline = span.get("origin", (0, span["bbox"][3]))[1]
+    size = span.get("size") or 10
+    low, high = baseline - 1.0, baseline + 0.3 * size
+    start = bisect.bisect_left(segments, (low, float("-inf"), float("-inf")))
+    for y, sx0, sx1 in segments[start:]:
+        if y > high:
+            break
+        overlap = min(x1, sx1) - max(x0, sx0)
+        if overlap >= 0.7 * width and sx0 >= line_bbox[0] - 4 and sx1 <= line_bbox[2] + 4:
+            return True
+    return False
+
+
+def _pdf_in_link(bbox, links: list) -> bool:
+    x = (bbox[0] + bbox[2]) / 2
+    y = (bbox[1] + bbox[3]) / 2
+    return any(r.x0 <= x <= r.x1 and r.y0 <= y <= r.y1 for r in links)
 
 
 def _pdf_background(bbox, fills: list[tuple]) -> RGB:
@@ -270,7 +335,8 @@ def extract_pdf_legibility(doc) -> LegibilityStats:
     collector = _Collector()
     for page_idx in range(len(doc)):
         page = doc.load_page(page_idx)
-        fills = _pdf_fills(page)
+        fills, segments = _pdf_drawings(page)
+        links = [link["from"] for link in page.get_links() if link.get("from") is not None]
         for block in page.get_text("dict").get("blocks", []):
             if block.get("type") != 0:  # 0 = texto
                 continue
@@ -279,12 +345,19 @@ def extract_pdf_legibility(doc) -> LegibilityStats:
                 for span in line.get("spans", []):
                     # alpha 0: texto invisible (por ejemplo, la capa de OCR de un escaneo).
                     visible = span.get("alpha", 255) > 0
+                    flags = span.get("flags", 0)
+                    font = (span.get("font") or None) if visible else None
                     fragments.append(Fragment(
                         text=span.get("text", ""),
                         size=span.get("size"),
                         color=_int_to_rgb(span.get("color", 0)) if visible else None,
                         background=_pdf_background(span["bbox"], fills) if visible else None,
-                        bold=bool(span.get("flags", 0) & 16),
+                        bold=bool(flags & 16),
+                        italic=bool(flags & 2) or any(w in (font or "").lower() for w in ("italic", "oblique")),
+                        underline=visible and _pdf_underlined(span, line["bbox"], segments),
+                        font=font,
+                        link=_pdf_in_link(span["bbox"], links),
+                        visible=visible,
                     ))
             collector.add_paragraph(fragments, page_idx + 1)
     return collector.result()
@@ -396,6 +469,156 @@ def _docx_page_background(document) -> RGB:
     return color or WHITE
 
 
+# --- Word: tipografía (issue #79, parte 3) ---
+
+_JUSTIFIED_JC = {"both", "distribute", "thaiDistribute", "lowKashida", "mediumKashida", "highKashida"}
+_HYPERLINK_STYLES = ("hyperlink", "followedhyperlink", "hipervínculo", "hipervinculo")
+
+
+def _theme_fonts(theme_blob: bytes | None) -> dict[str, str]:
+    """Fuentes latinas del tema: {'major': 'Calibri Light', 'minor': 'Calibri'}."""
+    fonts: dict[str, str] = {}
+    if not theme_blob:
+        return fonts
+    try:
+        theme = etree.fromstring(theme_blob)
+    except etree.XMLSyntaxError:
+        return fonts
+    for kind in ("major", "minor"):
+        latin = theme.find(f".//a:fontScheme/a:{kind}Font/a:latin", _A_NS)
+        if latin is not None and latin.get("typeface"):
+            fonts[kind] = latin.get("typeface")
+    return fonts
+
+
+def _docx_theme_fonts(document) -> dict[str, str]:
+    try:
+        return _theme_fonts(document.part.part_related_by(DOCX_RT.THEME).blob)
+    except KeyError:
+        return {}
+
+
+def _docx_rfonts(r_pr, theme_fonts: dict[str, str]) -> str | None:
+    """Fuente de un rPr: w:ascii explícita o la del tema (w:asciiTheme = majorHAnsi, minorHAnsi…)."""
+    if r_pr is None:
+        return None
+    r_fonts = r_pr.find(w_qn("w:rFonts"))
+    if r_fonts is None:
+        return None
+    if r_fonts.get(w_qn("w:ascii")):
+        return r_fonts.get(w_qn("w:ascii"))
+    theme = r_fonts.get(w_qn("w:asciiTheme")) or r_fonts.get(w_qn("w:hAnsiTheme"))
+    if theme:
+        return theme_fonts.get("major" if theme.startswith("major") else "minor")
+    return None
+
+
+def _docx_style_elements(run, paragraph):
+    """Estilos que aplican al run, del más específico al más general."""
+    for style in (run.style, paragraph.style):
+        if style is not None:
+            yield from _style_chain(style)
+
+
+def _docx_font_name(run, paragraph, theme_fonts: dict[str, str], default_font: str | None) -> str | None:
+    name = _docx_rfonts(run._r.rPr, theme_fonts)
+    if name:
+        return name
+    for style in _docx_style_elements(run, paragraph):
+        name = _docx_rfonts(style.element.rPr, theme_fonts)
+        if name:
+            return name
+    return default_font
+
+
+def _docx_flag(run, paragraph, attribute: str) -> bool:
+    """italic, all_caps: el valor del run o, si no lo define, el del primer estilo que lo define."""
+    value = getattr(run.font, attribute)
+    if value is not None:
+        return bool(value)
+    for style in _docx_style_elements(run, paragraph):
+        font = getattr(style, "font", None)
+        value = getattr(font, attribute, None) if font is not None else None
+        if value is not None:
+            return bool(value)
+    return False
+
+
+def _is_underlined(value) -> bool:
+    return value not in (None, False) and value != WD_UNDERLINE.NONE
+
+
+def _docx_underline(run, paragraph) -> bool:
+    if run.font.underline is not None:
+        return _is_underlined(run.font.underline)
+    for style in _docx_style_elements(run, paragraph):
+        font = getattr(style, "font", None)
+        if font is not None and font.underline is not None:
+            return _is_underlined(font.underline)
+    return False
+
+
+def _docx_is_link(run) -> bool:
+    """Run con el estilo de carácter de hipervínculo (los runs dentro de w:hyperlink no llegan acá)."""
+    style = run.style
+    if style is None:
+        return False
+    names = {(style.style_id or "").lower(), (style.name or "").lower()}
+    return any(n in _HYPERLINK_STYLES for n in names)
+
+
+def _docx_paragraph_properties(paragraph, document):
+    """pPr del párrafo, de su estilo y estilos base, y el de docDefaults."""
+    if paragraph._p.pPr is not None:
+        yield paragraph._p.pPr
+    for style in _style_chain(paragraph.style):
+        if style.element.pPr is not None:
+            yield style.element.pPr
+    defaults = document.styles.element.find(
+        f"{w_qn('w:docDefaults')}/{w_qn('w:pPrDefault')}/{w_qn('w:pPr')}"
+    )
+    if defaults is not None:
+        yield defaults
+
+
+def _docx_paragraph_format(paragraph, document, font_size: float | None) -> ParagraphFormat:
+    justified = None
+    spacing = None
+    for p_pr in _docx_paragraph_properties(paragraph, document):
+        if justified is None:
+            jc = p_pr.find(w_qn("w:jc"))
+            if jc is not None and jc.get(w_qn("w:val")):
+                justified = jc.get(w_qn("w:val")) in _JUSTIFIED_JC
+        if spacing is None:
+            element = p_pr.find(w_qn("w:spacing"))
+            if element is not None and element.get(w_qn("w:line"), "").lstrip("-").isdigit():
+                spacing = element
+        if justified is not None and spacing is not None:
+            break
+
+    line_spacing = 1.0  # sin interlineado definido, Word usa "Sencillo"
+    if spacing is not None:
+        line = int(spacing.get(w_qn("w:line")))
+        rule = spacing.get(w_qn("w:lineRule"), "auto")
+        if rule == "auto":
+            line_spacing = line / 240  # en 240avos de renglón
+        elif font_size:
+            points = line / 20  # en veinteavos de punto
+            # "Mínimo": nunca queda más apretado que sencillo.
+            line_spacing = points / font_size if rule == "exact" else max(1.0, points / font_size)
+        else:
+            line_spacing = None
+    return ParagraphFormat(justified=bool(justified), line_spacing=line_spacing)
+
+
+def _predominant_size(fragments: list[Fragment]) -> float | None:
+    sizes: dict[float, int] = {}
+    for fragment in fragments:
+        if fragment.size is not None and fragment.text.strip():
+            sizes[fragment.size] = sizes.get(fragment.size, 0) + len(fragment.text.strip())
+    return max(sizes, key=sizes.get) if sizes else None
+
+
 def _docx_paragraphs(document):
     """(párrafo, relleno de la celda) del cuerpo y de las tablas (celdas combinadas, una sola vez)."""
     for item in document.iter_inner_content():
@@ -419,6 +642,11 @@ def extract_docx_legibility(document) -> LegibilityStats:
     collector = _Collector()
     default_size = _docx_default_size(document)
     page_background = _docx_page_background(document)
+    theme_fonts = _docx_theme_fonts(document)
+    defaults_rpr = document.styles.element.find(
+        f"{w_qn('w:docDefaults')}/{w_qn('w:rPrDefault')}/{w_qn('w:rPr')}"
+    )
+    default_font = _docx_rfonts(defaults_rpr, theme_fonts) or theme_fonts.get("minor")
     for paragraph, cell_fill in _docx_paragraphs(document):
         paragraph_fill = _shading_fill(paragraph._p.pPr) or cell_fill or page_background
         style_bold = any(
@@ -431,10 +659,16 @@ def extract_docx_legibility(document) -> LegibilityStats:
                 color=_docx_run_color(run, paragraph),
                 background=_docx_run_background(run, paragraph_fill),
                 bold=run.bold if run.bold is not None else style_bold,
+                italic=_docx_flag(run, paragraph, "italic"),
+                underline=_docx_underline(run, paragraph),
+                caps=_docx_flag(run, paragraph, "all_caps"),
+                font=_docx_font_name(run, paragraph, theme_fonts, default_font),
+                link=_docx_is_link(run),
             )
             for run in paragraph.runs
         ]
-        collector.add_paragraph(fragments, 1)
+        fmt = _docx_paragraph_format(paragraph, document, _predominant_size(fragments))
+        collector.add_paragraph(fragments, 1, fmt, has_pages=False)
     return collector.result()
 
 
@@ -513,6 +747,20 @@ class _PptxTheme:
                 self.bg_fill_styles = list(bg_fills) if bg_fills is not None else []
         clr_map = master._element.find(p_qn("p:clrMap"))
         self.master_map = dict(clr_map.attrib) if clr_map is not None else {}
+        try:
+            self.fonts = _theme_fonts(master.part.part_related_by(RT.THEME).blob)
+        except KeyError:
+            self.fonts = {}
+
+    def font(self, typeface: str | None) -> str | None:
+        """'+mj-lt' y '+mn-lt' son las fuentes del tema (títulos y cuerpo); el resto, tal cual."""
+        if not typeface:
+            return None
+        if typeface.startswith("+mj"):
+            return self.fonts.get("major")
+        if typeface.startswith("+mn"):
+            return self.fonts.get("minor")
+        return typeface
 
     @staticmethod
     def color_map(master_map: dict, *parts) -> dict:
@@ -645,20 +893,17 @@ def _shape_fill(shape, theme: _PptxTheme, mapping: dict) -> tuple[bool, RGB | No
     return False, None
 
 
-def _level_color(list_style, level: int, theme: _PptxTheme, mapping: dict) -> tuple[bool, RGB | None]:
-    """Color del nivel de una lista de estilos (lstStyle, txStyles o defaultTextStyle)."""
-    if list_style is None:
-        return False, None
-    lvl = list_style.find(p_qn(f"a:lvl{level + 1}pPr"))
-    def_rpr = lvl.find(p_qn("a:defRPr")) if lvl is not None else None
-    solid = def_rpr.find(p_qn("a:solidFill")) if def_rpr is not None else None
-    if solid is None:
-        return False, None
-    return True, theme.resolve(_first_color(solid), mapping)
+def _def_rpr(lvl_ppr):
+    return lvl_ppr.find(p_qn("a:defRPr")) if lvl_ppr is not None else None
 
 
 class _PptxTextDefaults:
-    """Color por defecto del texto de una forma, según la cadena de herencia de PowerPoint."""
+    """
+    Formato por defecto del texto de una forma según la cadena de herencia de PowerPoint: lista de
+    estilos del cuadro, marcadores de posición del diseño y del patrón, estilos de texto del patrón
+    (título, cuerpo u otros) y, para las formas que no son marcadores, el estilo de la forma
+    (fontRef) y el estilo por defecto de la presentación.
+    """
 
     def __init__(self, presentation, theme: _PptxTheme, master, mapping: dict) -> None:
         self.theme = theme
@@ -669,7 +914,7 @@ class _PptxTextDefaults:
         self.body_style = tx_styles.find(p_qn("p:bodyStyle")) if tx_styles is not None else None
         self.other_style = tx_styles.find(p_qn("p:otherStyle")) if tx_styles is not None else None
 
-    def color(self, shape, text_frame, level: int) -> RGB | None:
+    def _list_styles(self, shape, text_frame) -> list:
         sources = [text_frame._txBody.find(p_qn("a:lstStyle"))]
         if _is_placeholder(shape):
             for base in _placeholder_chain(shape)[1:]:
@@ -681,19 +926,127 @@ class _PptxTextDefaults:
                 else self.body_style if ph_type in _BODY_PLACEHOLDERS
                 else self.other_style
             )
-        for source in sources:
-            defined, color = _level_color(source, level, self.theme, self.mapping)
-            if defined:
-                return color
-        if not _is_placeholder(shape):
-            style = shape._element.find(p_qn("p:style"))
-            font_ref = style.find(p_qn("a:fontRef")) if style is not None else None
-            if font_ref is not None and _first_color(font_ref) is not None:
-                return self.theme.resolve(_first_color(font_ref), self.mapping)
-            defined, color = _level_color(self.default_style, level, self.theme, self.mapping)
-            if defined:
-                return color
+        return sources
+
+    def levels(self, shape, text_frame, level: int) -> tuple[list, list]:
+        """(niveles principales, niveles del estilo por defecto): elementos a:lvlNpPr que existen."""
+        tag = p_qn(f"a:lvl{level + 1}pPr")
+        main = [s.find(tag) for s in self._list_styles(shape, text_frame) if s is not None]
+        default = []
+        if not _is_placeholder(shape) and self.default_style is not None:
+            default = [self.default_style.find(tag)]
+        return [lvl for lvl in main if lvl is not None], [lvl for lvl in default if lvl is not None]
+
+    def _font_ref(self, shape):
+        if _is_placeholder(shape):
+            return None
+        style = shape._element.find(p_qn("p:style"))
+        return style.find(p_qn("a:fontRef")) if style is not None else None
+
+    def color(self, shape, text_frame, level: int) -> RGB | None:
+        main, default = self.levels(shape, text_frame, level)
+        for lvl in main:
+            solid = _def_rpr(lvl).find(p_qn("a:solidFill")) if _def_rpr(lvl) is not None else None
+            if solid is not None:
+                return self.theme.resolve(_first_color(solid), self.mapping)
+        font_ref = self._font_ref(shape)
+        if font_ref is not None and _first_color(font_ref) is not None:
+            return self.theme.resolve(_first_color(font_ref), self.mapping)
+        for lvl in default:
+            solid = _def_rpr(lvl).find(p_qn("a:solidFill")) if _def_rpr(lvl) is not None else None
+            if solid is not None:
+                return self.theme.resolve(_first_color(solid), self.mapping)
         return None
+
+    def run_attribute(self, shape, text_frame, level: int, name: str) -> str | None:
+        """Atributo de defRPr (i, u, cap) heredado; None si nadie lo define."""
+        main, default = self.levels(shape, text_frame, level)
+        for lvl in main + default:
+            def_rpr = _def_rpr(lvl)
+            if def_rpr is not None and def_rpr.get(name) is not None:
+                return def_rpr.get(name)
+        return None
+
+    def font(self, shape, text_frame, level: int) -> str | None:
+        main, default = self.levels(shape, text_frame, level)
+        for lvl in main:
+            latin = _def_rpr(lvl).find(p_qn("a:latin")) if _def_rpr(lvl) is not None else None
+            if latin is not None and latin.get("typeface"):
+                return self.theme.font(latin.get("typeface"))
+        font_ref = self._font_ref(shape)
+        if font_ref is not None and font_ref.get("idx") in ("major", "minor"):
+            return self.theme.fonts.get(font_ref.get("idx"))
+        for lvl in default:
+            latin = _def_rpr(lvl).find(p_qn("a:latin")) if _def_rpr(lvl) is not None else None
+            if latin is not None and latin.get("typeface"):
+                return self.theme.font(latin.get("typeface"))
+        return self.theme.fonts.get("major" if _placeholder_type(shape) in _TITLE_PLACEHOLDERS else "minor")
+
+    def paragraph_attribute(self, shape, text_frame, level: int, name: str) -> str | None:
+        """Atributo del nivel (algn) heredado."""
+        main, default = self.levels(shape, text_frame, level)
+        for lvl in main + default:
+            if lvl.get(name) is not None:
+                return lvl.get(name)
+        return None
+
+    def line_spacing(self, shape, text_frame, level: int):
+        """Elemento a:lnSpc heredado, o None."""
+        main, default = self.levels(shape, text_frame, level)
+        for lvl in main + default:
+            ln_spc = lvl.find(p_qn("a:lnSpc"))
+            if ln_spc is not None:
+                return ln_spc
+        return None
+
+
+_JUSTIFIED_ALGN = {"just", "dist", "justLow", "thaiDist"}
+
+
+def _pptx_spacing_value(ln_spc, font_size: float | None) -> float | None:
+    """a:lnSpc a múltiplo de sencillo: spcPct en milésimas de % o spcPts en centésimas de punto."""
+    if ln_spc is None:
+        return 1.0
+    pct = ln_spc.find(p_qn("a:spcPct"))
+    if pct is not None and pct.get("val", "").isdigit():
+        return int(pct.get("val")) / 100_000
+    pts = ln_spc.find(p_qn("a:spcPts"))
+    if pts is not None and pts.get("val", "").isdigit() and font_size:
+        return int(pts.get("val")) / 100 / font_size
+    return None
+
+
+def _pptx_paragraph_format(shape, text_frame, paragraph, defaults: _PptxTextDefaults,
+                           font_size: float | None) -> ParagraphFormat:
+    p_pr = paragraph._p.pPr
+    algn = p_pr.get("algn") if p_pr is not None else None
+    if algn is None:
+        algn = defaults.paragraph_attribute(shape, text_frame, paragraph.level, "algn")
+    ln_spc = p_pr.find(p_qn("a:lnSpc")) if p_pr is not None else None
+    if ln_spc is None:
+        ln_spc = defaults.line_spacing(shape, text_frame, paragraph.level)
+    spacing = _pptx_spacing_value(ln_spc, font_size)
+    # "Reducir el texto al desbordar" también achica el interlineado (lnSpcReduction).
+    autofit = text_frame._bodyPr.find(p_qn("a:normAutofit"))
+    reduction = autofit.get("lnSpcReduction") if autofit is not None else None
+    if spacing is not None and reduction and reduction.isdigit():
+        spacing *= 1 - int(reduction) / 100_000
+    return ParagraphFormat(justified=algn in _JUSTIFIED_ALGN, line_spacing=spacing)
+
+
+def _pptx_run_attribute(run, paragraph, defaults, shape, text_frame, name: str) -> str | None:
+    for props in (run._r.rPr, _def_rpr(paragraph._p.pPr)):
+        if props is not None and props.get(name) is not None:
+            return props.get(name)
+    return defaults.run_attribute(shape, text_frame, paragraph.level, name)
+
+
+def _pptx_run_font(run, paragraph, defaults, shape, text_frame, theme: _PptxTheme) -> str | None:
+    for props in (run._r.rPr, _def_rpr(paragraph._p.pPr)):
+        latin = props.find(p_qn("a:latin")) if props is not None else None
+        if latin is not None and latin.get("typeface"):
+            return theme.font(latin.get("typeface"))
+    return defaults.font(shape, text_frame, paragraph.level)
 
 
 def _run_color(run, paragraph, theme: _PptxTheme, mapping: dict, default: RGB | None) -> RGB | None:
@@ -750,12 +1103,20 @@ def extract_pptx_legibility(presentation) -> LegibilityStats:
                 for run in paragraph.runs:
                     size = run.font.size or paragraph.font.size
                     bold = run.font.bold if run.font.bold is not None else bool(paragraph.font.bold)
+                    attribute = functools.partial(_pptx_run_attribute, run, paragraph, defaults, shape, text_frame)
+                    r_pr = run._r.rPr
                     fragments.append(Fragment(
                         text=run.text,
                         size=size.pt * scale if size is not None else None,
                         color=_run_color(run, paragraph, theme, mapping, default_color),
                         background=fill,
                         bold=bold,
+                        italic=attribute("i") in ("1", "true"),
+                        underline=attribute("u") not in (None, "none"),
+                        caps=attribute("cap") == "all",
+                        font=_pptx_run_font(run, paragraph, defaults, shape, text_frame, theme),
+                        link=r_pr is not None and r_pr.find(p_qn("a:hlinkClick")) is not None,
                     ))
-                collector.add_paragraph(fragments, number)
+                fmt = _pptx_paragraph_format(shape, text_frame, paragraph, defaults, _predominant_size(fragments))
+                collector.add_paragraph(fragments, number, fmt)
     return collector.result()

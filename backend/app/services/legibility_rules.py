@@ -1,5 +1,6 @@
 """
-Reglas de legibilidad visual del archivo (issue #79): letra chica (parte 1) y contraste (parte 2).
+Reglas de legibilidad visual del archivo (issue #79): letra chica (parte 1), contraste (parte 2) y
+tipografía poco legible (parte 3).
 
 Se aplican solo a archivos (PDF, Word y PowerPoint): el texto pegado no tiene tipografía.
 Todo se calcula localmente con los datos de ExtractedDocument.legibility, sin IA.
@@ -14,6 +15,15 @@ from app.services.legibility_extractor import (
     LARGE_TEXT_MIN_RATIO,
     MIN_SMALL_PASSAGE_WORDS,
     SMALL_PASSAGE_PT,
+)
+from app.services.legibility_typography import (
+    MIN_CAPS_WORDS,
+    MIN_DECORATIVE_WORDS,
+    MIN_ITALIC_WORDS,
+    MIN_LAYOUT_PARAGRAPH_WORDS,
+    MIN_LINE_SPACING,
+    MIN_UNDERLINE_WORDS,
+    format_spacing,
 )
 
 MIN_BODY_FONT_PT = 9.0  # cuerpo del texto por debajo de esto: barrera_detectada
@@ -44,6 +54,7 @@ class LegibilityResult:
     body_font_size: float | None = None
     small_text_passages: int = 0
     low_contrast_passages: int = 0
+    typography_issues: int = 0
 
 
 def _worse(a: str, b: str) -> str:
@@ -206,10 +217,132 @@ def contrast_assessment(doc: ExtractedDocument) -> LegibilityResult:
     return result
 
 
+# Tipografía: cada regla genera una sola barrera, con la cantidad de párrafos y dónde aparecen.
+TYPOGRAPHY_POINTS = 4
+DECORATIVE_BODY_POINTS = 8
+MAX_TYPOGRAPHY_PENALTY = 12  # tope del conjunto de reglas de tipografía
+
+_PLACES_PLURAL = {"pdf": "páginas", "pptx": "diapositivas"}
+
+
+def _places(doc: ExtractedDocument, pages: list[int]) -> str:
+    if not pages or doc.source_type not in _PLACE_LABELS:
+        return ""
+    if len(pages) == 1:
+        return f" ({_PLACE_LABELS[doc.source_type]} {pages[0]})"
+    return f" ({_PLACES_PLURAL[doc.source_type]} {', '.join(str(p) for p in pages)})"
+
+
+def _typography_text(issue, doc: ExtractedDocument) -> tuple[str, str, str]:
+    """(issue, explanation, recommendation) de cada regla."""
+    n = issue.passages
+    where = _places(doc, issue.pages)
+    if issue.rule == "fuente_decorativa":
+        main = doc.legibility.body_font_decorative and doc.legibility.body_font_name == issue.detail
+        return (
+            (f"La fuente principal del texto es decorativa o manuscrita ({issue.detail}){where}" if main
+             else f"Pasajes en una fuente decorativa o manuscrita ({issue.detail}){where}"),
+            f"{n} párrafo(s) tienen {MIN_DECORATIVE_WORDS} palabras o más en {issue.detail}. Las fuentes "
+            "decorativas o de estilo manuscrito tienen formas de letras poco habituales que cuesta "
+            "distinguir (por ejemplo, entre la b, la d y la p), sobre todo para estudiantes con dislexia "
+            "o baja visión.",
+            "Usá una fuente simple y sin adornos, como Arial, Verdana o Calibri, al menos en el cuerpo del "
+            "texto. Si querés un toque decorativo, dejalo para un título corto.",
+        )
+    if issue.rule == "cursiva":
+        return (
+            f"Pasajes largos en cursiva{where}",
+            f"{n} párrafo(s) tienen {MIN_ITALIC_WORDS} palabras o más en cursiva. La cursiva inclina y junta "
+            "las letras: en pasajes largos el texto parece correrse y cuesta más leerlo, sobre todo con "
+            "dislexia o baja visión.",
+            "Usá cursiva solo en palabras puntuales (por ejemplo, nombres científicos o títulos de obras). "
+            "Para destacar un pasaje, preferí la negrita.",
+        )
+    if issue.rule == "mayusculas":
+        return (
+            f"Texto largo en MAYÚSCULAS sostenidas{where}",
+            f"{n} párrafo(s) tienen {MIN_CAPS_WORDS} palabras o más escritas en mayúsculas. Sin las formas de "
+            "las minúsculas, las palabras pierden su contorno y se leen letra por letra; además, algunos "
+            "lectores de pantalla las deletrean.",
+            "Escribí el texto en minúsculas, con mayúscula inicial. Para destacar, usá negrita o un título.",
+        )
+    if issue.rule == "subrayado":
+        return (
+            f"Texto subrayado que no es un enlace{where}",
+            f"{n} párrafo(s) tienen {MIN_UNDERLINE_WORDS} palabras o más subrayadas sin ser un enlace. El "
+            "subrayado se asocia con los enlaces y corta los trazos de letras como la g, la p o la y, así "
+            "que confunde y dificulta la lectura.",
+            "Quitá el subrayado y, si querés destacar, usá negrita.",
+        )
+    if issue.rule == "justificado":
+        return (
+            f"Texto justificado{where}",
+            f"{n} párrafo(s) de {MIN_LAYOUT_PARAGRAPH_WORDS} palabras o más están justificados. La "
+            "justificación agrega espacios irregulares entre las palabras que dificultan seguir el renglón, "
+            "sobre todo con dislexia (WCAG 1.4.8).",
+            "Alineá el texto a la izquierda, con el borde derecho irregular.",
+        )
+    spacing = issue.detail or "menos de " + format_spacing(MIN_LINE_SPACING)
+    return (
+        f"Interlineado menor a {format_spacing(MIN_LINE_SPACING)}{where}",
+        f"{n} párrafo(s) de {MIN_LAYOUT_PARAGRAPH_WORDS} palabras o más tienen un interlineado de {spacing}. "
+        f"WCAG 1.4.8 y la guía de la British Dyslexia Association recomiendan al menos "
+        f"{format_spacing(MIN_LINE_SPACING)}: con los renglones más juntos es fácil saltearse uno o leer "
+        "dos veces el mismo.",
+        f"Aplicá un interlineado de {format_spacing(MIN_LINE_SPACING)} líneas en el cuerpo del texto "
+        "(en Word y PowerPoint: Inicio > Espaciado entre líneas).",
+    )
+
+
+def typography_assessment(doc: ExtractedDocument) -> LegibilityResult:
+    """Cursiva, MAYÚSCULAS, subrayado, fuentes decorativas, justificado e interlineado (WCAG 1.4.8)."""
+    result = LegibilityResult()
+    stats = doc.legibility
+    if not _applies(doc) or not stats or not stats.typography_issues:
+        return result
+
+    remaining = MAX_TYPOGRAPHY_PENALTY
+    for issue in stats.typography_issues:
+        severe = (
+            issue.rule == "fuente_decorativa"
+            and stats.body_font_decorative and stats.body_font_name == issue.detail
+        )
+        title, explanation, recommendation = _typography_text(issue, doc)
+        result.barriers.append({
+            "category": "accesibilidad_visual",
+            "severity": "barrera_detectada" if severe else "para_revisar",
+            "issue": title,
+            "original_text": issue.example,
+            "explanation": explanation,
+            "recommendation": recommendation,
+            "suggested_rewrite": None,
+            "fragment_found": _in_text(issue.example, doc.raw_text),
+            "source": "rules",
+        })
+        result.status = _worse(result.status, "barrera_detectada" if severe else "para_revisar")
+        points = min(remaining, DECORATIVE_BODY_POINTS if severe else TYPOGRAPHY_POINTS)
+        remaining -= points
+        # Alcanzado el tope, la barrera se muestra igual pero no figura en el desglose con 0 puntos.
+        if points:
+            result.penalties.append(ScorePenalty(
+                rule=f"tipografia_{issue.rule}", category="accesibilidad_visual", count=issue.passages,
+                points=points,
+            ))
+    result.typography_issues = len(stats.typography_issues)
+    names = {
+        "fuente_decorativa": "fuente decorativa", "cursiva": "cursiva", "mayusculas": "mayúsculas sostenidas",
+        "subrayado": "subrayado", "justificado": "texto justificado", "interlineado": "interlineado reducido",
+    }
+    result.comments.append(
+        "Tipografía poco legible: " + ", ".join(names[i.rule] for i in stats.typography_issues) + "."
+    )
+    return result
+
+
 def legibility_assessment(doc: ExtractedDocument) -> LegibilityResult:
     """Todas las reglas de legibilidad visual del archivo, unidas en un solo resultado."""
     combined = LegibilityResult()
-    for part in (small_text_assessment(doc), contrast_assessment(doc)):
+    for part in (small_text_assessment(doc), contrast_assessment(doc), typography_assessment(doc)):
         combined.barriers.extend(part.barriers)
         combined.penalties.extend(part.penalties)
         combined.comments.extend(part.comments)
@@ -217,4 +350,5 @@ def legibility_assessment(doc: ExtractedDocument) -> LegibilityResult:
         combined.body_font_size = combined.body_font_size or part.body_font_size
         combined.small_text_passages += part.small_text_passages
         combined.low_contrast_passages += part.low_contrast_passages
+        combined.typography_issues += part.typography_issues
     return combined

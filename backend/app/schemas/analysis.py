@@ -133,6 +133,10 @@ class RulesMetrics(BaseModel):
     low_contrast_passages: int = Field(
         default=0, description="Pasajes cuyo texto no alcanza el contraste mínimo con su fondo (WCAG 1.4.3)."
     )
+    typography_issues: int = Field(
+        default=0,
+        description="Reglas de tipografía poco legible que se cumplen (cursiva, mayúsculas, subrayado, etc.).",
+    )
 
 
 class ScorePenalty(BaseModel):
