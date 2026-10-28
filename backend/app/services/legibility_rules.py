@@ -119,6 +119,7 @@ def small_text_assessment(doc: ExtractedDocument) -> LegibilityResult:
         })
         result.penalties.append(ScorePenalty(
             rule="letra_chica_cuerpo", category="accesibilidad_visual", count=1, points=SMALL_BODY_POINTS,
+            severe=True,
         ))
 
     stats = doc.legibility
@@ -212,7 +213,7 @@ def contrast_assessment(doc: ExtractedDocument) -> LegibilityResult:
     stored_points += LOW_CONTRAST_POINTS * (total - len(passages))
     result.penalties.append(ScorePenalty(
         rule="contraste_insuficiente", category="accesibilidad_visual", count=total,
-        points=min(MAX_CONTRAST_PENALTY, stored_points),
+        points=min(MAX_CONTRAST_PENALTY, stored_points), severe=bool(severe),
     ))
     return result
 
@@ -326,7 +327,7 @@ def typography_assessment(doc: ExtractedDocument) -> LegibilityResult:
         if points:
             result.penalties.append(ScorePenalty(
                 rule=f"tipografia_{issue.rule}", category="accesibilidad_visual", count=issue.passages,
-                points=points,
+                points=points, severe=severe,
             ))
     result.typography_issues = len(stats.typography_issues)
     names = {

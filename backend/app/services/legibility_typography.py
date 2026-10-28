@@ -144,11 +144,13 @@ class TypographyCollector:
 
         for fragment in fragments:
             text = fragment.text.strip()
-            if fragment.font:
-                self.font_chars[display_font_name(fragment.font)] += len(text)
+            # Un PDF puede traer como nombre solo el prefijo de subconjunto ("ABCDEF+"): sin nombre
+            # real, la fuente no cuenta (si no, None podría quedar como "fuente predominante").
+            if fragment.font and (font_name := display_font_name(fragment.font)):
+                self.font_chars[font_name] += len(text)
                 if is_decorative_font(fragment.font):
                     decorative.append(text)
-                    decorative_fonts[display_font_name(fragment.font)] += _words(text)
+                    decorative_fonts[font_name] += _words(text)
             if fragment.italic:
                 italic.append(text)
             if fragment.underline and not fragment.link:
