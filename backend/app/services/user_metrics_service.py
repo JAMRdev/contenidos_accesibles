@@ -13,8 +13,12 @@ from app.services.admin_metrics_service import RANGES, _bucket_index, _bucket_st
 
 # Lo que hace el docente en el producto: cuenta para "acciones" y para el ranking de más activos.
 # Las llamadas a la IA, los 429 y las aperturas de sus enlaces (las hace otra persona) van aparte.
-PRODUCT_ACTIONS = ("analysis", "proposal", "decision", "upload", "export", "download", "share_created", "share_revoked")
+PRODUCT_ACTIONS = (
+    "analysis", "proposal", "decision", "upload", "export", "download", "share_created", "share_revoked",
+    "transformation", "transformation_decision",
+)
 DECISIONS = ("aceptada", "editada", "descartada", "deshacer")
+TRANSFORMATION_DECISIONS = ("aceptada", "editada", "descartada")
 SOURCES = user_activity.SOURCES
 RANKING_SIZE = 10
 RECENT_ACTIVITY = 50
@@ -22,6 +26,7 @@ _STAT_KEY = {
     "analysis": "analyses", "proposal": "proposals", "upload": "uploads", "upload_rejected": "uploads_rejected",
     "export": "exports", "download": "downloads", "share_created": "shares_created", "share_opened": "share_opens",
     "share_revoked": "shares_revoked", "ai_call": "ai_calls", "rate_limited": "rate_limited",
+    "transformation": "transformations",
 }
 # Series del gráfico de actividad del detalle (4 colores validados de la paleta categórica)
 ACTIVITY_GROUPS = {
@@ -37,6 +42,9 @@ def _empty_stats() -> dict:
         "uploads": 0, "uploads_rejected": 0, "exports": 0, "downloads": 0,
         "shares_created": 0, "share_opens": 0, "shares_revoked": 0,
         "ai_calls": 0, "ai_errors": 0, "tokens": 0, "rate_limited": 0,
+        # Transformar material (Issue #116): pedidas, en modo mock, fallidas y decisiones del docente
+        "transformations": 0, "mock_transformations": 0, "transformations_failed": 0,
+        "transformation_decisions": {d: 0 for d in TRANSFORMATION_DECISIONS},
     }
 
 
@@ -45,12 +53,19 @@ def _add(stats: dict, action: str, detail: str | None, n: int = 1, mock: int = 0
     if action == "decision":
         if detail in stats["decisions"]:
             stats["decisions"][detail] += n
+    elif action == "transformation_decision":
+        if detail in stats["transformation_decisions"]:
+            stats["transformation_decisions"][detail] += n
     elif action in _STAT_KEY:
         stats[_STAT_KEY[action]] += n
     if action == "analysis":
         stats["mock_analyses"] += mock
     elif action == "proposal":
         stats["mock_proposals"] += mock
+    elif action == "transformation":
+        stats["mock_transformations"] += mock
+        if detail == "failed":
+            stats["transformations_failed"] += n
     elif action == "ai_call":
         stats["tokens"] += tokens
         if detail != "ok":
@@ -194,7 +209,7 @@ def build_users(range_key: str = "24h", tz_offset_minutes: int = 0, now: datetim
 
 def build_user_detail(user_id: str, range_key: str = "24h", tz_offset_minutes: int = 0,
                       now: datetime | None = None) -> dict | None:
-    """Detalle de un usuario: actividad por intervalo, formatos, adaptaciones y últimas acciones. None si no existe."""
+    """Detalle de un usuario: actividad, formatos, adaptaciones, transformaciones y últimas acciones. None si no existe."""
     profile = user_activity.get_user(user_id)
     totals = user_activity.totals_by_user(user_id)
     if profile is None and not totals:
@@ -208,6 +223,7 @@ def build_user_detail(user_id: str, range_key: str = "24h", tz_offset_minutes: i
     tokens = [0] * n
     formats = {k: Counter() for k in ("analysis", "upload", "export")}
     adaptations: dict[str, Counter] = defaultdict(Counter)
+    transformations: dict[str, Counter] = defaultdict(Counter)
     models: dict[tuple[str, str], dict] = {}
     for r in rows:
         i = _bucket_index(_parse_utc(r["created_at"]), starts, step)
@@ -219,6 +235,12 @@ def build_user_detail(user_id: str, range_key: str = "24h", tz_offset_minutes: i
             formats[r["action"]][r["format"]] += 1
         if r["action"] in ("proposal", "decision") and r["adaptation_type"]:
             adaptations[r["adaptation_type"]]["propuestas" if r["action"] == "proposal" else r["detail"]] += 1
+        if r["action"] in ("transformation", "transformation_decision") and r["format"]:
+            if r["action"] == "transformation":
+                transformations[r["format"]]["pedidas"] += 1
+                transformations[r["format"]]["fallidas"] += r["detail"] == "failed"
+            else:
+                transformations[r["format"]][r["detail"]] += 1
         if r["action"] == "ai_call":
             m = models.setdefault((r["provider"], r["model"]), {"provider": r["provider"], "model": r["model"],
                                                                "calls": 0, "errors": 0, "tokens": 0})
@@ -240,6 +262,7 @@ def build_user_detail(user_id: str, range_key: str = "24h", tz_offset_minutes: i
         "tokens": tokens,
         "formats": {k: dict(v.most_common()) for k, v in formats.items()},
         "adaptations": {t: dict(c) for t, c in sorted(adaptations.items())},
+        "transformations": {f: dict(c) for f, c in sorted(transformations.items())},
         "models": sorted(models.values(), key=lambda m: -m["tokens"]),
         "recent": recent,
     }

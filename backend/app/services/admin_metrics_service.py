@@ -4,7 +4,7 @@ Métricas del panel de administración (/admin).
 Junta en un solo JSON lo que muestran los gráficos y tablas del panel:
 - Uso de la IA a lo largo del tiempo (tabla ai_usage_events).
 - Estado y consumo de cada conexión (tabla api_keys).
-- Uso del producto en las últimas horas (diagnósticos y propuestas vigentes).
+- Uso del producto en las últimas horas (diagnósticos, propuestas y transformaciones vigentes).
 - Archivos y enlaces compartidos en el período (tabla file_events y enlaces de file_shares).
 
 Nunca devuelve el material analizado, los textos propuestos, las API keys ni nombres de archivo.
@@ -34,11 +34,14 @@ SEVERITIES = ["para_revisar", "barrera_detectada"]
 ADAPTATION_TYPES = ["lenguaje_claro", "consigna_en_pasos", "reorganizar", "mejorar_estructura"]
 PROPOSAL_STATUSES = ["aceptada", "editada", "descartada", "pendiente"]
 SOURCE_TYPES = ["text", "pdf", "docx", "pptx"]
+TRANSFORMATION_FORMATS = ["no_images", "mind_map", "infographic", "audio"]
+# Revisión del docente; 'pendiente' incluye las que se están generando
+TRANSFORMATION_STATES = ["aceptada", "editada", "descartada", "pendiente", "fallida"]
 RECENT_ANALYSES = 15
 FILE_FORMATS = ["pdf", "docx", "pptx", "md", "txt"]
 FILE_KINDS = ["upload", "export"]
 SHARE_STATES = ["activo", "revocado", "vencido"]
-EXPORT_DOCUMENTS = ["content", "report"]
+EXPORT_DOCUMENTS = ["content", "report", "transformation"]
 EXPORT_DELIVERIES = ["file", "link"]
 RECENT_SHARES = 15
 # Series del gráfico de actividad (4 colores validados de la paleta categórica)
@@ -182,6 +185,11 @@ def _product(now: datetime) -> dict:
             "SELECT status, proposal_json FROM adaptation_proposals WHERE expires_at > ?",
             (now_iso,),
         ).fetchall()
+        transformation_rows = conn.execute(
+            "SELECT format, status, review_status, COUNT(*) AS n FROM transformations WHERE expires_at > ? "
+            "GROUP BY format, status, review_status",
+            (now_iso,),
+        ).fetchall()
 
     scores: list[int] = []
     histogram = [0] * 10
@@ -226,6 +234,15 @@ def _product(now: datetime) -> dict:
         if adaptation_type in decisions and p["status"] in PROPOSAL_STATUSES:
             decisions[adaptation_type][p["status"]] += 1
 
+    # Transformaciones vigentes por formato (Issue #116)
+    transformations = {f: {s: 0 for s in TRANSFORMATION_STATES} for f in TRANSFORMATION_FORMATS}
+    for t in transformation_rows:
+        if t["format"] not in transformations:
+            continue
+        state = "fallida" if t["status"] == "failed" else t["review_status"]
+        if state in transformations[t["format"]]:
+            transformations[t["format"]][state] += t["n"]
+
     reviewed = sum(v for t in decisions.values() for s, v in t.items() if s != "pendiente")
     accepted = sum(t["aceptada"] + t["editada"] for t in decisions.values())
     return {
@@ -237,6 +254,7 @@ def _product(now: datetime) -> dict:
         "by_source": {s: by_source.get(s, 0) for s in SOURCE_TYPES},
         "barriers": barriers,
         "decisions": decisions,
+        "transformations": transformations,
         "recent": recent,
     }
 

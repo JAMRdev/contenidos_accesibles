@@ -2,7 +2,7 @@
 Historial de uso por usuario y usuarios de la API para las estadísticas de /admin (Issue #104).
 
 - user_activity: una fila por acción (diagnóstico, propuesta, decisión, archivo, enlace, llamada a
-  la IA o 429 del rate limit) con sus metadatos: formato, tipo, tokens, proveedor. Nunca el
+  la IA, 429 del rate limit o transformación de material y su decisión) con sus metadatos: formato, tipo, tokens, proveedor. Nunca el
   material, los textos propuestos ni nombres de archivo.
 - api_users: primer y último uso y rol de cada usuario, más el nombre y el email de Clerk
   cacheados (app/services/user_profile_service.py).
@@ -20,7 +20,7 @@ from app.db.database import get_connection
 ACTIONS = (
     "analysis", "proposal", "decision",
     "upload", "upload_rejected", "export", "download", "share_created", "share_opened", "share_revoked",
-    "ai_call", "rate_limited",
+    "ai_call", "rate_limited", "transformation", "transformation_decision",
 )
 SOURCES = ("frontend", "test_web", "anon")
 TEST_WEB_PREFIX = "test-web_"

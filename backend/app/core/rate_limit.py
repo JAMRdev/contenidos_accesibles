@@ -138,6 +138,33 @@ async def limit_ai_usage(request: Request) -> None:
             _hits.setdefault(key, deque()).append(now)
 
 
+async def limit_transformation(request: Request, format: str) -> None:
+    """
+    Transformar material (Issue #116): primero un tope diario por usuario (o IP sin login) y por
+    formato, que para el audio es más bajo; después los límites de IA de siempre. El formato viaja
+    en el cuerpo, por eso la llama el endpoint en vez de ir como dependencia.
+    """
+    if request.query_params.get("mock", "").lower() in _TRUTHY:
+        return
+    caller = getattr(request.state, "caller", None)
+    who = f"user:{caller.user_id}" if caller is not None and caller.authenticated else (
+        request.client.host if request.client else "desconocida"
+    )
+    per_day = settings.TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY if format == "audio" else settings.TRANSFORMATION_RATE_LIMIT_PER_DAY
+    key = f"transformation:{format}:{who}"
+    now = _now()
+    wait = _retry_after(key, 0, per_day, now)
+    if wait is not None:
+        await _log_rejection(caller, f"transformation:{format}")
+        raise _reject(
+            f"Alcanzaste el límite diario de transformaciones en este formato. Probá de nuevo en "
+            f"{max(1, math.ceil(wait))} s (o usá ?mock=true para probar sin IA).",
+            wait,
+        )
+    await limit_ai_usage(request)
+    _hits.setdefault(key, deque()).append(now)
+
+
 async def limit_share_access(request: Request) -> None:
     """Dependencia de /s/{token} (Issue #65): frena a quien prueba tokens o descarga en loop."""
     now = _now()

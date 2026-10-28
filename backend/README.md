@@ -196,6 +196,10 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET`/`PUT` | `/api/v1/settings/retention` | Retención de archivos vigente y última limpieza; cambiarla para los archivos nuevos (permiso `settings:retention`, rol admin, #64) | ✅ Operativo |
 | `GET` | `/s/{token}` | Enlace compartido (público): `302` a una URL firmada de descarga de minutos; `404` si se revocó o venció | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
+| `POST` | `/api/v1/transformations` | Transformar material (#116): `format` (`no_images`, `mind_map`, `infographic`, `audio`) y `analysis_id` o `file_id`. Asíncrono: responde `202` con `status = "pending"`. Los formatos sin generador con IA real responden `501` (`format_not_available`) salvo con `?mock=true` | 🚧 Base (mock); formatos en #117–#122 |
+| `GET` | `/api/v1/transformations` | Mis transformaciones vigentes (las últimas 50) | ✅ Operativo |
+| `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado y URL firmada de vista previa del archivo generado | ✅ Operativo |
+| `POST` | `/api/v1/transformations/{id}/decision` | Revisión docente: aceptar, editar (`edited_result`, validado con el esquema del formato) o descartar. Lo aceptado con archivo queda en `/files` para descargar y compartir | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
 | `GET` | `/admin/diagramas/{slug}` | Diagrama de arquitectura dentro del panel. Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
@@ -335,7 +339,7 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 #### Login de docentes (Issue #60)
 
 - Los docentes inician sesión en el Frontend con **Clerk** (Google o Microsoft), en una aplicación de Clerk **distinta** de la del panel. El Frontend manda el token de sesión en cada request: `Authorization: Bearer <token>`.
-- Con `USERS_CLERK_JWT_KEY` configurada, `/analysis/*`, `/adaptations/*`, `/export/*`, `/files/*` y `POST /documents/files/{file_id}` exigen ese token, **también con `?mock=true`**. Sin token, o con uno vencido, de otro origen o inválido, responden `401` con el header `WWW-Authenticate: Bearer`. `/health` sigue público.
+- Con `USERS_CLERK_JWT_KEY` configurada, `/analysis/*`, `/adaptations/*`, `/transformations/*`, `/export/*`, `/files/*` y `POST /documents/files/{file_id}` exigen ese token, **también con `?mock=true`**. Sin token, o con uno vencido, de otro origen o inválido, responden `401` con el header `WWW-Authenticate: Bearer`. `/health` sigue público.
 - El token se valida sin llamadas de red con la clave pública y solo si fue emitido para un origen de `BACKEND_CORS_ORIGINS` (protección CSRF).
 - Sin `USERS_CLERK_JWT_KEY` la API sigue anónima: así funciona en local y hasta que el Frontend mande el token. La web de pruebas sigue usando su propio login.
 
@@ -343,7 +347,7 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 
 - Roles: **docente** (analiza, adapta, sube, exporta y comparte sus propios archivos) y **admin** (además configura la retención de archivos y administra usuarios).
 - El rol se guarda en `publicMetadata.role` del usuario en Clerk y viaja en el token de sesión como claim `role`. Para eso, en la aplicación de Clerk de docentes, **Sessions → Customize session token** tiene que incluir `{"role": "{{user.public_metadata.role}}"}`. Sin claim, o con un valor desconocido, el rol es `docente`: es el rol por defecto al registrarse.
-- Los permisos se derivan del rol en `app/core/permissions.py` (`analysis:create`, `adaptations:manage`, `files:manage`, `files:share`, `export:create`, `settings:retention`, `users:manage`). Sin el permiso, la API responde `403`.
+- Los permisos se derivan del rol en `app/core/permissions.py` (`analysis:create`, `adaptations:manage`, `transformations:manage`, `files:manage`, `files:share`, `export:create`, `settings:retention`, `users:manage`). Sin el permiso, la API responde `403`.
 - Los diagnósticos, las propuestas, las decisiones y los archivos quedan a nombre de quien los crea (columna `user_id`): el id de usuario de Clerk, `test-web_<tipo>_<usuario>` desde la web de pruebas (con el rol de la API según el del panel: admin → admin, solo lectura → docente) o `anon` mientras la API es anónima.
 - Un docente solo accede a lo suyo: el diagnóstico, la propuesta, el informe o el archivo de otro usuario responde `404`, igual que uno inexistente.
 - **Antes de desplegar este cambio en producción** hay que aplicar la migración `0005_user_id.sql` en D1 (`cd d1-gateway && npm run migrate:remote`): con D1, el arranque verifica que esté la columna `user_id`. En SQLite local la columna se agrega sola al iniciar; lo previo queda a nombre de `anon`.
@@ -351,7 +355,7 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 
 ### Rate limit de IA
 
-Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan.
+Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations`, `POST /transformations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan.
 
 | Variable | Default | Alcance |
 | :--- | :--- | :--- |
@@ -363,6 +367,14 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 | `AI_RATE_LIMIT_GLOBAL_DAY` | `500` | Todas las IP, últimas 24 h |
 
 `0` desactiva ese límite. El global protege la cuota aunque se falsee la IP (detrás del proxy, la IP sale de `X-Forwarded-For`). Los contadores se reinician con cada deploy.
+
+`POST /transformations` (#116) suma un tope diario por formato, por usuario autenticado (o por IP sin login), y un máximo de transformaciones generándose a la vez:
+
+| Variable | Default | Alcance |
+| :--- | :--- | :--- |
+| `TRANSFORMATION_RATE_LIMIT_PER_DAY` | `20` | Por formato (sin imágenes, mapa mental, infografía), últimas 24 h |
+| `TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY` | `5` | Audio (TTS, más caro), últimas 24 h |
+| `TRANSFORMATION_MAX_ACTIVE_PER_USER` | `2` | Generándose a la vez por usuario; la siguiente responde `429` |
 
 ---
 
@@ -478,6 +490,8 @@ npm run r2:cors     # aplica r2-cors.json (repetir si cambian los orígenes)
 
 Después, en el dashboard: **R2 → Manage API tokens → Create API token** con permiso **Object Read & Write** solo sobre ese bucket. El *Access Key ID* y el *Secret Access Key* van a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY` en Railway, junto con `R2_ACCOUNT_ID`, `R2_BUCKET` y `STORAGE_BACKEND=r2`.
 
+**Antes de desplegar #116** hay que aplicar la migración `0008_transformations.sql` en D1 (`npm run migrate:remote`): crea la tabla `transformations`. Con D1, el arranque verifica que esté.
+
 **Antes de desplegar #104** hay que aplicar la migración `0007_user_activity.sql` en D1 (`npm run migrate:remote`): crea `user_activity` y `api_users` y pasa al historial los diagnósticos, propuestas, decisiones y archivos que todavía no vencieron.
 
 **Antes de desplegar #64** hay que aplicar la migración `0006_app_settings.sql` en D1 (`npm run migrate:remote`) y la regla de lifecycle (`npm run r2:lifecycle`).
@@ -499,6 +513,7 @@ Después, en el dashboard: **R2 → Manage API tokens → Create API token** con
 7. Informe final (`GET /adaptations/report`): puntaje antes → después, resumen, decisión por barrera y penalizaciones de reglas antes/después, descargable como `.txt`. También se regenera solo.
 8. Exportar el material (`docx`, `pdf`, `md`, `txt`) y el informe (`pdf`, `md`, `txt`) con `GET /export/...&delivery=link`: el archivo queda en el almacenamiento y se descarga con una URL firmada de 5 minutos.
 9. Archivos y enlaces compartidos: los subidos y exportados en la sesión (o agregados por `file_id`). Por cada uno: datos, descarga (`download-url`), crear enlaces (`/files/{id}/shares`) con vigencia opcional, ver sus aperturas y revocarlos. El enlace completo se ve solo al crearlo, con botón para copiar.
+10. Transformar material (`POST /transformations`): formato y material (diagnóstico actual o archivo subido). La página consulta el estado hasta `ready` o `failed`, muestra el resultado (y reproduce el audio con su vista previa) y permite aceptar, editar el JSON o descartar. Lo aceptado con archivo pasa a la lista del paso 9.
 
 Si el material tiene posibles datos personales (`422 sensitive_data_detected`), la página muestra los hallazgos enmascarados y permite descartar los que no lo son y reintentar (`?dismissed=`).
 

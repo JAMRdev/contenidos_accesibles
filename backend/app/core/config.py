@@ -212,6 +212,12 @@ class Settings(BaseSettings):
     AI_RATE_LIMIT_PER_USER_DAY: int = Field(default=50, ge=0)
     AI_RATE_LIMIT_GLOBAL_MINUTE: int = Field(default=20, ge=0)
     AI_RATE_LIMIT_GLOBAL_DAY: int = Field(default=500, ge=0)
+    # Transformar material (Issue #116): además de los límites de IA, un tope diario por usuario
+    # (o por IP sin login) y por formato. El audio es más caro que el texto (TTS, Issue #121).
+    TRANSFORMATION_RATE_LIMIT_PER_DAY: int = Field(default=20, ge=0)
+    TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY: int = Field(default=5, ge=0)
+    # Transformaciones generándose a la vez por usuario: las demás esperan con 429
+    TRANSFORMATION_MAX_ACTIVE_PER_USER: int = Field(default=2, ge=1)
 
     # --- Web de pruebas (web/, Static Site en Render) ---
     # URL pública de la web de pruebas. Si está definida, /admin muestra el enlace

@@ -7,8 +7,8 @@ Retención de los archivos de R2 y limpieza automática (Issue #64).
   nuevos. Los exportados además vencen, como mucho, con su diagnóstico.
 - La API trata un archivo vencido como inexistente aunque todavía no se haya borrado
   (file_repository.get_for_user y share_repository.resolve filtran por expires_at).
-- cleanup_files() borra del almacenamiento y de la base los archivos vencidos y las subidas que
-  nunca se confirmaron. Corre cada FILE_CLEANUP_INTERVAL_MINUTES en el proceso del backend
+- cleanup_files() borra del almacenamiento y de la base los archivos vencidos, las subidas que
+  nunca se confirmaron y las transformaciones vencidas con su archivo generado (Issue #116). Corre cada FILE_CLEANUP_INTERVAL_MINUTES en el proceso del backend
   (app/main.py). La regla de lifecycle del bucket, con el máximo permitido, queda de respaldo.
 """
 import asyncio
@@ -106,6 +106,12 @@ def cleanup_files(now: datetime | None = None) -> dict:
         # Lote incompleto o nada borrado (solo errores): no hay más que limpiar por ahora
         if len(batch) < _CLEANUP_BATCH or deleted_in_batch == 0:
             break
+    # Transformaciones vencidas y su archivo generado (Issue #116)
+    from app.services import transformation_service
+
+    transformations = transformation_service.cleanup_expired(_iso(now))
+    result["transformations"] = transformations["deleted"]
+    result["errors"] += transformations["errors"]
     settings_repository.set(LAST_CLEANUP_KEY, json.dumps(result), updated_by=None)
     return result
 

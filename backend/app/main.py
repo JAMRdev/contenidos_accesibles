@@ -17,9 +17,9 @@ from app.core.config import settings
 from app.core.docs import setup_protected_docs
 from app.core.errors import setup_exception_handlers
 from app.admin import clerk_auth, test_web_auth
-from app.db import admin_member_repository, ai_usage_repository, analysis_repository
+from app.db import admin_member_repository, ai_usage_repository, analysis_repository, transformation_repository
 from app.db.database import init_db
-from app.services import key_rotation_service, retention_service
+from app.services import key_rotation_service, retention_service, transformation_service
 
 # En development, Swagger/ReDoc/openapi.json quedan abiertos (rutas por defecto
 # de FastAPI). En staging/production se desactivan y se registran de nuevo
@@ -34,6 +34,8 @@ async def lifespan(app: FastAPI):
     key_rotation_service.sync_env_connection()
     analysis_repository.delete_expired()
     ai_usage_repository.delete_expired()
+    # Las transformaciones se generan en tareas del proceso: las que quedaron a medias no van a terminar
+    transformation_repository.fail_interrupted(transformation_service.INTERRUPTED_MESSAGE)
     admin_member_repository.seed(settings.admin_github_seed)
     # Cuenta del .env en Clerk: en segundo plano para no demorar el arranque si Clerk tarda
     if settings.admin_clerk_enabled:
@@ -69,6 +71,7 @@ barreras de accesibilidad y potenciando la labor pedagógica docente.
 * **AI Integration**: Prueba de conectividad con la conexión de IA activa.
 * **Documents**: Extracción de texto y PDF en memoria.
 * **Accessibility Analysis**: Diagnóstico de accesibilidad con salidas estructuradas.
+* **Transformations**: Nueva versión del material como infografía, audio, mapa mental o sin imágenes.
 
 ---
 
