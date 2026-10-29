@@ -35,12 +35,12 @@ from app.db import file_repository as files
 from app.db import transformation_repository as repository
 from app.db import user_activity_repository as user_activity
 from app.schemas.adaptation import AdaptationMetadata
+from app.schemas.analysis import AccessibilityAnalysisResponse
 from app.schemas.transformation import (
     AudioResult,
     GeneratedFileInfo,
     InfographicResult,
     InfographicSection,
-    NoImagesResult,
     TransformationDecisionRequest,
     TransformationError,
     TransformationRequest,
@@ -54,8 +54,8 @@ from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
 from app.services.rules_service import split_paragraphs
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 from app.services.storage_service import StorageError, new_object_key
-from app.services.transformations import mind_map
-from app.services.transformations.base import FormatSpec, GeneratedFile, Generation, clip
+from app.services.transformations import mind_map, no_images
+from app.services.transformations.base import FormatSpec, GeneratedFile, Generation, SourceMaterial, clip
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ INTERRUPTED_MESSAGE = "El servidor se reinició mientras se generaba la transfor
 
 # ---------------------------------------------------------------------------
 # Formatos: los que tienen generador con IA viven en app/services/transformations/; el resto
-# tiene solo su mock hasta que su issue lo implemente (#117, #119, #122)
+# tiene solo su mock hasta que su issue lo implemente (#119, #122)
 # ---------------------------------------------------------------------------
 
 
@@ -77,12 +77,8 @@ def _blocks(text: str) -> tuple[str, list[str]]:
     return first_line, rest
 
 
-def _mock_no_images(text: str) -> NoImagesResult:
-    return NoImagesResult(text=text.strip(), omitted_images=[])
-
-
-def _mock_infographic(text: str) -> InfographicResult:
-    title, paragraphs = _blocks(text)
+def _mock_infographic(material: SourceMaterial) -> InfographicResult:
+    title, paragraphs = _blocks(material.text)
     sections = [
         InfographicSection(title=f"Idea {i}", text=clip(p, 300), icon="info")
         for i, p in enumerate(paragraphs[:3], start=1)
@@ -90,8 +86,8 @@ def _mock_infographic(text: str) -> InfographicResult:
     return InfographicResult(title=clip(title, 100), subtitle="[MOCK] Infografía simulada", sections=sections)
 
 
-def _mock_audio(text: str) -> AudioResult:
-    return AudioResult(script=clip(text, 2000))
+def _mock_audio(material: SourceMaterial) -> AudioResult:
+    return AudioResult(script=clip(material.text, 2000))
 
 
 def _mock_audio_file(_result: BaseModel) -> GeneratedFile:
@@ -106,7 +102,7 @@ def _mock_audio_file(_result: BaseModel) -> GeneratedFile:
 
 
 FORMATS: dict[str, FormatSpec] = {
-    "no_images": FormatSpec(NoImagesResult, "material_sin_imagenes", _mock_no_images),
+    "no_images": no_images.SPEC,
     "mind_map": mind_map.SPEC,
     "infographic": FormatSpec(InfographicResult, "infografia", _mock_infographic),
     "audio": FormatSpec(AudioResult, "audio", _mock_audio, mock_render=_mock_audio_file),
@@ -162,7 +158,7 @@ class InvalidEditError(ValueError):
 class _Source:
     type: str
     id: str
-    text: str
+    material: SourceMaterial
     expires_at: str
     warnings: list[str]
 
@@ -176,7 +172,11 @@ def _analysis_source(analysis_id: str, owner: str) -> _Source:
             f"Se transformó la versión adaptada del material, con {adapted.applied_count} "
             f"cambio{'s' if adapted.applied_count != 1 else ''} aceptado{'s' if adapted.applied_count != 1 else ''}."
         )
-    return _Source("analysis", analysis_id, adapted.adapted_text, analysis_repository.get(analysis_id)["expires_at"], warnings)
+    record = analysis_repository.get(analysis_id)
+    # El diagnóstico no guarda las imágenes, pero sí los textos alternativos que propuso para ellas
+    alt_texts = AccessibilityAnalysisResponse.model_validate_json(record["diagnostic_json"]).alt_text_proposals
+    material = SourceMaterial(text=adapted.adapted_text, alt_texts=alt_texts)
+    return _Source("analysis", analysis_id, material, record["expires_at"], warnings)
 
 
 async def _file_source(file_id: str, owner: str, dismissed: list[str]) -> _Source:
@@ -186,8 +186,15 @@ async def _file_source(file_id: str, owner: str, dismissed: list[str]) -> _Sourc
     # Issue #66: este texto no pasó por el detector del diagnóstico y va a la IA
     ensure_no_sensitive_data(doc.raw_text, dismissed)
     record = await asyncio.to_thread(files.get_for_user, file_id, owner)
+    # Avisos de la extracción sobre imágenes (p. ej. más de las que se procesan, o una que no se pudo leer).
+    # El de "el escáner de accesibilidad verificará…" es del diagnóstico y acá no corresponde.
+    warnings = [
+        w for w in doc.warnings
+        if ("imagen" in w.lower() or "imágenes" in w.lower()) and "escáner de accesibilidad" not in w.lower()
+    ]
     # raw_text y no text_for_analysis: ese viene recortado a 3.000 palabras y sin saltos de línea ni puntuación
-    return _Source("file", file_id, doc.raw_text, record["expires_at"], [])
+    material = SourceMaterial(text=doc.raw_text, images=doc.extracted_images)
+    return _Source("file", file_id, material, record["expires_at"], warnings)
 
 
 async def _load_source(request: TransformationRequest, owner: str, dismissed: list[str]) -> _Source:
@@ -195,7 +202,7 @@ async def _load_source(request: TransformationRequest, owner: str, dismissed: li
         source = await asyncio.to_thread(_analysis_source, request.analysis_id, owner)
     else:
         source = await _file_source(request.file_id, owner, dismissed)
-    if not source.text.strip():
+    if not source.material.text.strip():
         raise EmptySourceError(
             "El material no contiene texto para transformar. Si es un PDF escaneado, subí una versión con texto seleccionable."
         )
@@ -308,7 +315,7 @@ async def create(
     try:
         source = await _load_source(request, owner, dismissed or [])
         if limit:
-            await limit(True)
+            await limit(spec.uses_ai(source.material))
         now = _now()
         retention_limit = (datetime.now(timezone.utc) + timedelta(hours=retention_service.file_retention_hours()))
         transformation = TransformationResponse(
@@ -328,7 +335,7 @@ async def create(
         raise
 
     # create_task copia el contexto: la llamada a la IA queda a nombre del usuario (Issue #104)
-    task = asyncio.create_task(_run(transformation, source.text, spec, owner=owner, mock=mock))
+    task = asyncio.create_task(_run(transformation, source.material, spec, owner=owner, mock=mock))
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return transformation
@@ -362,7 +369,7 @@ async def _store_file(generated: GeneratedFile | None, spec: FormatSpec, transfo
     return info, key
 
 
-async def _run(t: TransformationResponse, text: str, spec: FormatSpec, *, owner: str, mock: bool) -> None:
+async def _run(t: TransformationResponse, material: SourceMaterial, spec: FormatSpec, *, owner: str, mock: bool) -> None:
     started = time.perf_counter()
     metadata: AdaptationMetadata | None = None
     outcome = "failed"
@@ -374,9 +381,9 @@ async def _run(t: TransformationResponse, text: str, spec: FormatSpec, *, owner:
         t = processing
 
         if mock:
-            generation = Generation(result=spec.mock(text), metadata=_MOCK_METADATA, warnings=[MOCK_WARNING])
+            generation = Generation(result=spec.mock(material), metadata=_MOCK_METADATA, warnings=[MOCK_WARNING])
         else:
-            generation = await spec.generate(text)
+            generation = await spec.generate(material)
         metadata = generation.metadata
         render = spec.mock_render if mock else spec.render
         generated = await asyncio.to_thread(render, generation.result) if render else None

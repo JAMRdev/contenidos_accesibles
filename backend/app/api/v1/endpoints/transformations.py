@@ -65,7 +65,7 @@ async def create_transformation(
 
     | `format` | Resultado |
     |---|---|
-    | `no_images` | Material completo con las imágenes descriptas en texto (#117) |
+    | `no_images` | Material completo con cada imagen descripta en su lugar (#117). Con `file_id`, la IA con visión describe las imágenes; con `analysis_id`, se usan los textos alternativos del diagnóstico, sin IA |
     | `mind_map` | Mapa mental: tema central e ideas principales (#118) |
     | `infographic` | Infografía con plantillas accesibles, sin generar imágenes con IA (#119) |
     | `audio` | Archivo de audio con guion revisable (#122) |
@@ -173,7 +173,9 @@ def decide_transformation(
 def export_transformation(
     transformation_id: str,
     request: Request,
-    format: str = Query(description="Extensión: 'md' o 'txt' para el mapa mental (lista anidada)."),
+    format: str = Query(
+        description="Extensión. Mapa mental: 'md' o 'txt' (lista anidada). Material sin imágenes: 'docx', 'pdf', 'md' o 'txt'."
+    ),
     delivery: Delivery = Query(
         default="file", description="'file': el archivo en la respuesta. 'link': URL firmada; el archivo queda en /files."
     ),

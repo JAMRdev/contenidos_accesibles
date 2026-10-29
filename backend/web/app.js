@@ -31,7 +31,7 @@ const TRANSFORMATION_FORMATS = {
     audio: "Audio",
 };
 // Exportaciones del resultado aceptado por formato (GET /transformations/{id}/export)
-const TRANSFORMATION_EXPORTS = { mind_map: ["md", "txt"] };
+const TRANSFORMATION_EXPORTS = { no_images: ["docx", "pdf", "md", "txt"], mind_map: ["md", "txt"] };
 const VIEW_LABELS = { markdown: "Lista anidada (Markdown, accesible con lector de pantalla)", mermaid: "Mermaid (mindmap)" };
 const TRANSFORMATION_POLL_MS = 1500;
 const TRANSFORMATION_POLL_LIMIT_MS = 180000;

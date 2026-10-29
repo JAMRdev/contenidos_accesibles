@@ -309,8 +309,8 @@ def test_file_source_keeps_the_whole_text_with_its_paragraphs(client, monkeypatc
     file_id = _upload(client, _docx(long_material))
     _wait(client, _create(client, "mind_map", mock=False, file_id=file_id)["transformation_id"])
 
-    assert "\n" in received[0]  # sin el recorte del diagnóstico, que junta todo en una línea
-    assert "Cierre de la unidad." in received[0]
+    assert "\n" in received[0].text  # sin el recorte del diagnóstico, que junta todo en una línea
+    assert "Cierre de la unidad." in received[0].text
 
 
 # --- Revisión docente ---------------------------------------------------------------
