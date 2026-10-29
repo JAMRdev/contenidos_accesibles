@@ -24,6 +24,15 @@ const ADAPTATION_TYPES = {
     mejorar_estructura: "Mejorar estructura",
 };
 
+const TRANSFORMATION_FORMATS = {
+    no_images: "Sin imágenes",
+    mind_map: "Mapa mental",
+    infographic: "Infografía",
+    audio: "Audio",
+};
+const TRANSFORMATION_POLL_MS = 1500;
+const TRANSFORMATION_POLL_LIMIT_MS = 180000;
+
 const SAMPLE_TEXT = `Unidad 3: El ciclo del agua
 
 El ciclo del agua, también conocido como ciclo hidrológico, es el proceso de circulación del agua entre los distintos compartimentos de la hidrosfera, en el cual se producen transformaciones de estado físico que dependen de la temperatura y la presión, y que permiten que el agua pase de la superficie terrestre a la atmósfera mediante la evaporación y la transpiración de las plantas, para luego condensarse formando nubes y regresar a la superficie en forma de precipitación.
@@ -40,6 +49,7 @@ const state = {
     report: null, // último FinalReportResponse del diagnóstico actual
     upload: null, // último archivo subido al almacenamiento: { key, fileId, expiresAt }
     files: new Map(), // file_id → { info, links: Map(share_id → url) } de la sección 9
+    transformations: new Map(), // transformation_id → TransformationResponse de la sección 10
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1279,6 +1289,114 @@ function fileCard(entry) {
 }
 
 // ---------------------------------------------------------------------------
+// 10. Transformar material (Issue #116): pedido asíncrono, consulta hasta 'ready' y revisión
+// ---------------------------------------------------------------------------
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function rememberTransformation(t) {
+    state.transformations.set(t.transformation_id, t);
+    renderTransformations();
+}
+
+async function createTransformation(dismissed = []) {
+    const format = $("transformation-format").value;
+    let source;
+    if ($("transformation-source").value === "file") {
+        if (!state.upload || new Date(state.upload.expiresAt) <= new Date()) {
+            throw new InputError("Primero subí un archivo en el paso 1 (Procesar o Diagnosticar).");
+        }
+        source = { file_id: state.upload.fileId };
+    } else {
+        source = { analysis_id: requireAnalysisId() };
+    }
+    let t = await api("POST", "/transformations", {
+        query: { mock: isMock(), dismissed },
+        body: { kind: "json", value: { format, ...source } },
+        busyText: "Pidiendo la transformación…",
+    });
+    rememberTransformation(t);
+    const deadline = Date.now() + TRANSFORMATION_POLL_LIMIT_MS;
+    while (!["ready", "failed"].includes(t.status) && Date.now() < deadline) {
+        await sleep(TRANSFORMATION_POLL_MS);
+        t = await api("GET", `/transformations/${encodeURIComponent(t.transformation_id)}`, {
+            busyText: `Generando ${TRANSFORMATION_FORMATS[format].toLowerCase()} (${t.status})…`,
+        });
+        rememberTransformation(t);
+    }
+}
+
+async function refreshTransformations() {
+    for (const t of await api("GET", "/transformations")) state.transformations.set(t.transformation_id, t);
+    renderTransformations();
+}
+
+function renderTransformations() {
+    const box = $("transformations");
+    if (!state.transformations.size) {
+        box.replaceChildren(el("p", { class: "muted" }, "Todavía no hay transformaciones."));
+        return;
+    }
+    const items = [...state.transformations.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    box.replaceChildren(...items.map((t) => transformationCard(t)));
+}
+
+function transformationCard(t) {
+    const card = el("div", { class: "card" });
+    const path = `/transformations/${encodeURIComponent(t.transformation_id)}`;
+    const decide = async (decision, editedResult) => {
+        const value = editedResult === undefined ? { decision } : { decision, edited_result: editedResult };
+        const updated = await api("POST", `${path}/decision`, { body: { kind: "json", value }, busyText: "Guardando la decisión…" });
+        rememberTransformation(updated);
+        if (updated.file && updated.file.file_id) rememberFile(await api("GET", `/files/${encodeURIComponent(updated.file.file_id)}`));
+    };
+    const editor = el("textarea", { rows: 10, hidden: true }, t.result ? JSON.stringify(t.result, null, 2) : "");
+    const saveEdit = el("button", {
+        type: "button", hidden: true,
+        onclick: () => run(card, async () => {
+            let edited;
+            try { edited = JSON.parse(editor.value); } catch { throw new InputError("El resultado editado no es un JSON válido."); }
+            await decide("editada", edited);
+        }),
+    }, "Guardar edición");
+    const pending = t.status === "ready" && t.review_status === "pendiente";
+
+    card.append(
+        el("div", {}, badge(TRANSFORMATION_FORMATS[t.format] || t.format, "type"),
+            badge(t.status, t.status === "ready" ? "ok" : t.status === "failed" ? "error" : "pendiente"),
+            t.status === "ready" ? badge(t.review_status) : null,
+            el("strong", {}, t.transformation_id)),
+        kv([
+            ["Material", `${t.source.type === "analysis" ? "diagnóstico" : "archivo"} ${t.source.id}`],
+            ["Creada", fmtDate(t.created_at)],
+            ["Vence", fmtDate(t.expires_at)],
+            ["Modelo", t.metadata ? `${t.metadata.provider} · ${t.metadata.model} · ${t.metadata.latency_ms} ms` : undefined],
+            ["file_id (aceptado)", t.file ? t.file.file_id : undefined],
+        ]),
+        t.error ? errorBox(`${t.error.code}: ${t.error.message}`) : null,
+        t.warnings.length ? el("ul", { class: "muted" }, t.warnings.map((w) => el("li", {}, w))) : null,
+        t.file && t.file.preview_url && t.file.content_type.startsWith("audio/")
+            ? el("audio", { controls: true, src: t.file.preview_url, preload: "none" }) : null,
+        t.file && t.file.preview_url
+            ? el("div", {}, el("a", { href: t.file.preview_url, target: "_blank", rel: "noopener" }, `Vista previa: ${t.file.filename} (${fmtBytes(t.file.size_bytes)})`)) : null,
+        t.final_result || t.result ? el("pre", {}, JSON.stringify(t.final_result || t.result, null, 2)) : null,
+        el("div", { class: "row" },
+            el("button", { type: "button", class: "secondary", onclick: () => run(card, async () => rememberTransformation(await api("GET", path))) }, "Actualizar"),
+            pending ? el("button", { type: "button", onclick: () => run(card, () => decide("aceptada")) }, "Aceptar") : null,
+            pending ? el("button", {
+                type: "button", class: "secondary",
+                onclick: () => { editor.hidden = !editor.hidden; saveEdit.hidden = editor.hidden; },
+            }, "Editar") : null,
+            pending ? el("button", { type: "button", class: "danger", onclick: () => run(card, () => decide("descartada")) }, "Descartar") : null,
+        ),
+        pending ? editor : null,
+        pending ? saveEdit : null,
+        rawJson(t),
+    );
+    return card;
+}
+
+// ---------------------------------------------------------------------------
 // Inicio
 // ---------------------------------------------------------------------------
 
@@ -1316,6 +1434,8 @@ function init() {
     $("btn-export-content").addEventListener("click", () => run($("exports").parentElement, () => exportFile("content")));
     $("btn-export-report").addEventListener("click", () => run($("exports").parentElement, () => exportFile("report")));
     $("btn-add-file").addEventListener("click", () => run($("files").parentElement, addFileById));
+    $("btn-transform").addEventListener("click", () => run($("transformations").parentElement, createTransformation));
+    $("btn-refresh-transformations").addEventListener("click", () => run($("transformations").parentElement, refreshTransformations));
     $("btn-clear-log").addEventListener("click", () =>
         $("log-entries").replaceChildren(el("p", { class: "muted" }, "Todavía no se hizo ninguna llamada.")));
 

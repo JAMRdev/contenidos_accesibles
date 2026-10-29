@@ -25,6 +25,7 @@ _DOCENTE_PERMISSIONS = frozenset({
     "files:manage",
     "files:share",
     "export:create",
+    "transformations:manage",
 })
 
 PERMISSIONS: dict[str, frozenset[str]] = {

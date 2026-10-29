@@ -206,9 +206,10 @@ CREATE TABLE IF NOT EXISTS user_activity (
     -- id de Clerk, test-web_<tipo>_<usuario> o 'anon' (Issue #61)
     user_id                 TEXT NOT NULL,
     -- analysis, proposal, decision, upload, upload_rejected, export, download, share_created,
-    -- share_opened, share_revoked, ai_call o rate_limited
+    -- share_opened, share_revoked, ai_call, rate_limited, transformation o transformation_decision
     action                  TEXT NOT NULL,
-    -- origen del diagnóstico (text, pdf, docx, pptx), extensión del archivo o tipo de llamada a la IA
+    -- origen del diagnóstico (text, pdf, docx, pptx), extensión del archivo, tipo de llamada a la IA
+    -- o formato de la transformación (no_images, mind_map, infographic, audio)
     format                  TEXT,
     -- decisión (aceptada, editada, descartada, deshacer), exportación ('<content|report>:<file|link>'),
     -- enlace (upload, export), resultado de la IA (ok, rate_limited, ...) o límite superado (ip, user, global)
@@ -246,6 +247,28 @@ CREATE TABLE IF NOT EXISTS api_users (
 );
 CREATE INDEX IF NOT EXISTS idx_api_users_last_seen
     ON api_users(last_seen_at);
+
+-- Transformaciones de material (Issue #116). Guarda el resultado estructurado (payload_json) y la
+-- clave en R2 del archivo generado, nunca el texto del material. Vencen con su material de origen.
+CREATE TABLE IF NOT EXISTS transformations (
+    id                      TEXT PRIMARY KEY,
+    user_id                 TEXT NOT NULL,
+    -- no_images, mind_map, infographic o audio
+    format                  TEXT NOT NULL,
+    -- pending, processing, ready o failed
+    status                  TEXT NOT NULL,
+    -- pendiente, aceptada, editada o descartada
+    review_status           TEXT NOT NULL DEFAULT 'pendiente',
+    object_key              TEXT,
+    payload_json            TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
+    expires_at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_transformations_user_created
+    ON transformations(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transformations_expires_at
+    ON transformations(expires_at);
 """
 
 
@@ -253,7 +276,7 @@ _d1_client = None
 _d1_lock = threading.Lock()
 
 # Tablas que tiene que tener D1 (migraciones de d1-gateway/migrations) para arrancar
-REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events", "app_settings", "user_activity", "api_users"}
+REQUIRED_TABLES = {"api_keys", "analyses", "adaptation_proposals", "adaptation_decisions", "ai_usage_events", "admin_members", "files", "file_shares", "file_events", "app_settings", "user_activity", "api_users", "transformations"}
 
 
 def _shared_d1_client():

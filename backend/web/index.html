@@ -277,6 +277,37 @@
         <div id="files"><p class="muted">Todavía no hay archivos: subí uno en el paso 1, exportá en el paso 8 o agregalo por file_id.</p></div>
     </section>
 
+    <!-- 10. Transformar material -->
+    <section>
+        <h2>10. Transformar material</h2>
+        <p class="muted">
+            Nueva versión del material del diagnóstico (con los cambios aceptados) o del archivo subido en el paso 1
+            (<code>POST /transformations</code>). Es asíncrona: responde <code>pending</code> y esta web consulta
+            <code>GET /transformations/{id}</code> hasta <code>ready</code> o <code>failed</code>. Nada se guarda sin la
+            decisión del docente; lo aceptado con archivo (audio) aparece en el paso 9 para descargarlo y compartirlo.
+            Los formatos sin generador con IA real todavía responden 501: probalos con modo mock.
+        </p>
+        <div class="row">
+            <label>Formato
+                <select id="transformation-format">
+                    <option value="no_images">Material sin imágenes</option>
+                    <option value="mind_map">Mapa mental</option>
+                    <option value="infographic">Infografía</option>
+                    <option value="audio">Audio</option>
+                </select>
+            </label>
+            <label>Material
+                <select id="transformation-source">
+                    <option value="analysis">Diagnóstico actual</option>
+                    <option value="file">Archivo subido en el paso 1</option>
+                </select>
+            </label>
+            <button type="button" id="btn-transform">Transformar</button>
+            <button type="button" id="btn-refresh-transformations" class="secondary">Ver mis transformaciones</button>
+        </div>
+        <div id="transformations"><p class="muted">Todavía no hay transformaciones.</p></div>
+    </section>
+
     <!-- Registro de requests -->
     <section id="log">
         <div class="row">

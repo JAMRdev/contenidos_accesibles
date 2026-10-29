@@ -181,7 +181,8 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         format: { pdf: "PDF", docx: "Word", pptx: "PowerPoint", md: "Markdown", txt: "Texto" },
         fileKind: { upload: "Material subido", export: "Exportación" },
         shareState: { activo: "Activo", revocado: "Revocado", vencido: "Vencido" },
-        exportDocument: { content: "Material adaptado", report: "Informe" },
+        exportDocument: { content: "Material adaptado", report: "Informe", transformation: "Transformación" },
+        transformation: { no_images: "Sin imágenes", mind_map: "Mapa mental", infographic: "Infografía", audio: "Audio" },
     };
     const SHARE_STATE_CLASS = { activo: "active", revocado: "exhausted", vencido: "disabled" };
     const SHARE_STATE_ICON = { activo: "link", revocado: "link_off", vencido: "schedule" };
@@ -895,6 +896,28 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
             empty: anyDecision ? null : { icon: "rule", text: "Todavía no hay propuestas de adaptación vigentes." },
         });
 
+        // Transformar material (Issue #116)
+        const trSeries = [...decSeries, { label: "Fallida", color: C.warning }];
+        const trRows = Object.entries(p.transformations || {}).map(([fmt, v]) => ({
+            label: LABELS.transformation[fmt] || fmt, values: [v.aceptada, v.editada, v.descartada, v.pendiente, v.fallida],
+        }));
+        const anyTransformation = trRows.some((r) => r.values.some((v) => v > 0));
+        chartCard($("chart-transformations"), {
+            title: "Transformaciones por formato",
+            subtitle: "Decisión del docente sobre las transformaciones vigentes (pendiente incluye las que se están generando).",
+            legend: trSeries,
+            svg: anyTransformation ? hBars({
+                rows: trRows, series: trSeries, fmt: num, percent: true,
+                endLabel: (total) => (total ? `${num(total)} transformaci${total === 1 ? "ón" : "ones"}` : "Sin transformaciones"),
+                ariaLabel: "Transformaciones por formato y decisión del docente", width: widthOf("chart-transformations"),
+            }) : null,
+            table: anyTransformation ? {
+                headers: ["Formato", ...trSeries.map((sr) => sr.label), "Total"],
+                rows: trRows.map((r) => [r.label, ...r.values.map(num), num(r.values.reduce((a, b) => a + b, 0))]),
+            } : null,
+            empty: anyTransformation ? null : { icon: "transform", text: "Todavía no hay transformaciones vigentes." },
+        });
+
         const body = $("recent-body");
         if (!p.recent.length) {
             body.replaceChildren(h("tr", {}, h("td", { colspan: "7", class: "admin-muted", text: "No hay diagnósticos vigentes." })));
@@ -1037,8 +1060,13 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
         analysis: "Diagnóstico", proposal: "Propuesta", decision: "Decisión", upload: "Subida",
         upload_rejected: "Subida rechazada", export: "Exportación", download: "Descarga", share_created: "Enlace creado",
         share_opened: "Enlace abierto", share_revoked: "Enlace revocado", ai_call: "Llamada a la IA", rate_limited: "Límite de uso (429)",
+        transformation: "Transformación", transformation_decision: "Decisión sobre una transformación",
     };
-    const RATE_SCOPE = { ip: "por IP", user: "por usuario", global: "global" };
+    const RATE_SCOPE = {
+        ip: "por IP", user: "por usuario", global: "global",
+        "transformation:no_images": "diario sin imágenes", "transformation:mind_map": "diario de mapas mentales",
+        "transformation:infographic": "diario de infografías", "transformation:audio": "diario de audio",
+    };
     const userState = { selected: null, detail: null };
 
     const userName = (u) => u.name || u.email || u.user_id;
@@ -1238,6 +1266,27 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
             empty: adRows.length ? null : { icon: "auto_fix_high", text: "Sin propuestas ni decisiones en este período." },
         });
 
+        const trSeries = decSeries.slice(0, 3);
+        const trRows = Object.entries(d.transformations || {}).map(([fmt, c]) => ({
+            label: LABELS.transformation[fmt] || fmt, requested: c.pedidas || 0, failed: c.fallidas || 0,
+            values: trSeries.map((sr) => c[sr.key] || 0),
+        }));
+        chartCard($("chart-user-transformations"), {
+            title: "Transformaciones por formato",
+            subtitle: "Decisiones sobre las transformaciones pedidas en el período.",
+            legend: trSeries,
+            svg: trRows.length ? hBars({
+                rows: trRows, series: trSeries, fmt: num,
+                endLabel: (total, row) => `${num(total)} de ${num(row.requested)} pedida${row.requested === 1 ? "" : "s"}`,
+                ariaLabel: "Transformaciones por formato", width: widthOf("chart-user-transformations"),
+            }) : null,
+            table: trRows.length ? {
+                headers: ["Formato", "Pedidas", "Fallidas", ...trSeries.map((sr) => sr.label)],
+                rows: trRows.map((row) => [row.label, num(row.requested), num(row.failed), ...row.values.map(num)]),
+            } : null,
+            empty: trRows.length ? null : { icon: "transform", text: "Sin transformaciones en este período." },
+        });
+
         $("user-detail-models").replaceChildren(...(d.models.length ? d.models.map((m) => h("tr", {},
             h("td", {}, h("span", { class: "cell-title", text: providerLabel(m.provider) }), h("code", { text: m.model })),
             h("td", { class: "num", text: num(m.calls) }),
@@ -1256,9 +1305,11 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
 
     function activityDetail(a) {
         const parts = [];
-        if (a.format) parts.push(LABELS.source[a.format] || LABELS.format[a.format] || a.format);
+        if (a.format) parts.push(LABELS.source[a.format] || LABELS.format[a.format] || LABELS.transformation[a.format] || a.format);
         if (a.adaptation_type) parts.push(LABELS.adaptation[a.adaptation_type] || a.adaptation_type);
         if (a.action === "decision") parts.push(a.detail === "deshacer" ? "Deshizo la decisión" : LABELS.decision[a.detail] || a.detail);
+        else if (a.action === "transformation") parts.push(a.detail === "ready" ? "Lista para revisar" : "Falló");
+        else if (a.action === "transformation_decision") parts.push(LABELS.decision[a.detail] || a.detail);
         else if (a.action === "rate_limited") parts.push(`Límite ${RATE_SCOPE[a.detail] || a.detail}`);
         else if (a.action === "ai_call") parts.push(a.detail === "ok" ? "Correcta" : `Error: ${a.detail}`);
         else if (a.action === "export" && a.detail) {
