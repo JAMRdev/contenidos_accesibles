@@ -26,6 +26,7 @@ from app.services import admin_metrics_service, storage_service, transformation_
 from app.services.llm.base import LLMUnavailableError
 from app.services.storage_service import LocalStorage
 from app.services.transformation_service import Generation
+from app.services.transformations.base import GeneratedFile
 
 MATERIAL = (
     "Unidad 3: El ciclo del agua\n\n"
@@ -51,6 +52,28 @@ def client(tmp_path, monkeypatch):
     app.dependency_overrides.clear()
     storage_service.reset_storage()
     rate_limit.reset()
+
+
+def _wav_file(_result) -> GeneratedFile:
+    """Un segundo de silencio en WAV: prueba el circuito del archivo (R2, vista previa, /files) sin generar nada."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        wav.writeframes(b"\x00\x00" * 8000)
+    return GeneratedFile(data=buffer.getvalue(), content_type="audio/wav", extension=".wav")
+
+
+@pytest.fixture
+def file_format(monkeypatch) -> str:
+    """La infografía, con un archivo generado al crearla (lo que va a hacer #119): el circuito de archivos de la base."""
+    spec = transformation_service.FORMATS["infographic"]
+    monkeypatch.setitem(transformation_service.FORMATS, "infographic", replace(spec, mock_render=_wav_file, render=_wav_file))
+    return "infographic"
+
+
+INFOGRAPHIC_EDIT = {"title": "Ciclo del agua", "sections": [{"title": "Evaporación", "text": "El agua sube."}]}
 
 
 def _analyze(client, text: str = MATERIAL) -> str:
@@ -130,8 +153,8 @@ def test_each_format_goes_from_pending_to_ready(client, fmt):
     assert ready["final_result"] is None  # nada se guarda sin la decisión del docente
 
 
-def test_audio_generates_a_previewable_file(client):
-    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+def test_format_with_file_generates_a_previewable_file(client, file_format):
+    ready = _wait(client, _create(client, file_format, analysis_id=_analyze(client))["transformation_id"])
     file = ready["file"]
     assert file["content_type"] == "audio/wav"
     assert file["file_id"] is None
@@ -206,7 +229,7 @@ def test_other_users_cannot_see_or_decide(client):
 
 
 def test_format_without_real_generator_is_501_without_mock(client):
-    res = client.post("/api/v1/transformations", json={"format": "audio", "analysis_id": _analyze(client)})
+    res = client.post("/api/v1/transformations", json={"format": "infographic", "analysis_id": _analyze(client)})
     assert res.status_code == 501
     assert res.json()["detail"]["code"] == "format_not_available"
 
@@ -225,7 +248,11 @@ def test_real_generator_result_and_metrics(client, monkeypatch):
     assert ready["metadata"]["provider"] == "groq"
     assert not any("mock" in w for w in ready["warnings"])
 
-    rows = [r for r in user_activity_repository.list_recent("anon") if r["action"] == "transformation"]
+    # La tarea registra la actividad después de guardar 'ready': se espera a que aparezca
+    deadline = time.monotonic() + 5
+    while not (rows := [r for r in user_activity_repository.list_recent("anon") if r["action"] == "transformation"]):
+        assert time.monotonic() < deadline, "La actividad de la transformación no se registró"
+        time.sleep(0.02)
     assert rows[0]["format"] == "mind_map"
     assert rows[0]["detail"] == "ready"
     assert rows[0]["mock"] == 0
@@ -270,7 +297,7 @@ def test_daily_limit_per_format_is_lower_for_audio(client, monkeypatch):
     for fmt in ("audio", "mind_map"):
         spec = transformation_service.FORMATS[fmt]
         result = RESULT_SCHEMAS[fmt]
-        sample = {"audio": {"script": "Hola"}, "mind_map": {"root": {"text": "x", "children": [{"text": "y"}]}}}[fmt]
+        sample = {"audio": {"title": "Hola", "sections": [{"title": "Parte 1", "text": "Hola."}]}, "mind_map": {"root": {"text": "x", "children": [{"text": "y"}]}}}[fmt]
         monkeypatch.setitem(transformation_service.FORMATS, fmt,
                             replace(spec, generate=_fake_generator(lambda _t, r=result, s=sample: r.model_validate(s))))
     analysis_id = _analyze(client)
@@ -288,7 +315,7 @@ def test_rejected_requests_do_not_consume_the_daily_limit(client, monkeypatch):
     monkeypatch.setattr(settings, "TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY", 1)
     spec = transformation_service.FORMATS["audio"]
     monkeypatch.setitem(transformation_service.FORMATS, "audio",
-                        replace(spec, generate=_fake_generator(lambda _t: RESULT_SCHEMAS["audio"].model_validate({"script": "Hola"}))))
+                        replace(spec, generate=_fake_generator(lambda _t: RESULT_SCHEMAS["audio"].model_validate({"title": "Hola", "sections": [{"title": "Parte 1", "text": "Hola."}]}))))
     # Material inexistente y archivo con datos personales: se rechazan antes de contar
     res = client.post("/api/v1/transformations", json={"format": "audio", "analysis_id": "no-existe"})
     assert res.status_code == 404
@@ -316,8 +343,8 @@ def test_file_source_keeps_the_whole_text_with_its_paragraphs(client, monkeypatc
 # --- Revisión docente ---------------------------------------------------------------
 
 
-def test_accept_audio_registers_the_file_to_download_and_share(client):
-    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+def test_accept_registers_the_file_to_download_and_share(client, file_format):
+    ready = _wait(client, _create(client, file_format, analysis_id=_analyze(client))["transformation_id"])
     res = client.post(f"/api/v1/transformations/{ready['transformation_id']}/decision", json={"decision": "aceptada"})
     assert res.status_code == 200
     decided = res.json()
@@ -354,11 +381,11 @@ def test_edit_validates_against_the_format_schema(client):
     assert data["result"] == ready["result"]  # la propuesta original no se toca
 
 
-def test_editing_audio_regenerates_the_file(client):
-    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+def test_editing_regenerates_the_file(client, file_format):
+    ready = _wait(client, _create(client, file_format, analysis_id=_analyze(client))["transformation_id"])
     old_key = transformation_repository.get(ready["transformation_id"])["object_key"]
     res = client.post(f"/api/v1/transformations/{ready['transformation_id']}/decision",
-                      json={"decision": "editada", "edited_result": {"script": "Guion corregido por el docente."}})
+                      json={"decision": "editada", "edited_result": INFOGRAPHIC_EDIT})
     assert res.status_code == 200
     new_key = transformation_repository.get(ready["transformation_id"])["object_key"]
     assert new_key != old_key
@@ -368,8 +395,8 @@ def test_editing_audio_regenerates_the_file(client):
     assert res.json()["file"]["file_id"]
 
 
-def test_editing_audio_does_not_leave_an_orphan_file_if_registering_fails(client, monkeypatch):
-    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+def test_editing_does_not_leave_an_orphan_file_if_registering_fails(client, file_format, monkeypatch):
+    ready = _wait(client, _create(client, file_format, analysis_id=_analyze(client))["transformation_id"])
     storage = storage_service.get_storage()
     put = storage.put
     stored = []
@@ -381,13 +408,13 @@ def test_editing_audio_does_not_leave_an_orphan_file_if_registering_fails(client
 
     with pytest.raises(RuntimeError):
         client.post(f"/api/v1/transformations/{ready['transformation_id']}/decision",
-                    json={"decision": "editada", "edited_result": {"script": "Guion corregido."}})
+                    json={"decision": "editada", "edited_result": INFOGRAPHIC_EDIT})
     assert len(stored) == 1
     assert storage.head(stored[0]) is None
 
 
-def test_discard_deletes_the_generated_file(client):
-    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+def test_discard_deletes_the_generated_file(client, file_format):
+    ready = _wait(client, _create(client, file_format, analysis_id=_analyze(client))["transformation_id"])
     key = transformation_repository.get(ready["transformation_id"])["object_key"]
     res = client.post(f"/api/v1/transformations/{ready['transformation_id']}/decision", json={"decision": "descartada"})
     assert res.status_code == 200
@@ -418,8 +445,8 @@ def test_interrupted_transformations_fail_on_startup(client):
     assert client.get(f"/api/v1/transformations/{created['transformation_id']}").json()["status"] == "ready"
 
 
-def test_expired_transformations_are_cleaned_with_their_file(client):
-    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+def test_expired_transformations_are_cleaned_with_their_file(client, file_format):
+    ready = _wait(client, _create(client, file_format, analysis_id=_analyze(client))["transformation_id"])
     key = transformation_repository.get(ready["transformation_id"])["object_key"]
     later = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     assert transformation_service.cleanup_expired(later) == {"deleted": 1, "errors": 0}
@@ -434,14 +461,14 @@ def test_expires_with_the_source_material(client):
     assert created["expires_at"] <= analysis["expires_at"]
 
 
-def test_metrics_by_user_and_format(client):
+def test_metrics_by_user_and_format(client, file_format):
     analysis_id = _analyze(client)
-    audio = _wait(client, _create(client, "audio", analysis_id=analysis_id)["transformation_id"])
+    infographic = _wait(client, _create(client, file_format, analysis_id=analysis_id)["transformation_id"])
     _wait(client, _create(client, "mind_map", analysis_id=analysis_id)["transformation_id"])
-    client.post(f"/api/v1/transformations/{audio['transformation_id']}/decision", json={"decision": "aceptada"})
+    client.post(f"/api/v1/transformations/{infographic['transformation_id']}/decision", json={"decision": "aceptada"})
 
     detail = user_metrics_service.build_user_detail("anon")
-    assert detail["transformations"]["audio"] == {"pedidas": 1, "fallidas": 0, "aceptada": 1}
+    assert detail["transformations"]["infographic"] == {"pedidas": 1, "fallidas": 0, "aceptada": 1}
     assert detail["transformations"]["mind_map"]["pedidas"] == 1
     stats = detail["user"]["all_time"]
     assert stats["transformations"] == 2
@@ -449,7 +476,7 @@ def test_metrics_by_user_and_format(client):
     assert stats["transformation_decisions"]["aceptada"] == 1
 
     product = admin_metrics_service.build_metrics()["product"]
-    assert product["transformations"]["audio"]["aceptada"] == 1
+    assert product["transformations"]["infographic"]["aceptada"] == 1
     assert product["transformations"]["mind_map"]["pendiente"] == 1
     exports = admin_metrics_service.build_metrics()["files"]["exports"]
     assert exports["transformation"]["link"] == 1

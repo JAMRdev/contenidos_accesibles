@@ -196,11 +196,12 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET`/`PUT` | `/api/v1/settings/retention` | Retención de archivos vigente y última limpieza; cambiarla para los archivos nuevos (permiso `settings:retention`, rol admin, #64) | ✅ Operativo |
 | `GET` | `/s/{token}` | Enlace compartido (público): `302` a una URL firmada de descarga de minutos; `404` si se revocó o venció | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
-| `POST` | `/api/v1/transformations` | Transformar material (#116): `format` (`no_images`, `mind_map`, `infographic`, `audio`) y `analysis_id` o `file_id`. Asíncrono: responde `202` con `status = "pending"`. Con IA real: `no_images` (#117) y `mind_map` (#118). Los demás responden `501` (`format_not_available`) salvo con `?mock=true` | 🚧 Sin imágenes y mapa mental operativos; infografía y audio en #119 y #122 |
+| `POST` | `/api/v1/transformations` | Transformar material (#116): `format` (`no_images`, `mind_map`, `infographic`, `audio`) y `analysis_id` o `file_id`. Asíncrono: responde `202` con `status = "pending"`. Con IA real: `no_images` (#117), `mind_map` (#118) y `audio` (#122). La infografía responde `501` (`format_not_available`) salvo con `?mock=true` | 🚧 Sin imágenes, mapa mental y audio operativos; infografía en #119 |
 | `GET` | `/api/v1/transformations` | Mis transformaciones vigentes (las últimas 50) | ✅ Operativo |
-| `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado, `views` (mapa mental: lista anidada en Markdown y sintaxis Mermaid `mindmap`) y URL firmada de vista previa del archivo generado | ✅ Operativo |
-| `POST` | `/api/v1/transformations/{id}/decision` | Revisión docente: aceptar, editar (`edited_result`, validado con el esquema del formato) o descartar. Lo aceptado con archivo queda en `/files` para descargar y compartir | ✅ Operativo |
-| `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado; en `docx` y `pdf` los datos de gráficos y tablas van como tablas reales, con fila de encabezado. Mapa mental: `md` o `txt` (lista anidada). Con `&delivery=link`, URL firmada | ✅ Operativo |
+| `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado, `views` (mapa mental: lista anidada en Markdown y sintaxis Mermaid `mindmap`; audio: `transcript`, el guion en Markdown), `progress` mientras se genera el audio y URL firmada de vista previa del archivo generado | ✅ Operativo |
+| `POST` | `/api/v1/transformations/{id}/decision` | Revisión docente: aceptar, editar (`edited_result`, validado con el esquema del formato) o descartar. Lo aceptado con archivo queda en `/files` para descargar y compartir. Audio: se revisa el guion, y al aceptarlo pasa a `processing` y se genera el audio | ✅ Operativo |
+| `POST` | `/api/v1/transformations/{id}/file` | Audio (#122): reintenta el audio de un guion aceptado cuyo audio falló (sin cuota de TTS, reinicio). Cuenta para el límite diario de audio | ✅ Operativo |
+| `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado; en `docx` y `pdf` los datos de gráficos y tablas van como tablas reales, con fila de encabezado. Mapa mental: `md` o `txt` (lista anidada). Audio: `md` o `txt` (la transcripción). Con `&delivery=link`, URL firmada | ✅ Operativo |
 | `POST` | `/api/v1/ai/test-tts` | Texto a voz (#121): convierte un texto corto (hasta 1.000 caracteres) en MP3 con Gemini 2.5 Flash TTS, voz Kore, acento rioplatense. Para escucharlo en Swagger. `?mock=true` devuelve un tono corto | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
@@ -375,8 +376,8 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 | Variable | Default | Alcance |
 | :--- | :--- | :--- |
 | `TRANSFORMATION_RATE_LIMIT_PER_DAY` | `20` | Por formato (sin imágenes, mapa mental, infografía), últimas 24 h |
-| `TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY` | `5` | Audio (TTS, más caro), últimas 24 h |
-| `TRANSFORMATION_MAX_ACTIVE_PER_USER` | `2` | Generándose a la vez por usuario; la siguiente responde `429` |
+| `TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY` | `5` | Audio (TTS, más caro), últimas 24 h. Cuentan los guiones pedidos y los reintentos del audio |
+| `TRANSFORMATION_MAX_ACTIVE_PER_USER` | `2` | Generándose a la vez por usuario (también el audio después de aceptar el guion); la siguiente responde `429` |
 
 ### Texto a voz (TTS)
 
@@ -387,6 +388,12 @@ El audio de los materiales (#121) lo genera **Gemini 2.5 Flash TTS** con la voz 
 - **Privacidad:** en la capa gratuita, Google usa el texto para mejorar sus productos. Antes de que docentes reales generen audio, las conexiones Gemini tienen que ser de un proyecto con facturación activa (≈ US$ 0,015 por minuto de audio).
 - **Fragmentos:** el texto se genera por fragmentos de hasta `TTS_CHUNK_CHARS` caracteres (por párrafo y, si no entra, por oración), porque con textos largos el modelo omite partes. Los fragmentos se unen con una pausa corta.
 - **Formato:** MP3 mono a 32 kbps (≈ 240 KB por minuto), codificado con `lameenc`, sin ffmpeg. La síntesis es asíncrona y la codificación corre en un hilo, así que el resto de la API sigue respondiendo mientras se genera.
+- **Audio de un material (#122):**
+  1. `POST /transformations` con `format = "audio"` genera un **guion para escuchar**, con título y secciones. Tiene frases cortas, y los números, las fechas, las siglas y los símbolos escritos como se dicen. Las imágenes y tablas se describen con la lógica del material sin imágenes (#117).
+  2. El docente revisa o edita el guion. Recién al aceptarlo se genera el audio, así que no se gasta TTS en un guion descartado.
+  3. Salen el MP3 completo (`file`) y un ZIP con un MP3 por sección (`extra_files`, los capítulos). Los dos quedan en `/files`.
+  4. El guion final es la transcripción: está en `views.transcript` y se exporta en `md` o `txt`.
+  5. El largo del guion está limitado por `TTS_MAX_CHARS`: un guion editado más largo responde `422`.
 - **Métricas:** cada fragmento queda en `ai_usage_events` (`kind = 'tts'`) con los caracteres y los segundos de audio, y se ve en el gráfico "Texto a voz" del Resumen de `/admin`. El servicio aparece en la sección Estado.
 
 | Variable | Default | Uso |
@@ -538,7 +545,7 @@ Después, en el dashboard: **R2 → Manage API tokens → Create API token** con
 7. Informe final (`GET /adaptations/report`): puntaje antes → después, resumen, decisión por barrera y penalizaciones de reglas antes/después, descargable como `.txt`. También se regenera solo.
 8. Exportar el material (`docx`, `pdf`, `md`, `txt`) y el informe (`pdf`, `md`, `txt`) con `GET /export/...&delivery=link`: el archivo queda en el almacenamiento y se descarga con una URL firmada de 5 minutos.
 9. Archivos y enlaces compartidos: los subidos y exportados en la sesión (o agregados por `file_id`). Por cada uno: datos, descarga (`download-url`), crear enlaces (`/files/{id}/shares`) con vigencia opcional, ver sus aperturas y revocarlos. El enlace completo se ve solo al crearlo, con botón para copiar.
-10. Transformar material (`POST /transformations`): formato y material (diagnóstico actual o archivo subido). La página consulta el estado hasta `ready` o `failed`, muestra el resultado, sus vistas (lista anidada y Mermaid del mapa mental) y reproduce el audio con su vista previa, y permite aceptar, editar el JSON, descartar y exportar lo aceptado. Lo aceptado con archivo pasa a la lista del paso 9.
+10. Transformar material (`POST /transformations`): formato y material (diagnóstico actual o archivo subido). La página consulta el estado hasta `ready` o `failed`, muestra el resultado, sus vistas (lista anidada y Mermaid del mapa mental, transcripción del audio) y reproduce el audio con su vista previa, y permite aceptar, editar el JSON, descartar y exportar lo aceptado. En el audio, al aceptar el guion la página sigue el progreso de la síntesis y permite reintentarla si falla. Lo aceptado con archivo (el audio y sus capítulos) pasa a la lista del paso 9.
 
 Si el material tiene posibles datos personales (`422 sensitive_data_detected`), la página muestra los hallazgos enmascarados y permite descartar los que no lo son y reintentar (`?dismissed=`).
 

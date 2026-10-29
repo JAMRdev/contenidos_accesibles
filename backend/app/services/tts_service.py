@@ -47,6 +47,18 @@ Progress = Callable[[int, int], Awaitable[None]]
 
 
 @dataclass(frozen=True)
+class PcmAudio:
+    """Audio sin codificar: para unir varios textos (las secciones de un guion, #122) antes del MP3."""
+
+    pcm: bytes
+    sample_rate: int
+    chunks: int
+    provider: str
+    model: str
+    usage: Usage
+
+
+@dataclass(frozen=True)
 class AudioFile:
     data: bytes
     content_type: str
@@ -109,11 +121,28 @@ class TTSService:
     def __init__(self):
         self._providers: dict[str, TTSProvider] = {"gemini": GeminiTTSProvider()}
 
+    @staticmethod
+    def count_chunks(text: str) -> int:
+        """Cuántos fragmentos (llamadas al motor) lleva un texto: para informar el progreso."""
+        return len(audio.chunks(text.strip(), settings.TTS_CHUNK_CHARS))
+
     async def synthesize(self, text: str, *, mock: bool = False, on_progress: Progress | None = None) -> AudioFile:
         """
         MP3 del texto completo. `on_progress(hechos, total)` se llama después de cada fragmento.
         Errores: ValueError (texto vacío), TTSTextTooLongError, TTSUnavailableError.
         """
+        started = time.perf_counter()
+        result = await self.synthesize_pcm(text, mock=mock, on_progress=on_progress)
+        data = await asyncio.to_thread(audio.to_mp3, result.pcm, result.sample_rate)
+        return AudioFile(
+            data=data, content_type=audio.CONTENT_TYPE, extension=audio.EXTENSION,
+            duration_s=round(audio.duration_s(result.pcm, result.sample_rate), 1), characters=len(text.strip()),
+            chunks=result.chunks, provider=result.provider, model=result.model, voice=settings.TTS_VOICE,
+            latency_ms=int((time.perf_counter() - started) * 1000), usage=result.usage,
+        )
+
+    async def synthesize_pcm(self, text: str, *, mock: bool = False, on_progress: Progress | None = None) -> PcmAudio:
+        """Como synthesize, sin codificar. Los fragmentos se unen con una pausa corta."""
         text = text.strip()
         if not text:
             raise ValueError("El texto para convertir en audio está vacío.")
@@ -123,11 +152,9 @@ class TTSService:
                 .replace(",", ".")
             )
         parts = audio.chunks(text, settings.TTS_CHUNK_CHARS)
-        started = time.perf_counter()
         usage = Usage()
         sample_rate = None
         pcm: list[bytes] = []
-        provider = "mock" if mock else settings.TTS_PROVIDER
         for i, part in enumerate(parts):
             if mock:
                 synthesis = Synthesis(pcm=audio.mock_pcm(MOCK_SECONDS_PER_CHUNK), sample_rate=24_000)
@@ -146,14 +173,10 @@ class TTSService:
                 usage.total_tokens += synthesis.usage.total_tokens
             if on_progress:
                 await on_progress(i + 1, len(parts))
-
-        joined = b"".join(pcm)
-        data = await asyncio.to_thread(audio.to_mp3, joined, sample_rate)
-        return AudioFile(
-            data=data, content_type=audio.CONTENT_TYPE, extension=audio.EXTENSION,
-            duration_s=round(audio.duration_s(joined, sample_rate), 1), characters=len(text), chunks=len(parts),
-            provider=provider, model="mock" if mock else settings.TTS_MODEL, voice=settings.TTS_VOICE,
-            latency_ms=int((time.perf_counter() - started) * 1000), usage=usage,
+        return PcmAudio(
+            pcm=b"".join(pcm), sample_rate=sample_rate, chunks=len(parts),
+            provider="mock" if mock else settings.TTS_PROVIDER, model="mock" if mock else settings.TTS_MODEL,
+            usage=usage,
         )
 
     async def _synthesize_chunk(self, text: str) -> Synthesis:

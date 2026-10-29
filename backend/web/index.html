@@ -284,7 +284,9 @@
             Nueva versión del material del diagnóstico (con los cambios aceptados) o del archivo subido en el paso 1
             (<code>POST /transformations</code>). Es asíncrona: responde <code>pending</code> y esta web consulta
             <code>GET /transformations/{id}</code> hasta <code>ready</code> o <code>failed</code>. Nada se guarda sin la
-            decisión del docente; lo aceptado con archivo (audio) aparece en el paso 9 para descargarlo y compartirlo.
+            decisión del docente; lo aceptado con archivo aparece en el paso 9 para descargarlo y compartirlo.
+            Audio: primero se revisa el guion; al aceptarlo se genera el audio (MP3 completo y un ZIP con un MP3 por
+            sección), con el progreso por fragmentos. La transcripción es el guion final.
             Los formatos sin generador con IA real todavía responden 501: probalos con modo mock.
         </p>
         <div class="row">

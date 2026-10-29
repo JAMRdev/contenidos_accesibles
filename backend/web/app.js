@@ -31,10 +31,16 @@ const TRANSFORMATION_FORMATS = {
     audio: "Audio",
 };
 // Exportaciones del resultado aceptado por formato (GET /transformations/{id}/export)
-const TRANSFORMATION_EXPORTS = { no_images: ["docx", "pdf", "md", "txt"], mind_map: ["md", "txt"] };
-const VIEW_LABELS = { markdown: "Lista anidada (Markdown, accesible con lector de pantalla)", mermaid: "Mermaid (mindmap)" };
+const TRANSFORMATION_EXPORTS = { no_images: ["docx", "pdf", "md", "txt"], mind_map: ["md", "txt"], audio: ["md", "txt"] };
+const VIEW_LABELS = {
+    markdown: "Lista anidada (Markdown, accesible con lector de pantalla)",
+    mermaid: "Mermaid (mindmap)",
+    transcript: "Transcripción (el guion, en Markdown)",
+};
 const TRANSFORMATION_POLL_MS = 1500;
 const TRANSFORMATION_POLL_LIMIT_MS = 180000;
+// El audio (#122) se genera por fragmentos después de aceptar el guion: puede tardar varios minutos
+const AUDIO_POLL_LIMIT_MS = 900000;
 
 const SAMPLE_TEXT = `Unidad 3: El ciclo del agua
 
@@ -1319,14 +1325,26 @@ async function createTransformation(dismissed = []) {
         busyText: "Pidiendo la transformación…",
     });
     rememberTransformation(t);
-    const deadline = Date.now() + TRANSFORMATION_POLL_LIMIT_MS;
+    await pollTransformation(t);
+}
+
+// Consulta hasta 'ready' o 'failed'. Con archivos ya registrados en /files (audio aceptado), los suma al paso 9.
+async function pollTransformation(t) {
+    const audioFile = t.format === "audio" && t.review_status !== "pendiente";
+    const deadline = Date.now() + (audioFile ? AUDIO_POLL_LIMIT_MS : TRANSFORMATION_POLL_LIMIT_MS);
     while (!["ready", "failed"].includes(t.status) && Date.now() < deadline) {
         await sleep(TRANSFORMATION_POLL_MS);
         t = await api("GET", `/transformations/${encodeURIComponent(t.transformation_id)}`, {
-            busyText: `Generando ${TRANSFORMATION_FORMATS[format].toLowerCase()} (${t.status})…`,
+            busyText: audioFile
+                ? `Generando el audio${t.progress ? ` (${t.progress.done} de ${t.progress.total} fragmentos)` : ""}…`
+                : `Generando ${TRANSFORMATION_FORMATS[t.format].toLowerCase()} (${t.status})…`,
         });
         rememberTransformation(t);
     }
+    for (const f of [t.file, ...(t.extra_files || [])]) {
+        if (f && f.file_id && !state.files.has(f.file_id)) rememberFile(await api("GET", `/files/${encodeURIComponent(f.file_id)}`));
+    }
+    return t;
 }
 
 async function refreshTransformations() {
@@ -1351,7 +1369,12 @@ function transformationCard(t) {
         const value = editedResult === undefined ? { decision } : { decision, edited_result: editedResult };
         const updated = await api("POST", `${path}/decision`, { body: { kind: "json", value }, busyText: "Guardando la decisión…" });
         rememberTransformation(updated);
-        if (updated.file && updated.file.file_id) rememberFile(await api("GET", `/files/${encodeURIComponent(updated.file.file_id)}`));
+        await pollTransformation(updated);  // audio: se genera después de aceptar el guion
+    };
+    const retryFile = async () => {
+        const t2 = await api("POST", `${path}/file`, { busyText: "Reintentando el audio…" });
+        rememberTransformation(t2);
+        await pollTransformation(t2);
     };
     const editor = el("textarea", { rows: 10, hidden: true }, t.result ? JSON.stringify(t.result, null, 2) : "");
     const saveEdit = el("button", {
@@ -1381,6 +1404,8 @@ function transformationCard(t) {
             ["Vence", fmtDate(t.expires_at)],
             ["Modelo", t.metadata ? `${t.metadata.provider} · ${t.metadata.model} · ${t.metadata.latency_ms} ms` : undefined],
             ["file_id (aceptado)", t.file ? t.file.file_id : undefined],
+            ["Capítulos (file_id)", t.extra_files && t.extra_files.length ? t.extra_files.map((f) => f.file_id).join(", ") : undefined],
+            ["Progreso", t.progress ? `${t.progress.done} de ${t.progress.total} fragmentos` : undefined],
         ]),
         t.error ? errorBox(`${t.error.code}: ${t.error.message}`) : null,
         t.warnings.length ? el("ul", { class: "muted" }, t.warnings.map((w) => el("li", {}, w))) : null,
@@ -1399,6 +1424,8 @@ function transformationCard(t) {
                 onclick: () => { editor.hidden = !editor.hidden; saveEdit.hidden = editor.hidden; },
             }, "Editar") : null,
             pending ? el("button", { type: "button", class: "danger", onclick: () => run(card, () => decide("descartada")) }, "Descartar") : null,
+            accepted && t.status === "failed" && t.format === "audio"
+                ? el("button", { type: "button", onclick: () => run(card, retryFile) }, "Reintentar el audio") : null,
             accepted ? (TRANSFORMATION_EXPORTS[t.format] || []).map((format) =>
                 el("button", { type: "button", class: "secondary", onclick: () => run(card, () => exportAs(format)) }, `Exportar .${format}`)) : null,
         ),
