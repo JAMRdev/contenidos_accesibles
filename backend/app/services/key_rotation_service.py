@@ -127,6 +127,14 @@ def get_active_connection(require_vision: bool = False) -> AIConnection:
 
 
 
+def list_enabled_connections(provider: str) -> list[AIConnection]:
+    """
+    Conexiones habilitadas de un proveedor, por prioridad, sin mirar sus umbrales: los usa el
+    texto a voz (Issue #121), cuyo modelo tiene otra cuota en el proveedor.
+    """
+    return [_to_connection(r) for r in repo.list_all_enabled_ordered_by_priority() if r["provider"] == provider]
+
+
 def record_usage(key_id: int, usage: Usage | None) -> None:
     repo.record_usage(
         key_id,

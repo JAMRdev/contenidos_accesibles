@@ -75,14 +75,15 @@ def test_todo_en_orden(env):
     data = _status()
     s = _by_id(data)
     assert [x["id"] for x in data["services"]] == [
-        "api", "database", "d1-gateway", "storage", "ai", "clerk", "clerk-users", "test-web", "qa-platform", "frontend",
+        "api", "database", "d1-gateway", "storage", "ai", "tts", "clerk", "clerk-users", "test-web", "qa-platform",
+        "frontend",
     ]
     assert {k: s[k]["state"] for k in s} == {
-        "api": "ok", "database": "ok", "d1-gateway": "ok", "storage": "ok", "ai": "ok",
+        "api": "ok", "database": "ok", "d1-gateway": "ok", "storage": "ok", "ai": "ok", "tts": "unconfigured",
         "clerk": "unconfigured", "clerk-users": "unconfigured", "test-web": "ok", "qa-platform": "ok", "frontend": "ok",
     }
     assert s["qa-platform"]["url"] == "https://qa.example.workers.dev/health"
-    assert data["overall"] == "ok" and data["counts"]["unconfigured"] == 2
+    assert data["overall"] == "ok" and data["counts"]["unconfigured"] == 3
     assert s["test-web"]["platform"] == "Render" and s["frontend"]["platform"] == "Vercel"
     assert s["frontend"]["url"] == "https://app.vercel.app"  # localhost no se chequea
     assert {"label": "En uso", "value": "Groq · modelo-x"} in s["ai"]["facts"]
@@ -122,6 +123,31 @@ def test_ia_sin_conexiones_o_agotadas(env):
     status_service._cache = None
     ai = _by_id(_status())["ai"]
     assert ai["state"] == "down" and ai["detail"].startswith("Todas las conexiones")
+
+
+def test_texto_a_voz_segun_las_conexiones_gemini_y_sus_pausas(env):
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import tts_service
+
+    tts_service.reset()
+    _connection()  # una de Groq no sirve para el TTS
+    assert _by_id(_status())["tts"]["state"] == "unconfigured"
+
+    first = _connection("Gemini 1", provider="gemini", raw_key="AIza_prueba_1")
+    _connection("Gemini 2", provider="gemini", raw_key="AIza_prueba_2", priority=20)
+    status_service._cache = None
+    tts = _by_id(_status())["tts"]
+    assert tts["state"] == "ok" and tts["platform"] == "Google Gemini"
+    assert {"label": "Voz", "value": "Kore"} in tts["facts"]
+    assert {"label": "En uso", "value": "Gemini 1"} in tts["facts"]
+
+    tts_service._cooldown(first, datetime.now(timezone.utc) + timedelta(minutes=1))
+    status_service._cache = None
+    tts = _by_id(_status())["tts"]
+    assert tts["state"] == "degraded"
+    assert {"label": "En uso", "value": "Gemini 2"} in tts["facts"]
+    tts_service.reset()
 
 
 def test_sin_configurar_no_cuenta_para_el_estado_general(env, monkeypatch):
@@ -195,6 +221,7 @@ def test_links_sin_secretos(env):
     assert "https://api.example.com/docs" in urls and "https://api.example.com/admin" in urls
     assert "https://gw.example.workers.dev/health" in urls and "https://app.vercel.app" in urls
     assert "https://qa.example.workers.dev" in urls and "https://qa.example.workers.dev/health" in urls
+    assert "https://pruebas.onrender.com/tts/" in urls
     assert not any("localhost" in u for u in urls)
 
 

@@ -2,8 +2,9 @@
 Historial de llamadas a la IA para las métricas del panel de administración.
 
 Cada intento contra un proveedor (exitoso o no) queda como una fila con la
-conexión, el resultado, los tokens y la latencia. Nunca se guarda el material
-enviado ni la respuesta del modelo. Las filas se borran al superar
+conexión, el resultado, los tokens y la latencia; las de texto a voz (kind 'tts', Issue #121),
+también los caracteres y los segundos de audio. Nunca se guarda el material enviado ni la
+respuesta del modelo. Las filas se borran al superar
 AI_USAGE_RETENTION_DAYS.
 """
 from datetime import datetime, timedelta, timezone
@@ -12,7 +13,7 @@ from app.core.config import settings
 from app.db.database import get_connection
 
 OUTCOMES = ("ok", "rate_limited", "server_error", "error")
-KINDS = ("text", "vision")
+KINDS = ("text", "vision", "tts")
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
@@ -38,6 +39,8 @@ def record(
     prompt_tokens: int = 0,
     output_tokens: int = 0,
     total_tokens: int = 0,
+    characters: int = 0,
+    audio_seconds: float = 0,
     created_at: datetime | None = None,
 ) -> None:
     if outcome not in OUTCOMES:
@@ -49,8 +52,8 @@ def record(
             """
             INSERT INTO ai_usage_events (
                 created_at, connection_id, connection_label, provider, model, kind, outcome,
-                prompt_tokens, output_tokens, total_tokens, latency_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                prompt_tokens, output_tokens, total_tokens, latency_ms, characters, audio_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 to_timestamp(created_at or _now()),
@@ -64,6 +67,8 @@ def record(
                 output_tokens,
                 total_tokens,
                 latency_ms,
+                characters,
+                round(audio_seconds, 1),
             ),
         )
 
@@ -80,7 +85,7 @@ def list_between(start: datetime, end: datetime) -> list[dict]:
         rows = conn.execute(
             """
             SELECT created_at, connection_id, connection_label, provider, model, kind, outcome,
-                   prompt_tokens, output_tokens, total_tokens, latency_ms
+                   prompt_tokens, output_tokens, total_tokens, latency_ms, characters, audio_seconds
             FROM ai_usage_events
             WHERE created_at >= ? AND created_at < ?
             ORDER BY created_at

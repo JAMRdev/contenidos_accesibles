@@ -106,14 +106,17 @@ CREATE TABLE IF NOT EXISTS ai_usage_events (
     connection_label        TEXT NOT NULL,
     provider                TEXT NOT NULL,
     model                   TEXT NOT NULL,
-    -- 'text' o 'vision'
+    -- 'text', 'vision' o 'tts' (texto a voz, Issue #121)
     kind                    TEXT NOT NULL,
     -- 'ok', 'rate_limited' (429), 'server_error' (5xx) o 'error' (key, modelo o parámetros)
     outcome                 TEXT NOT NULL,
     prompt_tokens           INTEGER NOT NULL DEFAULT 0,
     output_tokens           INTEGER NOT NULL DEFAULT 0,
     total_tokens            INTEGER NOT NULL DEFAULT 0,
-    latency_ms              INTEGER NOT NULL
+    latency_ms              INTEGER NOT NULL,
+    -- Solo texto a voz: caracteres enviados y segundos de audio generados
+    characters              INTEGER NOT NULL DEFAULT 0,
+    audio_seconds           REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created_at
     ON ai_usage_events(created_at);
@@ -347,6 +350,12 @@ _ENV_CONNECTION_COLUMNS = {
 
 _ADDED_COLUMNS = {**_MULTI_PROVIDER_COLUMNS, **_ENV_CONNECTION_COLUMNS}
 
+# Uso del texto a voz (Issue #121). En D1 las agrega la migración 0009_tts_usage.sql.
+_TTS_USAGE_COLUMNS = {
+    "characters": "INTEGER NOT NULL DEFAULT 0",
+    "audio_seconds": "REAL NOT NULL DEFAULT 0",
+}
+
 # Dueño de diagnósticos, propuestas y decisiones (Issue #61). Lo previo queda a nombre de 'anon'.
 # En D1 lo agrega la migración 0005_user_id.sql.
 _OWNED_TABLES = ("analyses", "adaptation_proposals", "adaptation_decisions")
@@ -357,6 +366,11 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
     for table in _OWNED_TABLES:
         if "user_id" not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {_USER_ID_COLUMN}")
+
+    usage_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ai_usage_events)")}
+    for column, definition in _TTS_USAGE_COLUMNS.items():
+        if column not in usage_columns:
+            conn.execute(f"ALTER TABLE ai_usage_events ADD COLUMN {column} {definition}")
 
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(api_keys)")}
     missing = [c for c in _ADDED_COLUMNS if c not in existing]
@@ -395,8 +409,14 @@ def _check_d1_schema() -> None:
             t for t in _OWNED_TABLES
             if "user_id" not in {row["name"] for row in conn.execute(f"PRAGMA table_info({t})")}
         ]
+        usage_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ai_usage_events)")}
     if without_owner:
         raise RuntimeError(
             f"A las tablas {', '.join(without_owner)} de D1 les falta la columna user_id. "
+            "Aplicá las migraciones: cd d1-gateway && npm run migrate:remote"
+        )
+    if missing_tts := [c for c in _TTS_USAGE_COLUMNS if c not in usage_columns]:
+        raise RuntimeError(
+            f"A la tabla ai_usage_events de D1 le faltan las columnas {', '.join(missing_tts)} (0009_tts_usage.sql). "
             "Aplicá las migraciones: cd d1-gateway && npm run migrate:remote"
         )
