@@ -502,6 +502,8 @@ Después, en el dashboard: **R2 → Manage API tokens → Create API token** con
 
 Si el material tiene posibles datos personales (`422 sensitive_data_detected`), la página muestra los hallazgos enmascarados y permite descartar los que no lo son y reintentar (`?dismissed=`).
 
+`web/tts/` es una página aparte y **pública** (no carga `auth.js`, así que no pide login): la comparación de motores de texto a voz del Issue #120, con las muestras de audio para escucharlas. Queda en `/tts/` de la web de pruebas. Los scripts que generaron las muestras están en [`scripts/tts_benchmark/`](scripts/tts_benchmark/README.md).
+
 Cada llamada queda en un registro con el request, la respuesta JSON y el `curl` equivalente. El modo mock (`?mock=true`) viene activado para no gastar cuota; se desmarca para usar la IA real.
 
 **Login.** La página pide el mismo acceso que el panel (Clerk o el usuario del `.env`) y recibe un token de 8 h que manda en cada llamada (`Authorization: Bearer`). El backend lo exige a toda llamada cuyo `Origin` sea `TEST_WEB_URL`. Las cuentas de solo lectura solo pueden usar el modo mock. Si el backend no tiene `TEST_WEB_URL` (por ejemplo, en local sin configurarla), la página no pide login.
