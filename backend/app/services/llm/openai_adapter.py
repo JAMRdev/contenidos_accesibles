@@ -41,7 +41,12 @@ def to_strict_json_schema(schema: type[BaseModel]) -> dict:
             return node
         if "$ref" in node:
             return convert(defs[node["$ref"].split("/")[-1]])
-        out = {k: convert(v) for k, v in node.items() if k not in ("title", "default")}
+        # `title` y `default` son metadatos de Pydantic, salvo dentro de `properties`, donde son
+        # nombres de campos (el `title` del guion de audio, #122): esos se conservan
+        out = {
+            k: ({name: convert(prop) for name, prop in v.items()} if k == "properties" else convert(v))
+            for k, v in node.items() if k not in ("title", "default")
+        }
         if out.get("type") == "object" and "properties" in out:
             out["required"] = list(out["properties"])
             out["additionalProperties"] = False

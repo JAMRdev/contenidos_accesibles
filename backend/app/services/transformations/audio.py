@@ -65,8 +65,12 @@ material en un guion para leer en voz alta.
 - Dividí el guion en secciones (2 a 8) que sigan la estructura del material. El título de cada
   sección se lee antes de su texto: no lo repitas en el texto. La primera sección empieza con una
   presentación breve: de qué trata el audio y cuántas secciones tiene.
-- Largo total: hasta {settings.TTS_MAX_CHARS:,} caracteres.
-""".replace(",", ".").strip()
+- Largo total: hasta {f"{settings.TTS_MAX_CHARS:,}".replace(",", ".")} caracteres.
+
+Respondé con este JSON, con las claves exactamente así (en inglés):
+- `title`: el título del audio, en pocas palabras.
+- `sections`: la lista de secciones; cada una con `title` (su título corto) y `text` (lo que se lee).
+""".strip()
 
 # Pausa entre secciones en el audio completo (entre fragmentos de una sección es más corta)
 SECTION_PAUSE_S = 1.0

@@ -8,7 +8,7 @@ formato son la base común: cada issue de formato (#117, #118, #119, #122) los c
 """
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import settings
 from app.schemas.adaptation import AdaptationMetadata
@@ -228,15 +228,28 @@ class AudioResult(BaseModel):
         return sum(len(t) for t in self.section_texts())
 
 
-# Lo que devuelve la IA, sin límites de largo: se recorta al convertir (como el mapa mental)
+# Lo que devuelve la IA, sin límites de largo: se recorta al convertir (como el mapa mental). Sin el
+# esquema estricto (json_object), algunos modelos escriben las claves en castellano: también se aceptan.
 class AudioAISection(BaseModel):
-    title: str = Field(description="Título corto de la sección (máximo 8 palabras). Se lee antes del texto.")
-    text: str = Field(description="Texto de la sección para escuchar, sin repetir el título.")
+    title: str = Field(
+        validation_alias=AliasChoices("title", "titulo", "título"),
+        description="Título corto de la sección (máximo 8 palabras). Se lee antes del texto.",
+    )
+    text: str = Field(
+        validation_alias=AliasChoices("text", "texto", "contenido", "content"),
+        description="Texto de la sección para escuchar, sin repetir el título.",
+    )
 
 
 class AudioAIOutput(BaseModel):
-    title: str = Field(description="Título del audio, en pocas palabras. Se lee al principio.")
-    sections: list[AudioAISection] = Field(description="Secciones del guion (2 a 8), en el orden del material.")
+    title: str = Field(
+        validation_alias=AliasChoices("title", "titulo", "título"),
+        description="Título del audio, en pocas palabras. Se lee al principio.",
+    )
+    sections: list[AudioAISection] = Field(
+        validation_alias=AliasChoices("sections", "secciones"),
+        description="Secciones del guion (2 a 8), en el orden del material.",
+    )
 
 
 RESULT_SCHEMAS: dict[str, type[BaseModel]] = {
