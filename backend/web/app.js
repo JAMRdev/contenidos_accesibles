@@ -31,9 +31,12 @@ const TRANSFORMATION_FORMATS = {
     audio: "Audio",
 };
 // Exportaciones del resultado aceptado por formato (GET /transformations/{id}/export)
-const TRANSFORMATION_EXPORTS = { no_images: ["docx", "pdf", "md", "txt"], mind_map: ["md", "txt"], audio: ["md", "txt"] };
+const TRANSFORMATION_EXPORTS = {
+    no_images: ["docx", "pdf", "md", "txt"], mind_map: ["md", "txt"], audio: ["md", "txt"], infographic: ["png", "pdf", "svg", "md"],
+};
 const VIEW_LABELS = {
-    markdown: "Lista anidada (Markdown, accesible con lector de pantalla)",
+    markdown: "Versión en texto (Markdown, accesible con lector de pantalla)",
+    svg: "Código SVG",
     mermaid: "Mermaid (mindmap)",
     transcript: "Transcripción (el guion, en Markdown)",
 };
@@ -1413,6 +1416,11 @@ function transformationCard(t) {
             ? el("audio", { controls: true, src: t.file.preview_url, preload: "none" }) : null,
         t.file && t.file.preview_url
             ? el("div", {}, el("a", { href: t.file.preview_url, target: "_blank", rel: "noopener" }, `Vista previa: ${t.file.filename} (${fmtBytes(t.file.size_bytes)})`)) : null,
+        // La infografía dibujada: como <img>, así el SVG no puede ejecutar nada en esta página
+        t.views && t.views.svg ? el("img", {
+            class: "infographic", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(t.views.svg)}`,
+            alt: "Infografía: el texto completo está en la versión en texto, abajo.",
+        }) : null,
         t.views ? Object.entries(t.views).map(([name, text]) =>
             el("details", {}, el("summary", {}, VIEW_LABELS[name] || name), el("pre", {}, text))) : null,
         t.final_result || t.result ? el("pre", {}, JSON.stringify(t.final_result || t.result, null, 2)) : null,

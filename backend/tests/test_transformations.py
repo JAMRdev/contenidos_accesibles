@@ -228,7 +228,10 @@ def test_other_users_cannot_see_or_decide(client):
     assert client.get("/api/v1/transformations").json() == []
 
 
-def test_format_without_real_generator_is_501_without_mock(client):
+def test_format_without_real_generator_is_501_without_mock(client, monkeypatch):
+    # Hoy los cuatro formatos tienen generador: se simula uno nuevo que todavía no lo tiene
+    spec = transformation_service.FORMATS["infographic"]
+    monkeypatch.setitem(transformation_service.FORMATS, "infographic", replace(spec, generate=None))
     res = client.post("/api/v1/transformations", json={"format": "infographic", "analysis_id": _analyze(client)})
     assert res.status_code == 501
     assert res.json()["detail"]["code"] == "format_not_available"
