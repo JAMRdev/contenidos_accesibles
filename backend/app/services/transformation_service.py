@@ -186,8 +186,12 @@ async def _file_source(file_id: str, owner: str, dismissed: list[str]) -> _Sourc
     # Issue #66: este texto no pasó por el detector del diagnóstico y va a la IA
     ensure_no_sensitive_data(doc.raw_text, dismissed)
     record = await asyncio.to_thread(files.get_for_user, file_id, owner)
-    # Avisos de la extracción sobre imágenes (p. ej. más de las que se procesan, o una que no se pudo leer)
-    warnings = [w for w in doc.warnings if "imagen" in w.lower() or "imágenes" in w.lower()]
+    # Avisos de la extracción sobre imágenes (p. ej. más de las que se procesan, o una que no se pudo leer).
+    # El de "el escáner de accesibilidad verificará…" es del diagnóstico y acá no corresponde.
+    warnings = [
+        w for w in doc.warnings
+        if ("imagen" in w.lower() or "imágenes" in w.lower()) and "escáner de accesibilidad" not in w.lower()
+    ]
     # raw_text y no text_for_analysis: ese viene recortado a 3.000 palabras y sin saltos de línea ni puntuación
     material = SourceMaterial(text=doc.raw_text, images=doc.extracted_images)
     return _Source("file", file_id, material, record["expires_at"], warnings)
@@ -311,7 +315,7 @@ async def create(
     try:
         source = await _load_source(request, owner, dismissed or [])
         if limit:
-            await limit(True)
+            await limit(spec.uses_ai(source.material))
         now = _now()
         retention_limit = (datetime.now(timezone.utc) + timedelta(hours=retention_service.file_retention_hours()))
         transformation = TransformationResponse(

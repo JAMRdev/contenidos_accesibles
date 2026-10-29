@@ -15,9 +15,9 @@ import re
 
 from app.schemas.adaptation import AdaptationMetadata
 from app.schemas.transformation import ImageDescription, NoImagesAIOutput, NoImagesResult
-from app.services.accessibility_service import _fragment_parts, _normalize
 from app.services.export_service import export_document
 from app.services.llm_service import llm_service
+from app.services.text_matching import fragment_parts, normalize
 from app.services.transformations.base import FormatSpec, Generation, SourceMaterial, metadata_from, source_for_ai
 
 SYSTEM_PROMPT = """
@@ -63,20 +63,30 @@ def _context_anchor(context: str) -> str:
     return " ".join(words[-_ANCHOR_WORDS:])
 
 
-def _line_after(lines: list[str], quote: str) -> int | None:
-    """Índice del renglón donde termina la cita, comparando sin mayúsculas, comillas ni espacios de más."""
-    parts = _fragment_parts(quote)
-    if not parts or len(" ".join(parts)) < _MIN_ANCHOR_CHARS:
-        return None
+def _normalized(lines: list[str]) -> tuple[str, list[int]]:
+    """El texto en un solo renglón normalizado, con la posición donde termina cada renglón original."""
     joined, ends = "", []
     for line in lines:
-        joined = f"{joined} {_normalize(line)}" if joined else _normalize(line)
+        joined = f"{joined} {normalize(line)}" if joined else normalize(line)
         ends.append(len(joined))
-    position = joined.find(parts[-1])
-    if position < 0 or not all(p in joined for p in parts):
+    return joined, ends
+
+
+def _find(joined: str, ends: list[int], quote: str, start: int = 0) -> tuple[int, int] | None:
+    """
+    (renglón donde termina la cita, posición del final) buscando desde `start`, sin mayúsculas,
+    comillas ni espacios de más. Cada tramo de una cita con '...' se busca después del anterior.
+    """
+    parts = fragment_parts(quote)
+    if not parts or len(" ".join(parts)) < _MIN_ANCHOR_CHARS:
         return None
-    end = position + len(parts[-1])
-    return next(i for i, e in enumerate(ends) if e >= end)
+    position = start
+    for part in parts:
+        found = joined.find(part, position)
+        if found < 0:
+            return None
+        position = found + len(part)
+    return next(i for i, e in enumerate(ends) if e >= position), position
 
 
 def _block(image: ImageDescription) -> str:
@@ -95,16 +105,29 @@ def build(text: str, items: list[tuple[ImageDescription, list[str]]]) -> tuple[N
     inserts: dict[int, list[str]] = {}
     unplaced: list[str] = []
     images, omitted, color_notes = [], [], []
+    joined, ends = _normalized(lines)
+    # Las imágenes van en el orden del documento: cada una se busca después de la cita de la anterior,
+    # para que una consigna repetida ("Observá el gráfico y respondé") no las junte en su primera
+    # aparición. Si no aparece más adelante, se busca desde el renglón de la anterior: dos imágenes
+    # seguidas después del mismo párrafo.
+    cursor = line_start = 0
     for image, anchors in sorted(items, key=lambda item: item[0].image_index):
         if image.role == "decorativa":
             images.append(image.model_copy(update={"placement": None}))
             omitted.append(f"{image.location}: {image.description}" if image.description else image.location)
             continue
-        line = next((i for i in (_line_after(lines, a) for a in anchors if a) if i is not None), None)
-        if line is None:
+        match = next(
+            (m for start in dict.fromkeys((cursor, line_start)) for a in anchors if a
+             if (m := _find(joined, ends, a, start)) is not None),
+            None,
+        )
+        line = match[0] if match else None
+        if match is None:
             unplaced.append(_block(image))
         else:
             inserts.setdefault(line, []).append(_block(image))
+            cursor = match[1]
+            line_start = ends[line - 1] if line else 0
         images.append(image.model_copy(update={"placement": "al_final" if line is None else "en_su_lugar"}))
         if image.color_only:
             color_notes.append(f"Imagen {image.image_index} ({image.location}): {image.color_only}")
@@ -228,5 +251,6 @@ SPEC = FormatSpec(
     filename="material_sin_imagenes",
     mock=mock,
     generate=generate,
+    uses_ai=lambda material: bool(material.images),  # sin imágenes o con el diagnóstico, no llama a la IA
     exports={fmt: _export(fmt) for fmt in ("docx", "pdf", "md", "txt")},
 )

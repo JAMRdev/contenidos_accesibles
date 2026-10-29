@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 import pymupdf
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Inches
 from fastapi.testclient import TestClient
 
@@ -90,9 +91,9 @@ def client(tmp_path, monkeypatch):
     rate_limit.reset()
 
 
-def _upload(client, content: bytes) -> str:
+def _upload(client, content: bytes, filename: str = "lluvias.docx", content_type: str = DOCX_TYPE) -> str:
     data = client.post("/api/v1/files/upload-url",
-                       json={"filename": "lluvias.docx", "content_type": DOCX_TYPE, "size_bytes": len(content)}).json()
+                       json={"filename": filename, "content_type": content_type, "size_bytes": len(content)}).json()
     url = urlsplit(data["upload"]["url"])
     assert client.put(f"{url.path}?{url.query}", content=content, headers=data["upload"]["headers"]).status_code == 200
     assert client.post(f"/api/v1/files/{data['file']['file_id']}/complete").status_code == 200
@@ -149,6 +150,32 @@ def test_falls_back_to_the_next_anchor_and_then_to_the_end():
     assert text.index(CLOSING) < text.index(no_images._UNPLACED_TITLE) < text.index("[Imagen 2")
     assert [i.placement for i in result.images] == ["en_su_lugar", "al_final"]
     assert "no se pudo ubicar" in warnings[0]
+
+
+def test_repeated_instructions_keep_each_image_in_its_activity():
+    instruction = "Observá el gráfico y respondé las preguntas."
+    text = f"Actividad 1\n{instruction}\nPregunta de la actividad 1.\nActividad 2\n{instruction}\nPregunta de la actividad 2."
+    items = [(_image(1), [instruction]), (_image(2), [instruction])]
+    result, warnings = no_images.build(text, items)
+    out = result.text
+    assert out.index("Actividad 1") < out.index("[Imagen 1") < out.index("Actividad 2") < out.index("[Imagen 2")
+    assert [i.placement for i in result.images] == ["en_su_lugar", "en_su_lugar"]
+    assert not warnings
+
+
+def test_ellipsis_quote_searches_each_part_after_the_previous_one():
+    text = f"Título\nEn la provincia llueve más en verano.\n{INTRO}\n{MIDDLE}"
+    # "en la provincia" ya aparece en el segundo renglón: tiene que buscarse después de "El gráfico muestra…"
+    result, _ = no_images.build(text, [(_image(1), ["El gráfico muestra la cantidad... en la provincia"])])
+    lines = result.text.splitlines()
+    assert lines.index(INTRO) < lines.index("[Imagen 1 · Página 1, imagen 1]") < lines.index(MIDDLE)
+
+
+def test_two_images_after_the_same_paragraph_stay_together():
+    result, warnings = no_images.build(TEXT, [(_image(1), [INTRO]), (_image(2), [INTRO])])
+    out = result.text
+    assert out.index(INTRO) < out.index("[Imagen 1") < out.index("[Imagen 2") < out.index(MIDDLE)
+    assert not warnings
 
 
 def test_short_anchors_are_ignored():
@@ -259,3 +286,37 @@ def test_accepted_version_exports_like_the_adapted_material(client, fmt, content
     if fmt in ("md", "txt"):
         assert "el verano es la estación más lluviosa" in res.text
         assert "Imagen decorativa omitida" in res.text
+
+
+def test_data_table_is_a_real_table_in_docx(client):
+    data, _ = _transform(client, file_id=_upload(client, _docx_with_images()))
+    tid = data["transformation_id"]
+    client.post(f"/api/v1/transformations/{tid}/decision", json={"decision": "aceptada"})
+    res = client.get(f"/api/v1/transformations/{tid}/export?format=docx")
+    tables = Document(io.BytesIO(res.content)).tables
+    assert len(tables) == 1
+    assert [[c.text for c in row.cells] for row in tables[0].rows] == [
+        ["Estación", "Lluvia (mm)"], ["Verano", "320"], ["Invierno", "40"],
+    ]
+    assert tables[0].rows[0]._tr.trPr.find(qn("w:tblHeader")) is not None
+
+
+def test_file_warnings_skip_the_scanner_notice(client):
+    pdf = pymupdf.open()
+    page = pdf.new_page()
+    page.insert_text((72, 72), INTRO, fontsize=9)
+    page.insert_image(pymupdf.Rect(72, 100, 372, 300), stream=_png())
+    page.insert_text((72, 330), CLOSING, fontsize=9)
+    file_id = _upload(client, pdf.tobytes(), filename="lluvias.pdf", content_type="application/pdf")
+    data, _ = _transform(client, file_id=file_id)
+    assert data["status"] == "ready", data.get("error")
+    assert not any("escáner de accesibilidad" in w for w in data["warnings"])
+
+
+def test_material_without_ai_call_does_not_use_the_ai_quota(client, monkeypatch):
+    monkeypatch.setattr(settings, "AI_RATE_LIMIT_PER_IP_DAY", 1)
+    analysis_id = client.post("/api/v1/analysis/sample?mock=true", json={"text": TEXT}).json()["analysis_id"]
+    for _ in range(2):  # sin imágenes no llama a la IA: el límite de IA no cuenta
+        data, llm = _transform(client, analysis_id=analysis_id)
+        llm.assert_not_awaited()
+        assert data["status"] == "ready"

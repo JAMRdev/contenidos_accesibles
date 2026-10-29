@@ -12,6 +12,7 @@ de los bytes (app/api/v1/delivery.py).
 """
 
 import io
+import re
 from datetime import datetime, timezone
 from fpdf import FPDF
 
@@ -318,6 +319,57 @@ def export_content(adapted: AdaptedDocumentResponse, export_format: str) -> tupl
 # Documento genérico: título, avisos y cuerpo (transformaciones de material, Issue #117)
 # ---------------------------------------------------------------------------
 
+_TABLE_SEPARATOR = re.compile(r"^\|?[\s:|-]+\|?$")
+
+
+def _table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _body_blocks(body: str) -> list[str | list[list[str]]]:
+    """
+    Renglones del cuerpo, con las tablas Markdown (renglones seguidos que empiezan con '|') como
+    listas de filas: en docx y pdf van como tablas de verdad, que un lector de pantalla recorre por
+    celda y con encabezado. Sin la fila separadora (|---|) no es una tabla y queda como texto.
+    """
+    blocks: list[str | list[list[str]]] = []
+    lines = body.splitlines()
+    i = 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and lines[j].strip().startswith("|"):
+            j += 1
+        if j - i >= 2 and _TABLE_SEPARATOR.match(lines[i + 1].strip()):
+            rows = [_table_row(line) for k, line in enumerate(lines[i:j]) if k != 1]
+            width = max(len(r) for r in rows)
+            blocks.append([r + [""] * (width - len(r)) for r in rows])
+            i = j
+            continue
+        blocks.extend(lines[i:max(j, i + 1)])
+        i = max(j, i + 1)
+    return blocks
+
+
+def _docx_table(doc, rows: list[list[str]]) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    table = doc.add_table(rows=0, cols=len(rows[0]))
+    table.style = "Table Grid"
+    for r, values in enumerate(rows):
+        cells = table.add_row().cells
+        for cell, value in zip(cells, values):
+            cell.text = value
+            if r == 0:
+                for run in cell.paragraphs[0].runs:
+                    run.bold = True
+    # Fila de encabezado: el lector de pantalla la anuncia con cada celda y se repite en cada página
+    header = OxmlElement("w:tblHeader")
+    header.set(qn("w:val"), "true")
+    table.rows[0]._tr.get_or_add_trPr().append(header)
+    doc.add_paragraph()
+
+
 def _document_as_docx(title: str, notes: list[str], body: str) -> bytes:
     from docx import Document
     from docx.enum.text import WD_LINE_SPACING
@@ -335,9 +387,11 @@ def _document_as_docx(title: str, notes: list[str], body: str) -> bytes:
         doc.add_heading("Avisos", level=2)
         for note in notes:
             doc.add_paragraph(note, style="List Bullet")
-    for line in body.splitlines():
-        if line.strip():
-            doc.add_paragraph(line.strip()).paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+    for block in _body_blocks(body):
+        if isinstance(block, list):
+            _docx_table(doc, block)
+        elif block.strip():
+            doc.add_paragraph(block.strip()).paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -361,12 +415,21 @@ def _document_as_pdf(title: str, notes: list[str], body: str) -> bytes:
         pdf.ln(4)
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(20, 20, 20)
-    for line in body.splitlines():
-        if not line.strip():
+    for block in _body_blocks(body):
+        if isinstance(block, list):
+            pdf.set_font("Helvetica", "", 10)
+            with pdf.table(text_align="LEFT", first_row_as_headings=True) as table:
+                for row in block:
+                    cells = table.row()
+                    for value in row:
+                        cells.cell(_clean_pdf_text(value))
+            pdf.set_font("Helvetica", "", 11)
+            pdf.ln(2)
+        elif not block.strip():
             pdf.ln(3)
-            continue
-        pdf.multi_cell(w=0, h=7, text=_clean_pdf_text(line.strip()), new_x="LMARGIN", new_y="NEXT")
-        pdf.ln(2)
+        else:
+            pdf.multi_cell(w=0, h=7, text=_clean_pdf_text(block.strip()), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(2)
     return bytes(pdf.output())
 
 

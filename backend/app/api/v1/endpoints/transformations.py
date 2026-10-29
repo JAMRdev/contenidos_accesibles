@@ -173,7 +173,9 @@ def decide_transformation(
 def export_transformation(
     transformation_id: str,
     request: Request,
-    format: str = Query(description="Extensión: 'md' o 'txt' para el mapa mental (lista anidada)."),
+    format: str = Query(
+        description="Extensión. Mapa mental: 'md' o 'txt' (lista anidada). Material sin imágenes: 'docx', 'pdf', 'md' o 'txt'."
+    ),
     delivery: Delivery = Query(
         default="file", description="'file': el archivo en la respuesta. 'link': URL firmada; el archivo queda en /files."
     ),

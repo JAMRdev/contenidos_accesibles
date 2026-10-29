@@ -200,7 +200,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET` | `/api/v1/transformations` | Mis transformaciones vigentes (las últimas 50) | ✅ Operativo |
 | `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado, `views` (mapa mental: lista anidada en Markdown y sintaxis Mermaid `mindmap`) y URL firmada de vista previa del archivo generado | ✅ Operativo |
 | `POST` | `/api/v1/transformations/{id}/decision` | Revisión docente: aceptar, editar (`edited_result`, validado con el esquema del formato) o descartar. Lo aceptado con archivo queda en `/files` para descargar y compartir | ✅ Operativo |
-| `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado. Mapa mental: `md` o `txt` (lista anidada). Con `&delivery=link`, URL firmada | ✅ Operativo |
+| `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado; en `docx` y `pdf` los datos de gráficos y tablas van como tablas reales, con fila de encabezado. Mapa mental: `md` o `txt` (lista anidada). Con `&delivery=link`, URL firmada | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
 | `GET` | `/admin/diagramas/{slug}` | Diagrama de arquitectura dentro del panel. Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
@@ -356,7 +356,7 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 
 ### Rate limit de IA
 
-Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations`, `POST /transformations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan.
+Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations`, `POST /transformations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan. En `POST /transformations` el pedido cuenta recién con el material validado (un `404` o `422` no descuenta cuota), y una generación que no llama a la IA (material sin imágenes, o `no_images` con los textos alternativos del diagnóstico) no cuenta para los límites de IA.
 
 | Variable | Default | Alcance |
 | :--- | :--- | :--- |

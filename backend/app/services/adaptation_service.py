@@ -27,7 +27,7 @@ from app.schemas.adaptation import (
     FinalReportResponse,
 )
 from app.schemas.analysis import AccessibilityAnalysisResponse, BarrierReport
-from app.services.accessibility_service import _fragment_parts, _normalize
+from app.services.text_matching import fragment_parts as _fragment_parts, normalize as _normalize
 from app.services.llm.base import LLMInvalidResponseError
 from app.services.llm_service import llm_service
 from app.services.rules_service import RuleFinding, compute_score, run_rules, split_paragraphs, split_sentences

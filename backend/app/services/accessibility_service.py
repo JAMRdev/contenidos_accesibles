@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import re
-import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -34,6 +33,7 @@ from app.services.rules_service import (
     split_sentences,
     worst_status,
 )
+from app.services.text_matching import fragment_parts as _fragment_parts, normalize as _normalize
 
 logger = logging.getLogger(__name__)
 
@@ -108,18 +108,6 @@ class _AIPart:
     dimensions: list[DimensionAssessment]
     strengths: list[str]
     barriers: list[dict]
-
-
-def _normalize(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text).lower()
-    text = re.sub(r"[\"'“”‘’«»]", "", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _fragment_parts(fragment: str) -> list[str]:
-    """El modelo a veces abrevia con '...': cada tramo se compara por separado."""
-    parts = [_normalize(p) for p in re.split(r"\.{3}|…", fragment)]
-    return [p for p in parts if p]
 
 
 def _fragment_in_text(fragment: str, normalized_text: str) -> bool:

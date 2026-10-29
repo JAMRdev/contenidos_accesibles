@@ -66,6 +66,8 @@ class FormatSpec:
     views: Callable[[BaseModel], dict[str, str]] | None = None
     # Formatos de exportación del resultado aceptado (extensión → exportador)
     exports: dict[str, Exporter] = field(default_factory=dict)
+    # Si la generación con este material llama a la IA: si no, no cuenta para los límites de IA
+    uses_ai: Callable[[SourceMaterial], bool] = lambda _material: True
 
 
 def clip(text: str, limit: int) -> str:
