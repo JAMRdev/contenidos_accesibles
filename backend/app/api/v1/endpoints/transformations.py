@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from app.api.v1.delivery import Delivery, deliver
 from app.core.owner import current_owner
 from app.core.rate_limit import limit_transformation
 from app.schemas.transformation import TransformationDecisionRequest, TransformationRequest, TransformationResponse
@@ -9,6 +10,7 @@ from app.services.sensitive_data_service import SensitiveDataError
 from app.services.storage_service import StorageError
 from app.services.transformation_service import (
     EmptySourceError,
+    ExportFormatError,
     FormatNotAvailableError,
     InvalidEditError,
     TooManyActiveError,
@@ -155,3 +157,38 @@ def decide_transformation(
         raise HTTPException(status_code=422, detail={"code": "invalid_edited_result", "message": str(e), "errors": e.errors})
     except StorageError:
         raise HTTPException(status_code=502, detail="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos.")
+
+
+@router.get(
+    "/{transformation_id}/export",
+    summary="Exportar una transformación aceptada",
+    response_model=None,
+    responses={
+        200: {"description": "Con `delivery=file`, el archivo. Con `delivery=link`, JSON con una URL firmada de descarga."},
+        400: {"description": "El formato no se exporta en esa extensión."},
+        404: {"description": "No existe, venció o es de otro usuario."},
+        409: {"description": "No está aceptada ni editada: solo lo aceptado se exporta."},
+    },
+)
+def export_transformation(
+    transformation_id: str,
+    request: Request,
+    format: str = Query(description="Extensión: 'md' o 'txt' para el mapa mental (lista anidada)."),
+    delivery: Delivery = Query(
+        default="file", description="'file': el archivo en la respuesta. 'link': URL firmada; el archivo queda en /files."
+    ),
+    owner: str = Depends(current_owner),
+):
+    """
+    Exporta el resultado final (el aceptado o el editado por el docente). Los formatos con archivo
+    generado (audio) se descargan desde `/files` con el `file.file_id` que queda al aceptar.
+    """
+    try:
+        data, content_type, filename, expires_at = transformation_service.export(transformation_id, format, owner=owner)
+    except TransformationNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except TransformationStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ExportFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return deliver(request, data, content_type, filename, delivery, owner, "transformation", expires_at)

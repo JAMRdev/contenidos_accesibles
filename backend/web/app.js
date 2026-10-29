@@ -30,6 +30,9 @@ const TRANSFORMATION_FORMATS = {
     infographic: "Infografía",
     audio: "Audio",
 };
+// Exportaciones del resultado aceptado por formato (GET /transformations/{id}/export)
+const TRANSFORMATION_EXPORTS = { mind_map: ["md", "txt"] };
+const VIEW_LABELS = { markdown: "Lista anidada (Markdown, accesible con lector de pantalla)", mermaid: "Mermaid (mindmap)" };
 const TRANSFORMATION_POLL_MS = 1500;
 const TRANSFORMATION_POLL_LIMIT_MS = 180000;
 
@@ -1360,6 +1363,12 @@ function transformationCard(t) {
         }),
     }, "Guardar edición");
     const pending = t.status === "ready" && t.review_status === "pendiente";
+    const accepted = t.review_status === "aceptada" || t.review_status === "editada";
+    const exportAs = async (format) => {
+        const data = await api("GET", `${path}/export`, { query: { format, delivery: "link" }, busyText: "Exportando…" });
+        rememberFile(data.file);
+        window.open(data.download.url, "_blank", "noopener");
+    };
 
     card.append(
         el("div", {}, badge(TRANSFORMATION_FORMATS[t.format] || t.format, "type"),
@@ -1379,6 +1388,8 @@ function transformationCard(t) {
             ? el("audio", { controls: true, src: t.file.preview_url, preload: "none" }) : null,
         t.file && t.file.preview_url
             ? el("div", {}, el("a", { href: t.file.preview_url, target: "_blank", rel: "noopener" }, `Vista previa: ${t.file.filename} (${fmtBytes(t.file.size_bytes)})`)) : null,
+        t.views ? Object.entries(t.views).map(([name, text]) =>
+            el("details", {}, el("summary", {}, VIEW_LABELS[name] || name), el("pre", {}, text))) : null,
         t.final_result || t.result ? el("pre", {}, JSON.stringify(t.final_result || t.result, null, 2)) : null,
         el("div", { class: "row" },
             el("button", { type: "button", class: "secondary", onclick: () => run(card, async () => rememberTransformation(await api("GET", path))) }, "Actualizar"),
@@ -1388,6 +1399,8 @@ function transformationCard(t) {
                 onclick: () => { editor.hidden = !editor.hidden; saveEdit.hidden = editor.hidden; },
             }, "Editar") : null,
             pending ? el("button", { type: "button", class: "danger", onclick: () => run(card, () => decide("descartada")) }, "Descartar") : null,
+            accepted ? (TRANSFORMATION_EXPORTS[t.format] || []).map((format) =>
+                el("button", { type: "button", class: "secondary", onclick: () => run(card, () => exportAs(format)) }, `Exportar .${format}`)) : null,
         ),
         pending ? editor : null,
         pending ? saveEdit : null,

@@ -217,11 +217,11 @@ def test_format_without_real_generator_is_501_without_mock(client):
 def test_real_generator_result_and_metrics(client, monkeypatch):
     spec = transformation_service.FORMATS["mind_map"]
     monkeypatch.setitem(transformation_service.FORMATS, "mind_map", replace(
-        spec, generate=_fake_generator(lambda _t: MindMapResult(root=MindMapNode(text="Ciclo del agua")))
+        spec, generate=_fake_generator(lambda _t: MindMapResult(root=MindMapNode(text="Ciclo del agua", children=[MindMapNode(text="Evaporación")])))
     ))
     ready = _wait(client, _create(client, "mind_map", mock=False, analysis_id=_analyze(client))["transformation_id"])
     assert ready["status"] == "ready"
-    assert ready["result"] == {"root": {"text": "Ciclo del agua", "children": []}}
+    assert ready["result"] == {"root": {"text": "Ciclo del agua", "children": [{"text": "Evaporación", "children": []}]}}
     assert ready["metadata"]["provider"] == "groq"
     assert not any("mock" in w for w in ready["warnings"])
 
@@ -251,7 +251,7 @@ def test_cannot_decide_while_generating_and_active_limit(client, monkeypatch):
     monkeypatch.setattr(settings, "TRANSFORMATION_MAX_ACTIVE_PER_USER", 1)
     spec = transformation_service.FORMATS["mind_map"]
     monkeypatch.setitem(transformation_service.FORMATS, "mind_map", replace(
-        spec, generate=_fake_generator(lambda _t: MindMapResult(root=MindMapNode(text="x")), delay=0.5)
+        spec, generate=_fake_generator(lambda _t: MindMapResult(root=MindMapNode(text="x", children=[MindMapNode(text="y")])), delay=0.5)
     ))
     analysis_id = _analyze(client)
     created = _create(client, "mind_map", mock=False, analysis_id=analysis_id)
@@ -270,7 +270,7 @@ def test_daily_limit_per_format_is_lower_for_audio(client, monkeypatch):
     for fmt in ("audio", "mind_map"):
         spec = transformation_service.FORMATS[fmt]
         result = RESULT_SCHEMAS[fmt]
-        sample = {"audio": {"script": "Hola"}, "mind_map": {"root": {"text": "x"}}}[fmt]
+        sample = {"audio": {"script": "Hola"}, "mind_map": {"root": {"text": "x", "children": [{"text": "y"}]}}}[fmt]
         monkeypatch.setitem(transformation_service.FORMATS, fmt,
                             replace(spec, generate=_fake_generator(lambda _t, r=result, s=sample: r.model_validate(s))))
     analysis_id = _analyze(client)
@@ -303,7 +303,7 @@ def test_file_source_keeps_the_whole_text_with_its_paragraphs(client, monkeypatc
     received = []
     spec = transformation_service.FORMATS["mind_map"]
     monkeypatch.setitem(transformation_service.FORMATS, "mind_map", replace(
-        spec, generate=_fake_generator(lambda t: received.append(t) or MindMapResult(root=MindMapNode(text="x")))
+        spec, generate=_fake_generator(lambda t: received.append(t) or MindMapResult(root=MindMapNode(text="x", children=[MindMapNode(text="y")])))
     ))
     long_material = MATERIAL + "\n\n" + " ".join(["palabra"] * 3500) + "\n\nCierre de la unidad."
     file_id = _upload(client, _docx(long_material))
