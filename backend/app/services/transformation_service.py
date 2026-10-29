@@ -23,6 +23,7 @@ import uuid
 import wave
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable
 
 from pydantic import BaseModel, ValidationError
 
@@ -242,7 +243,13 @@ def _with_views(t: TransformationResponse) -> TransformationResponse:
     current = t.final_result or (t.result if t.review_status == "pendiente" else None)
     if spec.views is None or current is None:
         return t
-    return t.model_copy(update={"views": spec.views(spec.schema.model_validate(current))})
+    try:
+        result = spec.schema.model_validate(current)
+    except ValidationError:
+        # Un resultado guardado antes de que se achicaran los límites del esquema: se devuelve sin vistas, no con 500
+        logger.warning("El resultado de la transformación %s no cumple el esquema actual", t.transformation_id)
+        return t
+    return t.model_copy(update={"views": spec.views(result)})
 
 
 def _with_preview(t: TransformationResponse, object_key: str | None) -> TransformationResponse:

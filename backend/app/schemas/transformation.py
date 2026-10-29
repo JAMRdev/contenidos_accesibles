@@ -8,7 +8,7 @@ formato son la base común: cada issue de formato (#117, #118, #119, #122) los c
 """
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.adaptation import AdaptationMetadata
 
@@ -44,6 +44,9 @@ MIND_MAP_TEXT_CHARS = 80
 
 
 class MindMapNode(BaseModel):
+    # Sin esto, un texto de solo espacios editado por el docente pasa min_length y queda como ítem vacío
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     text: str = Field(min_length=1, max_length=MIND_MAP_TEXT_CHARS, description="Idea en pocas palabras.")
     children: list["MindMapNode"] = Field(default_factory=list, max_length=MIND_MAP_MAX_CHILDREN)
 
@@ -65,6 +68,9 @@ class MindMapResult(BaseModel):
     def _max_depth(self) -> "MindMapResult":
         if self.root.depth() > MIND_MAP_MAX_DEPTH:
             raise ValueError(f"El mapa mental admite hasta {MIND_MAP_MAX_DEPTH} niveles, contando el tema central.")
+        # La misma regla que para lo generado por la IA (mind_map.from_ai)
+        if not self.root.children:
+            raise ValueError("El mapa mental necesita al menos una idea principal además del tema central.")
         return self
 
 

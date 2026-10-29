@@ -2,6 +2,7 @@
 Mapa mental (Issue #118): esquema y límites, conversión de la salida de la IA, lista anidada,
 sintaxis Mermaid escapada, edición y exportación. La IA se reemplaza por respuestas fijas.
 """
+import json
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -11,7 +12,8 @@ from pydantic import ValidationError
 
 from app.core import rate_limit
 from app.core.config import settings
-from app.db.database import init_db
+from app.db import transformation_repository
+from app.db.database import get_connection, init_db
 from app.main import app
 from app.schemas.transformation import MindMapAIOutput, MindMapNode, MindMapResult
 from app.services import storage_service
@@ -103,6 +105,16 @@ def test_schema_limits_children_and_text_length():
         MindMapResult.model_validate({"root": {"text": "x" * 81}})
     with pytest.raises(ValidationError):
         MindMapResult.model_validate({"root": {"text": ""}})
+
+
+def test_edited_map_rejects_blank_texts_and_maps_without_ideas():
+    with pytest.raises(ValidationError):
+        MindMapResult.model_validate({"root": {"text": "Tema", "children": [{"text": "   "}]}})
+    with pytest.raises(ValidationError, match="al menos una idea"):
+        MindMapResult.model_validate({"root": {"text": "Tema", "children": []}})
+    result = MindMapResult.model_validate({"root": {"text": "  Tema  ", "children": [{"text": " Idea "}]}})
+    assert result.root.text == "Tema"
+    assert result.root.children[0].text == "Idea"
 
 
 def test_ai_output_is_converted_and_clipped():
@@ -208,6 +220,21 @@ def test_mock_also_has_views(client):
     data = _mind_map(client, mock=True)
     assert data["metadata"]["provider"] == "mock"
     assert data["views"]["markdown"].startswith("- Unidad 3: El ciclo del agua")
+
+
+def test_result_stored_with_older_limits_is_returned_without_views(client):
+    data = _mind_map(client, mock=True)
+    tid = data["transformation_id"]
+    # Un resultado guardado con los límites de antes (120 caracteres): ya no cumple el esquema
+    payload = json.loads(transformation_repository.get(tid)["payload_json"])
+    payload["result"]["root"]["text"] = "x" * 120
+    with get_connection() as conn:
+        conn.execute("UPDATE transformations SET payload_json = ? WHERE id = ?", (json.dumps(payload), tid))
+
+    res = client.get(f"/api/v1/transformations/{tid}")
+    assert res.status_code == 200
+    assert res.json()["views"] is None
+    assert client.get("/api/v1/transformations").status_code == 200
 
 
 def test_edit_is_validated_and_views_follow_the_edit(client):
