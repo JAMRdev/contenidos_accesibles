@@ -284,6 +284,35 @@ def test_daily_limit_per_format_is_lower_for_audio(client, monkeypatch):
     assert _create(client, "audio", analysis_id=analysis_id)["status"] == "pending"
 
 
+def test_rejected_requests_do_not_consume_the_daily_limit(client, monkeypatch):
+    monkeypatch.setattr(settings, "TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY", 1)
+    spec = transformation_service.FORMATS["audio"]
+    monkeypatch.setitem(transformation_service.FORMATS, "audio",
+                        replace(spec, generate=_fake_generator(lambda _t: RESULT_SCHEMAS["audio"].model_validate({"script": "Hola"}))))
+    # Material inexistente y archivo con datos personales: se rechazan antes de contar
+    res = client.post("/api/v1/transformations", json={"format": "audio", "analysis_id": "no-existe"})
+    assert res.status_code == 404
+    file_id = _upload(client, _docx("Alumno: Juan Pérez, DNI 30.123.456.\n\n" + MATERIAL))
+    res = client.post("/api/v1/transformations", json={"format": "audio", "file_id": file_id})
+    assert res.status_code == 422
+
+    assert _create(client, "audio", mock=False, analysis_id=_analyze(client))["status"] == "pending"
+
+
+def test_file_source_keeps_the_whole_text_with_its_paragraphs(client, monkeypatch):
+    received = []
+    spec = transformation_service.FORMATS["mind_map"]
+    monkeypatch.setitem(transformation_service.FORMATS, "mind_map", replace(
+        spec, generate=_fake_generator(lambda t: received.append(t) or MindMapResult(root=MindMapNode(text="x")))
+    ))
+    long_material = MATERIAL + "\n\n" + " ".join(["palabra"] * 3500) + "\n\nCierre de la unidad."
+    file_id = _upload(client, _docx(long_material))
+    _wait(client, _create(client, "mind_map", mock=False, file_id=file_id)["transformation_id"])
+
+    assert "\n" in received[0]  # sin el recorte del diagnóstico, que junta todo en una línea
+    assert "Cierre de la unidad." in received[0]
+
+
 # --- Revisión docente ---------------------------------------------------------------
 
 
@@ -337,6 +366,24 @@ def test_editing_audio_regenerates_the_file(client):
     assert storage.head(old_key) is None
     assert storage.head(new_key) is not None
     assert res.json()["file"]["file_id"]
+
+
+def test_editing_audio_does_not_leave_an_orphan_file_if_registering_fails(client, monkeypatch):
+    ready = _wait(client, _create(client, "audio", analysis_id=_analyze(client))["transformation_id"])
+    storage = storage_service.get_storage()
+    put = storage.put
+    stored = []
+    monkeypatch.setattr(storage, "put", lambda key, *a, **k: stored.append(key) or put(key, *a, **k))
+
+    def failing_create(**_kwargs):
+        raise RuntimeError("la base no respondió")
+    monkeypatch.setattr(transformation_service.files, "create", failing_create)
+
+    with pytest.raises(RuntimeError):
+        client.post(f"/api/v1/transformations/{ready['transformation_id']}/decision",
+                    json={"decision": "editada", "edited_result": {"script": "Guion corregido."}})
+    assert len(stored) == 1
+    assert storage.head(stored[0]) is None
 
 
 def test_discard_deletes_the_generated_file(client):
