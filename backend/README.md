@@ -201,6 +201,7 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado, `views` (mapa mental: lista anidada en Markdown y sintaxis Mermaid `mindmap`) y URL firmada de vista previa del archivo generado | ✅ Operativo |
 | `POST` | `/api/v1/transformations/{id}/decision` | Revisión docente: aceptar, editar (`edited_result`, validado con el esquema del formato) o descartar. Lo aceptado con archivo queda en `/files` para descargar y compartir | ✅ Operativo |
 | `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado; en `docx` y `pdf` los datos de gráficos y tablas van como tablas reales, con fila de encabezado. Mapa mental: `md` o `txt` (lista anidada). Con `&delivery=link`, URL firmada | ✅ Operativo |
+| `POST` | `/api/v1/ai/test-tts` | Texto a voz (#121): convierte un texto corto (hasta 1.000 caracteres) en MP3 con Gemini 2.5 Flash TTS, voz Kore, acento rioplatense. Para escucharlo en Swagger. `?mock=true` devuelve un tono corto | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
 | `GET` | `/admin/diagramas/{slug}` | Diagrama de arquitectura dentro del panel. Fuentes y cómo regenerarlos en [`docs/diagramas/`](docs/diagramas/README.md) | ✅ Operativo |
@@ -356,7 +357,7 @@ Con `ENVIRONMENT=production` (o `staging`), `/docs`, `/redoc` y `/api/v1/openapi
 
 ### Rate limit de IA
 
-Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations`, `POST /transformations` y `POST /ai/test-connection`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan. En `POST /transformations` el pedido cuenta recién con el material validado (un `404` o `422` no descuenta cuota), y una generación que no llama a la IA (material sin imágenes, o `no_images` con los textos alternativos del diagnóstico) no cuenta para los límites de IA.
+Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sample`, `POST /analysis/pdf`, `POST /analysis/file`, `POST /adaptations`, `POST /transformations`, `POST /ai/test-connection` y `POST /ai/test-tts`) tienen un límite en memoria con ventanas deslizantes de 1 minuto y 24 horas. Al superarlo responden `429` con el header `Retry-After`. Las llamadas con `?mock=true` no cuentan. En `POST /transformations` el pedido cuenta recién con el material validado (un `404` o `422` no descuenta cuota), y una generación que no llama a la IA (material sin imágenes, o `no_images` con los textos alternativos del diagnóstico) no cuenta para los límites de IA.
 
 | Variable | Default | Alcance |
 | :--- | :--- | :--- |
@@ -376,6 +377,27 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 | `TRANSFORMATION_RATE_LIMIT_PER_DAY` | `20` | Por formato (sin imágenes, mapa mental, infografía), últimas 24 h |
 | `TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY` | `5` | Audio (TTS, más caro), últimas 24 h |
 | `TRANSFORMATION_MAX_ACTIVE_PER_USER` | `2` | Generándose a la vez por usuario; la siguiente responde `429` |
+
+### Texto a voz (TTS)
+
+El audio de los materiales (#121) lo genera **Gemini 2.5 Flash TTS** con la voz **Kore** y acento rioplatense, el motor que eligió el equipo en #120 (muestras en `/tts/` de la web de pruebas). Detalles:
+
+- **Claves:** usa las conexiones Gemini de `/admin`, por prioridad. El modelo de TTS tiene su propia cuota en Google, así que no suma a los contadores (RPM, RPD) de la conexión ni la marca agotada para el análisis. Ante un 429 o un error, cada conexión queda en una pausa propia del TTS y se usa la siguiente.
+- **Errores:** ante un límite por minuto, si no hay otra conexión libre, espera hasta ~1 minuto y sigue. Con la cuota diaria agotada o el proveedor caído, el pedido falla con un mensaje claro. Por ahora no hay un motor de fallback (`TTSProvider` en `app/services/tts/base.py` deja lugar para sumarlo).
+- **Privacidad:** en la capa gratuita, Google usa el texto para mejorar sus productos. Antes de que docentes reales generen audio, las conexiones Gemini tienen que ser de un proyecto con facturación activa (≈ US$ 0,015 por minuto de audio).
+- **Fragmentos:** el texto se genera por fragmentos de hasta `TTS_CHUNK_CHARS` caracteres (por párrafo y, si no entra, por oración), porque con textos largos el modelo omite partes. Los fragmentos se unen con una pausa corta.
+- **Formato:** MP3 mono a 32 kbps (≈ 240 KB por minuto), codificado con `lameenc`, sin ffmpeg. La síntesis es asíncrona y la codificación corre en un hilo, así que el resto de la API sigue respondiendo mientras se genera.
+- **Métricas:** cada fragmento queda en `ai_usage_events` (`kind = 'tts'`) con los caracteres y los segundos de audio, y se ve en el gráfico "Texto a voz" del Resumen de `/admin`. El servicio aparece en la sección Estado.
+
+| Variable | Default | Uso |
+| :--- | :--- | :--- |
+| `TTS_PROVIDER` | `gemini` | Motor de TTS (por ahora, solo Gemini) |
+| `TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Modelo de Gemini |
+| `TTS_VOICE` | `Kore` | Voz prearmada de Gemini |
+| `TTS_STYLE` | `Leé en voz alta, con acento rioplatense, tono claro y pausado de docente:` | Instrucción de estilo antes del texto. Con los modelos 3.8 hay que dejarla vacía: la leen en voz alta |
+| `TTS_MAX_CHARS` | `20000` | Largo máximo de un audio (≈ 20 min) |
+| `TTS_CHUNK_CHARS` | `1500` | Largo máximo de cada fragmento |
+| `TTS_TIMEOUT_S` | `120` | Timeout de cada fragmento |
 
 ---
 
@@ -490,6 +512,8 @@ npm run r2:cors     # aplica r2-cors.json (repetir si cambian los orígenes)
 ```
 
 Después, en el dashboard: **R2 → Manage API tokens → Create API token** con permiso **Object Read & Write** solo sobre ese bucket. El *Access Key ID* y el *Secret Access Key* van a `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY` en Railway, junto con `R2_ACCOUNT_ID`, `R2_BUCKET` y `STORAGE_BACKEND=r2`.
+
+**Antes de desplegar #121** hay que aplicar la migración `0009_tts_usage.sql` en D1 (`npm run migrate:remote`): agrega a `ai_usage_events` las columnas `characters` y `audio_seconds` del texto a voz. Con D1, el arranque verifica que estén.
 
 **Antes de desplegar #116** hay que aplicar la migración `0008_transformations.sql` en D1 (`npm run migrate:remote`): crea la tabla `transformations`. Con D1, el arranque verifica que esté.
 

@@ -219,6 +219,19 @@ class Settings(BaseSettings):
     # Transformaciones generándose a la vez por usuario: las demás esperan con 429
     TRANSFORMATION_MAX_ACTIVE_PER_USER: int = Field(default=2, ge=1)
 
+    # --- Texto a voz (TTS, Issue #121) ---
+    # Motor elegido en #120: Gemini 2.5 Flash TTS con las conexiones Gemini de /admin. El modelo de
+    # TTS tiene su propia cuota en Google: no suma a los contadores de la conexión (RPM, RPD) del texto.
+    TTS_PROVIDER: Literal["gemini"] = "gemini"
+    TTS_MODEL: str = "gemini-2.5-flash-preview-tts"
+    TTS_VOICE: str = "Kore"
+    # Instrucción de estilo que va antes del texto. Con los modelos 3.8 hay que dejarla vacía: la leen en voz alta.
+    TTS_STYLE: str = "Leé en voz alta, con acento rioplatense, tono claro y pausado de docente:"
+    # Largo máximo por pedido (≈ 20 min de audio) y por fragmento: con textos largos el modelo omite partes
+    TTS_MAX_CHARS: int = Field(default=20_000, ge=100)
+    TTS_CHUNK_CHARS: int = Field(default=1_500, ge=200)
+    TTS_TIMEOUT_S: int = Field(default=120, ge=10)
+
     # --- Web de pruebas (web/, Static Site en Render) ---
     # URL pública de la web de pruebas. Si está definida, /admin muestra el enlace
     # y su origen se suma a CORS sin tener que repetirlo en BACKEND_CORS_ORIGINS.

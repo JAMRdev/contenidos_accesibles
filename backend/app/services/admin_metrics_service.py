@@ -105,6 +105,28 @@ def _usage_block(events: list[dict], starts: list[datetime], step: timedelta) ->
     return {"calls": calls, "tokens": tokens, "errors": errors, "outcomes": outcomes, "tokens_by_provider": series}
 
 
+def _tts(events: list[dict], starts: list[datetime], step: timedelta) -> dict:
+    """Texto a voz (Issue #121): llamadas, caracteres y minutos de audio por intervalo."""
+    n = len(starts)
+    calls, characters, minutes, errors = [0] * n, [0] * n, [0.0] * n, [0] * n
+    for e in events:
+        if e["kind"] != "tts":
+            continue
+        i = _bucket_index(_parse_utc(e["created_at"]), starts, step)
+        if i is None:
+            continue
+        calls[i] += 1
+        characters[i] += e["characters"]
+        minutes[i] += e["audio_seconds"] / 60
+        if e["outcome"] != "ok":
+            errors[i] += 1
+    return {
+        "calls": calls, "characters": characters, "minutes": [round(m, 1) for m in minutes], "errors": errors,
+        "totals": {"calls": sum(calls), "characters": sum(characters), "minutes": round(sum(minutes), 1),
+                   "errors": sum(errors)},
+    }
+
+
 def _kpis(events: list[dict], previous: list[dict], usage: dict) -> dict:
     def summary(rows: list[dict]) -> dict:
         ok_latencies = [r["latency_ms"] for r in rows if r["outcome"] == "ok"]
@@ -373,6 +395,7 @@ def build_metrics(range_key: str = "24h", tz_offset_minutes: int = 0, now: datet
         "buckets": [s.strftime("%Y-%m-%dT%H:%M:%SZ") for s in starts],
         "kpis": _kpis(events, previous, usage),
         "usage": usage,
+        "tts": _tts(events, starts, step),
         "latency_by_model": _latency_by_model(events),
         "connections": connections,
         "alerts": [

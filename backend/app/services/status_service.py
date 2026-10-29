@@ -184,6 +184,25 @@ async def check_ai(_client: httpx.AsyncClient) -> Check:
     return Check("ok", "Hay una conexión disponible", facts=facts)
 
 
+async def check_tts(_client: httpx.AsyncClient) -> Check:
+    """Texto a voz (Issue #121): conexiones Gemini de /admin y sus pausas del TTS. No genera audio."""
+    from app.services import key_rotation_service, tts_service
+
+    conns = await asyncio.to_thread(key_rotation_service.list_enabled_connections, settings.TTS_PROVIDER)
+    facts = [("Modelo", settings.TTS_MODEL), ("Voz", settings.TTS_VOICE)]
+    if not conns:
+        return Check("unconfigured", "No hay conexiones de Gemini habilitadas en /admin", facts=facts)
+    paused = tts_service.cooldowns()
+    usable = [c for c in conns if c.id not in paused]
+    facts.append(("Disponibles", f"{len(usable)} de {len(conns)}"))
+    if not usable:
+        return Check("down", "Todas las conexiones de Gemini están en pausa para el TTS (límite o error)", facts=facts)
+    facts.insert(0, ("En uso", usable[0].label))
+    if len(usable) < len(conns):
+        return Check("degraded", "Hay conexiones en pausa para el TTS (límite o error)", facts=facts)
+    return Check("ok", "Hay una conexión disponible", facts=facts)
+
+
 async def check_clerk(client: httpx.AsyncClient) -> Check:
     from app.admin import clerk_auth
 
@@ -273,6 +292,8 @@ def _registry() -> list[Service]:
                 "Archivos de los docentes y exportaciones (subida directa con URL firmada).", check_storage),
         Service("ai", "Conexiones de IA", "Proveedores de IA",
                 "Según el estado de rotación del backend; no gasta cuota.", check_ai),
+        Service("tts", "Texto a voz", "Google Gemini",
+                "Audio de los materiales (Gemini TTS, voz Kore); no genera audio para chequear.", check_tts),
         Service("clerk", "Login con Clerk", "Clerk", "Login del panel y de /docs con GitHub.", check_clerk),
         Service("clerk-users", "Login de docentes", "Clerk",
                 "Cuentas de los docentes (Google o Microsoft): nombre y email de las estadísticas por usuario.",
@@ -364,7 +385,10 @@ def links(base_url: str, panel_prefix: str) -> list[dict]:
         items.append({"group": "Cloudflare", "label": "Worker d1-gateway (/health)",
                       "url": f"{settings.D1_GATEWAY_URL.rstrip('/')}/health"})
     if settings.TEST_WEB_URL:
-        items.append({"group": "Web", "label": "Web de pruebas", "url": settings.TEST_WEB_URL.strip()})
+        test_web = settings.TEST_WEB_URL.strip()
+        items.append({"group": "Web", "label": "Web de pruebas", "url": test_web})
+        # Muestras de los motores de texto a voz comparados en el Issue #120
+        items.append({"group": "Web", "label": "Comparación de voces (TTS)", "url": f"{test_web.rstrip('/')}/tts/"})
     if qa_url := _qa_platform_url():
         items.append({"group": "Web", "label": "Plataforma de QA", "url": qa_url})
         items.append({"group": "Cloudflare", "label": "Plataforma de QA (/health)", "url": f"{qa_url}/health"})

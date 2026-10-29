@@ -693,6 +693,24 @@ document.querySelectorAll(".o-select").forEach((root) => ObSelect.init(root));
             } : null,
             empty: anyCalls ? null : { icon: "bolt", text: "No hubo llamadas a la IA en este período." },
         });
+
+        // Texto a voz (Issue #121): cada fragmento del texto es una llamada
+        const t = d.tts;
+        const anyTts = t.totals.calls > 0;
+        const minutesSeries = [{ label: "Minutos de audio", color: C.s1, values: t.minutes }];
+        chartCard($("chart-tts"), {
+            title: "Texto a voz",
+            subtitle: anyTts
+                ? `${unitName}. ${num(t.totals.calls)} fragmentos, ${num(t.totals.characters)} caracteres y ${nf.format(t.totals.minutes)} min de audio; ${num(t.totals.errors)} con error.`
+                : `${unitName}. Minutos de audio generados.`,
+            legend: minutesSeries.map((sr) => ({ label: sr.label, color: sr.color })),
+            svg: anyTts ? stackedColumns({ labels, longLabels, series: minutesSeries, fmt: (v) => nf.format(v), ariaLabel: `Minutos de audio, ${rangeName}`, width: widthOf("chart-tts") }) : null,
+            table: anyTts ? {
+                headers: ["Período", "Fragmentos", "Caracteres", "Minutos de audio", "Con error"],
+                rows: longLabels.map((l, i) => [l, num(t.calls[i]), num(t.characters[i]), nf.format(t.minutes[i]), num(t.errors[i])]),
+            } : null,
+            empty: anyTts ? null : { icon: "graphic_eq", text: "No se generó audio en este período." },
+        });
     }
 
     function renderAlerts(d) {
