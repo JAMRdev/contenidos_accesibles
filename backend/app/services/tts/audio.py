@@ -9,6 +9,8 @@ Fragmentos de texto y codificación del audio (Issue #121).
 import math
 import re
 import struct
+import sys
+from array import array
 
 import lameenc
 
@@ -54,6 +56,36 @@ def silence(seconds: float, sample_rate: int) -> bytes:
 
 def duration_s(pcm: bytes, sample_rate: int) -> float:
     return len(pcm) / 2 / sample_rate
+
+
+# Nivel de la voz al que se lleva cada fragmento: cada llamada al motor sale con un volumen distinto.
+# Medido en la muestra de Gemini 2.5 Flash TTS con Kore (#120): RMS de la voz ≈ 5.500, picos ≈ 28.000.
+TARGET_VOICE_RMS = 5_500
+PEAK_LIMIT = 30_000
+_VOICE_THRESHOLD = 500  # por debajo es silencio o respiración: no cuenta para el nivel
+
+
+def normalize(pcm: bytes) -> bytes:
+    """
+    Lleva el nivel de la voz (sin los silencios, que varían entre fragmentos) a TARGET_VOICE_RMS,
+    sin que los picos pasen de PEAK_LIMIT. Es CPU: llamarla fuera del event loop.
+    """
+    samples = array("h")
+    samples.frombytes(pcm)
+    if sys.byteorder == "big":
+        samples.byteswap()
+    voice = [s for s in samples[::4] if abs(s) > _VOICE_THRESHOLD]
+    if not voice:
+        return pcm
+    rms = math.sqrt(sum(s * s for s in voice) / len(voice))
+    peak = max(max(samples), -min(samples))
+    gain = min(TARGET_VOICE_RMS / rms, PEAK_LIMIT / peak)
+    if abs(gain - 1) < 0.05:
+        return pcm
+    leveled = array("h", (int(s * gain) for s in samples))
+    if sys.byteorder == "big":
+        leveled.byteswap()
+    return leveled.tobytes()
 
 
 def to_mp3(pcm: bytes, sample_rate: int) -> bytes:

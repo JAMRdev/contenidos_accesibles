@@ -386,6 +386,8 @@ El audio de los materiales (#121) lo genera **Gemini 2.5 Flash TTS** con la voz 
 - **Claves:** usa las conexiones Gemini de `/admin`, por prioridad. El modelo de TTS tiene su propia cuota en Google, así que no suma a los contadores (RPM, RPD) de la conexión ni la marca agotada para el análisis. Ante un 429 o un error, cada conexión queda en una pausa propia del TTS y se usa la siguiente.
 - **Errores:** ante un límite por minuto, si no hay otra conexión libre, espera hasta ~1 minuto y sigue. Con la cuota diaria agotada o el proveedor caído, el pedido falla con un mensaje claro. Por ahora no hay un motor de fallback (`TTSProvider` en `app/services/tts/base.py` deja lugar para sumarlo).
 - **Privacidad:** en la capa gratuita, Google usa el texto para mejorar sus productos. Antes de que docentes reales generen audio, las conexiones Gemini tienen que ser de un proyecto con facturación activa (≈ US$ 0,015 por minuto de audio).
+- **Voz pareja:** cada llamada al motor es independiente. Para que no parezca otra persona en cada parte, todas llevan la misma instrucción de estilo (`TTS_STYLE`). Además, el backend nivela el volumen de la voz de cada fragmento antes de unirlo: sin contar los silencios y sin que los picos saturen.
+- **En paralelo:** las secciones de un audio se generan de a `TTS_CONCURRENCY` a la vez y se unen en orden. Si una falla, las que esperaban turno no se piden.
 - **Fragmentos:** el texto se genera por fragmentos de hasta `TTS_CHUNK_CHARS` caracteres (por párrafo y, si no entra, por oración), porque con textos largos el modelo omite partes. Los fragmentos se unen con una pausa corta.
 - **Formato:** MP3 mono a 32 kbps (≈ 240 KB por minuto), codificado con `lameenc`, sin ffmpeg. La síntesis es asíncrona y la codificación corre en un hilo, así que el resto de la API sigue respondiendo mientras se genera.
 - **Audio de un material (#122):**
@@ -401,10 +403,11 @@ El audio de los materiales (#121) lo genera **Gemini 2.5 Flash TTS** con la voz 
 | `TTS_PROVIDER` | `gemini` | Motor de TTS (por ahora, solo Gemini) |
 | `TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Modelo de Gemini |
 | `TTS_VOICE` | `Kore` | Voz prearmada de Gemini |
-| `TTS_STYLE` | `Leé en voz alta, con acento rioplatense, tono claro y pausado de docente:` | Instrucción de estilo antes del texto. Con los modelos 3.8 hay que dejarla vacía: la leen en voz alta |
+| `TTS_STYLE` | `Leé en voz alta el texto que sigue, con acento rioplatense y voz de docente…` | Instrucción de estilo, la misma antes de cada fragmento: tono, ritmo, volumen y ánimo constantes, y que suene igual que en las demás partes. Con los modelos 3.8 hay que dejarla vacía: la leen en voz alta |
 | `TTS_MAX_CHARS` | `20000` | Largo máximo de un audio (≈ 20 min) |
 | `TTS_CHUNK_CHARS` | `1500` | Largo máximo de cada fragmento |
 | `TTS_TIMEOUT_S` | `120` | Timeout de cada fragmento |
+| `TTS_CONCURRENCY` | `5` | Secciones de un audio que se generan a la vez. Con un límite por minuto bajo, los `429` se esperan solos |
 
 ---
 

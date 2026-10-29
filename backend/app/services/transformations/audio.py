@@ -199,13 +199,30 @@ async def render(result: AudioResult, mock: bool, on_progress: Progress) -> Rend
     texts = result.section_texts()
     total = sum(tts_service.count_chunks(t) for t in texts)
     done = 0
-    pcm_sections = []
-    for text in texts:
-        async def progress(section_done: int, _section_total: int, before: int = done) -> None:
-            await on_progress(before + section_done, total)
-        pcm = await tts_service.synthesize_pcm(text, mock=mock, on_progress=progress)
-        done += pcm.chunks
-        pcm_sections.append(pcm)
+    # Hasta TTS_CONCURRENCY secciones a la vez: cada una tarda ≈ 25 s por minuto de audio, y en fila se suman.
+    # El progreso se guarda de a uno, para que no retroceda si dos secciones terminan a la vez.
+    slots = asyncio.Semaphore(settings.TTS_CONCURRENCY)
+    progress_lock = asyncio.Lock()
+
+    async def progress(_done: int, _total: int) -> None:
+        nonlocal done
+        async with progress_lock:
+            done += 1
+            await on_progress(done, total)
+
+    async def section(text: str):
+        async with slots:
+            return await tts_service.synthesize_pcm(text, mock=mock, on_progress=progress)
+
+    tasks = [asyncio.create_task(section(t)) for t in texts]
+    try:
+        pcm_sections = await asyncio.gather(*tasks)  # en el orden de las secciones
+    except BaseException:
+        # Si una sección falla, las demás no siguen gastando cuota de TTS
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
     rate = pcm_sections[0].sample_rate
     pause = tts_audio.silence(SECTION_PAUSE_S, rate)

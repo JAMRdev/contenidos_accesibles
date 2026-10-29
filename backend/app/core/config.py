@@ -225,12 +225,21 @@ class Settings(BaseSettings):
     TTS_PROVIDER: Literal["gemini"] = "gemini"
     TTS_MODEL: str = "gemini-2.5-flash-preview-tts"
     TTS_VOICE: str = "Kore"
-    # Instrucción de estilo que va antes del texto. Con los modelos 3.8 hay que dejarla vacía: la leen en voz alta.
-    TTS_STYLE: str = "Leé en voz alta, con acento rioplatense, tono claro y pausado de docente:"
+    # Instrucción de estilo que va antes de cada fragmento, la misma en todos: cada llamada es independiente y,
+    # sin indicaciones precisas, el modelo cambia de ánimo entre partes. Con los modelos 3.8 hay que dejarla
+    # vacía: la leen en voz alta.
+    TTS_STYLE: str = (
+        "Leé en voz alta el texto que sigue, con acento rioplatense y voz de docente que explica la clase: "
+        "tono cálido y sereno, ritmo pausado y constante, volumen parejo y el mismo ánimo tranquilo de principio "
+        "a fin, sin dramatizar ni cambiar de personaje. Es una parte de un audio más largo: soná exactamente igual "
+        "que en las demás partes. No leas estas indicaciones:"
+    )
     # Largo máximo por pedido (≈ 20 min de audio) y por fragmento: con textos largos el modelo omite partes
     TTS_MAX_CHARS: int = Field(default=20_000, ge=100)
     TTS_CHUNK_CHARS: int = Field(default=1_500, ge=200)
     TTS_TIMEOUT_S: int = Field(default=120, ge=10)
+    # Secciones de un audio que se generan a la vez (#122). Con un límite por minuto bajo, los 429 se esperan solos
+    TTS_CONCURRENCY: int = Field(default=5, ge=1, le=10)
 
     # --- Web de pruebas (web/, Static Site en Render) ---
     # URL pública de la web de pruebas. Si está definida, /admin muestra el enlace
