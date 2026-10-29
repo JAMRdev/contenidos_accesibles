@@ -26,7 +26,8 @@ from app.schemas.transformation import AudioAIOutput, AudioResult, NoImagesResul
 from app.services import storage_service, transformation_service
 from app.services import tts_service as tts_module
 from app.services.llm.base import LLMInvalidResponseError, Usage
-from app.services.llm_service import StructuredResult
+from app.services.llm.openai_adapter import to_strict_json_schema
+from app.services.llm_service import StructuredResult, _parse_json
 from app.services.storage_service import LocalStorage
 from app.services.transformations import audio
 from app.services.transformations.base import Generation, SourceMaterial
@@ -173,6 +174,32 @@ def test_ai_output_is_clipped_merged_and_cut_to_the_limit(monkeypatch):
 
     with pytest.raises(LLMInvalidResponseError):
         audio.from_ai(AudioAIOutput(title="Tema", sections=[]))
+
+
+def test_strict_schema_keeps_the_fields_named_title():
+    """Los proveedores con json_schema estricto (Groq) recibían el guion sin `title`: el modelo nunca lo mandaba."""
+    schema = to_strict_json_schema(AudioAIOutput)
+    section = schema["properties"]["sections"]["items"]
+    assert schema["required"] == ["title", "sections"] and section["required"] == ["title", "text"]
+    assert "title" not in schema["properties"]["title"]  # el metadato de Pydantic sí se saca
+
+
+def test_ai_output_accepts_keys_in_spanish():
+    output = AudioAIOutput.model_validate(
+        {"titulo": "El agua", "secciones": [{"título": "Uno", "texto": "a"}, {"title": "Dos", "contenido": "b"}]}
+    )
+    assert output.title == "El agua" and [(s.title, s.text) for s in output.sections] == [("Uno", "a"), ("Dos", "b")]
+
+
+def test_invalid_ai_json_says_which_fields_failed():
+    with pytest.raises(LLMInvalidResponseError, match=r"campos: title, sections\.0\.text\)"):
+        _parse_json('{"sections": [{"title": "x"}]}', AudioAIOutput)
+
+
+def test_prompt_names_the_json_keys_and_keeps_its_commas():
+    assert "`title`" in audio.SYSTEM_PROMPT and "`sections`" in audio.SYSTEM_PROMPT and "`text`" in audio.SYSTEM_PROMPT
+    assert "Frases cortas, una idea por oración" in audio.SYSTEM_PROMPT
+    assert "20.000 caracteres" in audio.SYSTEM_PROMPT
 
 
 def _ai_result(output: dict, tokens: int = 100) -> StructuredResult:

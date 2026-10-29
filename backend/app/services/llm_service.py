@@ -55,9 +55,12 @@ def _parse_json(text: str, schema: type[SchemaT]) -> SchemaT:
     try:
         return schema.model_validate_json(payload)
     except ValidationError as e:
+        # Los campos con problemas (no los valores, que son del material) para saber qué falló
+        fields = list(dict.fromkeys(".".join(map(str, err["loc"])) or "(raíz)" for err in e.errors()))
+        shown = ", ".join(fields[:5]) + (f" y {len(fields) - 5} más" if len(fields) > 5 else "")
         raise LLMInvalidResponseError(
             f"El modelo no devolvió un JSON válido para {schema.__name__}: "
-            f"{e.error_count()} error(es) de validación."
+            f"{e.error_count()} error(es) de validación (campos: {shown})."
         ) from e
 
 
