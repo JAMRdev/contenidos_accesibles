@@ -166,20 +166,59 @@ class MindMapAIOutput(BaseModel):
     ideas: list[MindMapAIIdea] = Field(description="Ideas principales del material (2 a 6), en el orden en que aparecen.")
 
 
+# Íconos que dibujan las plantillas (app/services/transformations/infographic_templates.py). Son
+# decorativos: el título de cada sección lleva el significado.
+InfographicIcon = Literal[
+    "idea", "libro", "pregunta", "alerta", "check", "reloj", "grafico", "persona", "grupo", "planeta",
+    "ciencia", "calculo", "lugar", "naturaleza", "info",
+]
+INFOGRAPHIC_ICONS: tuple[str, ...] = InfographicIcon.__args__
+# 'vertical': secciones una debajo de otra. 'pasos': numeradas, para un proceso o una secuencia.
+# 'comparativa': en dos columnas, para comparar cosas.
+InfographicLayout = Literal["vertical", "pasos", "comparativa"]
+# Largos máximos: lo que entra legible en las plantillas
+INFOGRAPHIC_LIMITS = {"title": 90, "subtitle": 160, "closing": 200, "section_title": 60, "text": 280, "highlight": 50}
+
+
 class InfographicSection(BaseModel):
-    title: str = Field(min_length=1, max_length=80)
-    text: str = Field(min_length=1, max_length=300)
-    highlight: str | None = Field(default=None, max_length=60, description="Dato destacado opcional.")
-    icon: str | None = Field(default=None, max_length=40, description="Ícono sugerido de la lista cerrada.")
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=INFOGRAPHIC_LIMITS["section_title"])
+    text: str = Field(min_length=1, max_length=INFOGRAPHIC_LIMITS["text"])
+    highlight: str | None = Field(
+        default=None, max_length=INFOGRAPHIC_LIMITS["highlight"], description="Dato destacado opcional (número o frase corta)."
+    )
+    icon: InfographicIcon | None = Field(default=None, description="Ícono de la lista cerrada (decorativo).")
 
 
 class InfographicResult(BaseModel):
     """Infografía (Issue #119): contenido que dibuja una plantilla accesible, sin generar imágenes con IA."""
 
-    title: str = Field(min_length=1, max_length=100)
-    subtitle: str | None = Field(default=None, max_length=160)
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=INFOGRAPHIC_LIMITS["title"])
+    subtitle: str | None = Field(default=None, max_length=INFOGRAPHIC_LIMITS["subtitle"])
+    layout: InfographicLayout = Field(default="vertical", description="Plantilla con la que se dibuja.")
     sections: list[InfographicSection] = Field(min_length=1, max_length=6)
-    closing: str | None = Field(default=None, max_length=200)
+    closing: str | None = Field(default=None, max_length=INFOGRAPHIC_LIMITS["closing"])
+
+
+# Lo que devuelve la IA, sin límites de largo (se recortan al convertir). Las claves van nombradas en el prompt.
+class InfographicAISection(BaseModel):
+    title: str = Field(description="Título de la sección, en pocas palabras (máximo 6).")
+    text: str = Field(description="Explicación breve de la sección (1 o 2 oraciones, máximo 220 caracteres).")
+    highlight: str = Field(description="Dato destacado: un número o una frase muy corta del material. Vacío si no hay.")
+    icon: InfographicIcon = Field(description="Ícono de la lista que mejor acompaña a la sección.")
+
+
+class InfographicAIOutput(BaseModel):
+    title: str = Field(description="Título de la infografía (máximo 10 palabras).")
+    subtitle: str = Field(description="Bajada de una oración que dice de qué trata. Vacío si no hace falta.")
+    layout: InfographicLayout = Field(
+        description="'pasos' si el material describe un proceso o una secuencia; 'comparativa' si compara cosas; si no, 'vertical'."
+    )
+    sections: list[InfographicAISection] = Field(description="Ideas principales del material (3 a 6), en orden.")
+    closing: str = Field(description="Conclusión o idea para recordar, en una oración. Vacío si no hace falta.")
 
 
 AUDIO_MAX_SECTIONS = 12

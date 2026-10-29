@@ -24,6 +24,7 @@ th { background: #f5f5f5; }
 .error { background: #fbdadb; color: #a4262c; padding: 0.5rem 0.7rem; border-radius: 4px; margin-top: 0.5rem; white-space: pre-wrap; }
 .ok { color: #1a6b34; }
 .card { border: 1px solid #ddd; border-radius: 6px; padding: 0.7rem; margin-top: 0.6rem; }
+.card img.infographic { display: block; max-width: 540px; width: 100%; height: auto; margin: 0.5rem 0; border: 1px solid #ddd; }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.8rem; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 0.8rem; font-size: 0.85rem; }
 .kv dt { color: #666; }

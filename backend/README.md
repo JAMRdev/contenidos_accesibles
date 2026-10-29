@@ -196,12 +196,12 @@ En local (`ENVIRONMENT=development`) quedan abiertas. En staging/production pide
 | `GET`/`PUT` | `/api/v1/settings/retention` | Retención de archivos vigente y última limpieza; cambiarla para los archivos nuevos (permiso `settings:retention`, rol admin, #64) | ✅ Operativo |
 | `GET` | `/s/{token}` | Enlace compartido (público): `302` a una URL firmada de descarga de minutos; `404` si se revocó o venció | ✅ Operativo |
 | `GET` | `/api/v1/adaptations/report?analysis_id=` | Informe final: barreras con la decisión del docente, resumen y puntaje antes/después (comparable: conserva la IA y las reglas del archivo, recalcula las de texto; 0 tokens) | ✅ Operativo |
-| `POST` | `/api/v1/transformations` | Transformar material (#116): `format` (`no_images`, `mind_map`, `infographic`, `audio`) y `analysis_id` o `file_id`. Asíncrono: responde `202` con `status = "pending"`. Con IA real: `no_images` (#117), `mind_map` (#118) y `audio` (#122). La infografía responde `501` (`format_not_available`) salvo con `?mock=true` | 🚧 Sin imágenes, mapa mental y audio operativos; infografía en #119 |
+| `POST` | `/api/v1/transformations` | Transformar material (#116): `format` (`no_images`, `mind_map`, `infographic`, `audio`) y `analysis_id` o `file_id`. Asíncrono: responde `202` con `status = "pending"`. Con IA real: `no_images` (#117), `mind_map` (#118), `infographic` (#119) y `audio` (#122) | ✅ Operativo |
 | `GET` | `/api/v1/transformations` | Mis transformaciones vigentes (las últimas 50) | ✅ Operativo |
-| `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado, `views` (mapa mental: lista anidada en Markdown y sintaxis Mermaid `mindmap`; audio: `transcript`, el guion en Markdown), `progress` mientras se genera el audio y URL firmada de vista previa del archivo generado | ✅ Operativo |
+| `GET` | `/api/v1/transformations/{id}` | Estado (`pending` → `processing` → `ready` / `failed`), resultado estructurado, `views` (mapa mental: lista anidada en Markdown y sintaxis Mermaid `mindmap`; audio: `transcript`, el guion en Markdown; infografía: `svg`, dibujada con texto real, y `markdown`, su versión en texto), `progress` mientras se genera el audio y URL firmada de vista previa del archivo generado | ✅ Operativo |
 | `POST` | `/api/v1/transformations/{id}/decision` | Revisión docente: aceptar, editar (`edited_result`, validado con el esquema del formato) o descartar. Lo aceptado con archivo queda en `/files` para descargar y compartir. Audio: se revisa el guion, y al aceptarlo pasa a `processing` y se genera el audio | ✅ Operativo |
 | `POST` | `/api/v1/transformations/{id}/file` | Audio (#122): reintenta el audio de un guion aceptado cuyo audio falló (sin cuota de TTS, reinicio). Cuenta para el límite diario de audio | ✅ Operativo |
-| `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado; en `docx` y `pdf` los datos de gráficos y tablas van como tablas reales, con fila de encabezado. Mapa mental: `md` o `txt` (lista anidada). Audio: `md` o `txt` (la transcripción). Con `&delivery=link`, URL firmada | ✅ Operativo |
+| `GET` | `/api/v1/transformations/{id}/export?format=` | Exporta el resultado aceptado o editado. Sin imágenes: `docx`, `pdf`, `md` o `txt`, como el material adaptado; en `docx` y `pdf` los datos de gráficos y tablas van como tablas reales, con fila de encabezado. Mapa mental: `md` o `txt` (lista anidada). Audio: `md` o `txt` (la transcripción). Infografía: `png`, `pdf` (con el texto real), `svg` o `md`. Con `&delivery=link`, URL firmada | ✅ Operativo |
 | `POST` | `/api/v1/ai/test-tts` | Texto a voz (#121): convierte un texto corto (hasta 1.000 caracteres) en MP3 con Gemini 2.5 Flash TTS, voz Kore, acento rioplatense. Para escucharlo en Swagger. `?mock=true` devuelve un tono corto | ✅ Operativo |
 | `GET` | `/admin` | Panel de administración: métricas, conexiones de IA, uso del producto, usuarios y diagramas (HTML, requiere sesión) | ✅ Operativo |
 | `GET`/`POST` | `/admin/login` | Login del panel: Clerk (GitHub o usuario/contraseña) y respaldo con el usuario del `.env` | ✅ Operativo |
@@ -378,6 +378,18 @@ Como la API es pública, los endpoints que consumen IA real (`POST /analysis/sam
 | `TRANSFORMATION_RATE_LIMIT_PER_DAY` | `20` | Por formato (sin imágenes, mapa mental, infografía), últimas 24 h |
 | `TRANSFORMATION_AUDIO_RATE_LIMIT_PER_DAY` | `5` | Audio (TTS, más caro), últimas 24 h. Cuentan los guiones pedidos y los reintentos del audio |
 | `TRANSFORMATION_MAX_ACTIVE_PER_USER` | `2` | Generándose a la vez por usuario (también el audio después de aceptar el guion); la siguiente responde `429` |
+
+### Infografía
+
+La infografía (#119) no usa modelos de generación de imágenes: escriben mal el español, no son gratis y una imagen no es accesible.
+
+- **Contenido:** la IA devuelve un JSON con título, bajada, de 3 a 6 secciones (título, texto breve, dato destacado e ícono de una lista cerrada), un cierre y la plantilla que mejor le queda. Los campos se recortan a lo que entra legible.
+- **Plantillas** (`app/services/transformations/infographic_templates.py`): `vertical`, `pasos` (numerados, para un proceso) y `comparativa` (en dos columnas).
+  - El backend dibuja un **SVG con texto real**, en orden de lectura, con `role="img"`, `<title>` y `<desc>` con el texto completo, y los adornos con `aria-hidden`.
+  - Los tests verifican el contraste AA de todos los pares de texto y fondo.
+  - Es una propuesta inicial para que la ajuste el equipo de diseño (FigJam, Design System Obelisco): la paleta, los tamaños y los íconos están al principio del módulo.
+- **Exportación:** PNG (2160 px de ancho) y PDF con PyMuPDF, que ya es una dependencia. El PDF conserva el texto real y tiene título e idioma. No hace falta Chromium en Railway, y dibujar una infografía tarda unos milisegundos.
+- **Edición:** el docente puede cambiar los textos, los íconos y la plantilla antes de aceptar. El resultado editado se valida con el mismo esquema.
 
 ### Texto a voz (TTS)
 

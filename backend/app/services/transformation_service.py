@@ -41,8 +41,6 @@ from app.schemas.adaptation import AdaptationMetadata
 from app.schemas.analysis import AccessibilityAnalysisResponse
 from app.schemas.transformation import (
     GeneratedFileInfo,
-    InfographicResult,
-    InfographicSection,
     TransformationDecisionRequest,
     TransformationError,
     TransformationProgress,
@@ -54,11 +52,10 @@ from app.services import adaptation_service, retention_service, storage_service
 from app.services.document_service import document_service
 from app.services.key_rotation_service import AllKeysExhaustedError
 from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
-from app.services.rules_service import split_paragraphs
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 from app.services.storage_service import StorageError, new_object_key
-from app.services.transformations import audio, mind_map, no_images
-from app.services.transformations.base import FormatSpec, GeneratedFile, Generation, SourceMaterial, clip
+from app.services.transformations import audio, infographic, mind_map, no_images
+from app.services.transformations.base import FormatSpec, GeneratedFile, Generation, SourceMaterial
 from app.services.tts.base import TTSTextTooLongError, TTSUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -68,32 +65,14 @@ INTERRUPTED_MESSAGE = "El servidor se reinició mientras se generaba la transfor
 
 
 # ---------------------------------------------------------------------------
-# Formatos: los que tienen generador con IA viven en app/services/transformations/; el resto
-# tiene solo su mock hasta que su issue lo implemente (#119)
+# Formatos: cada uno vive en app/services/transformations/ con su esquema, mock y generador con IA
 # ---------------------------------------------------------------------------
-
-
-def _blocks(text: str) -> tuple[str, list[str]]:
-    """Primer renglón (como título) y los párrafos siguientes del material."""
-    paragraphs = [p.strip() for p in split_paragraphs(text) if p.strip()] or [text.strip()]
-    first_line = paragraphs[0].splitlines()[0]
-    rest = paragraphs[1:] or paragraphs
-    return first_line, rest
-
-
-def _mock_infographic(material: SourceMaterial) -> InfographicResult:
-    title, paragraphs = _blocks(material.text)
-    sections = [
-        InfographicSection(title=f"Idea {i}", text=clip(p, 300), icon="info")
-        for i, p in enumerate(paragraphs[:3], start=1)
-    ]
-    return InfographicResult(title=clip(title, 100), subtitle="[MOCK] Infografía simulada", sections=sections)
 
 
 FORMATS: dict[str, FormatSpec] = {
     "no_images": no_images.SPEC,
     "mind_map": mind_map.SPEC,
-    "infographic": FormatSpec(InfographicResult, "infografia", _mock_infographic),
+    "infographic": infographic.SPEC,
     "audio": audio.SPEC,
 }
 
