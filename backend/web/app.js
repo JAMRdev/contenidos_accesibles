@@ -884,7 +884,7 @@ function proposalActions(p, card) {
 
 function proposalCard(p) {
     const card = el("div", { class: "card", id: `proposal-${p.proposal_id}` });
-    card.append(
+    fill(card,
         el("div", {},
             badge(p.status), badge(ADAPTATION_TYPES[p.adaptation_type] || p.adaptation_type, "type"),
             badge(p.fragment_source === "request" ? "fragmento del docente" : "fragmento de la barrera", "src"),
@@ -1370,7 +1370,7 @@ function transformationCard(t) {
         window.open(data.download.url, "_blank", "noopener");
     };
 
-    card.append(
+    fill(card,
         el("div", {}, badge(TRANSFORMATION_FORMATS[t.format] || t.format, "type"),
             badge(t.status, t.status === "ready" ? "ok" : t.status === "failed" ? "error" : "pendiente"),
             t.status === "ready" ? badge(t.review_status) : null,
