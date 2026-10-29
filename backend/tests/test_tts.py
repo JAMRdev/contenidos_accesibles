@@ -111,6 +111,55 @@ def test_long_paragraphs_are_cut_by_sentence_and_then_by_word():
     assert " ".join(" ".join(parts).split()) == " ".join(f"{long_paragraph} {endless}".split())  # no se pierde nada
 
 
+def _level(pcm: bytes) -> tuple[float, int]:
+    from array import array
+    import math
+    samples = array("h")
+    samples.frombytes(pcm)
+    voice = [s for s in samples if abs(s) > 500]
+    return math.sqrt(sum(s * s for s in voice) / len(voice)), max(abs(s) for s in samples)
+
+
+def _tone(amplitude: int, seconds: float = 1.0) -> bytes:
+    import math
+    import struct
+    return b"".join(struct.pack("<h", int(amplitude * math.sin(2 * math.pi * 220 * i / RATE)))
+                    for i in range(int(seconds * RATE)))
+
+
+def test_quiet_and_loud_chunks_end_at_the_same_voice_level():
+    quiet = _tone(2_000) + audio.silence(1.0, RATE)  # los silencios no cuentan para el nivel
+    loud = _tone(9_000)
+    for pcm in (quiet, loud):
+        rms, peak = _level(audio.normalize(pcm))
+        assert rms == pytest.approx(audio.TARGET_VOICE_RMS, rel=0.08)
+        assert peak <= audio.PEAK_LIMIT
+    assert len(audio.normalize(quiet)) == len(quiet)
+    assert audio.normalize(audio.silence(0.5, RATE)) == audio.silence(0.5, RATE)
+
+
+def test_a_chunk_is_not_pushed_past_the_peak_limit():
+    spiky = _tone(1_000) + _tone(29_000, 0.01)  # voz baja con un pico: subirla saturaría
+    rms, peak = _level(audio.normalize(spiky))
+    assert peak <= audio.PEAK_LIMIT and rms < audio.TARGET_VOICE_RMS
+
+
+def test_the_same_detailed_style_goes_with_every_chunk(db, provider, monkeypatch):
+    monkeypatch.setattr(settings, "TTS_CHUNK_CHARS", 200)
+    _gemini()
+    styles = []
+
+    class StyleSpy(FakeProvider):
+        async def synthesize(self, conn, text, *, model, voice, style, timeout_s):
+            styles.append(style)
+            return await super().synthesize(conn, text, model=model, voice=voice, style=style, timeout_s=timeout_s)
+    monkeypatch.setitem(tts_service._providers, "gemini", StyleSpy())
+    _run("\n\n".join([PARAGRAPHS[0] * 3, PARAGRAPHS[1] * 3]))
+    assert len(styles) == 2 and styles[0] == styles[1] == settings.TTS_STYLE
+    for cue in ("rioplatense", "ritmo pausado y constante", "volumen parejo", "mismo ánimo", "exactamente igual"):
+        assert cue in settings.TTS_STYLE
+
+
 def test_mp3_is_smaller_than_wav():
     pcm = audio.mock_pcm(3.0)
     mp3 = audio.to_mp3(pcm, RATE)

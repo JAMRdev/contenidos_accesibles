@@ -313,9 +313,59 @@ def test_audio_reads_each_section_and_reports_progress(client, real, monkeypatch
     _decide(client, ready["transformation_id"], "aceptada")
     done = _wait(client, ready["transformation_id"])
     assert done["status"] == "ready", done.get("error")
-    assert real.texts[0].startswith("El ciclo del agua.\n\nEvaporación.")
-    assert real.texts[1].startswith("Condensación y lluvia.")
+    # Las secciones se generan a la vez (el orden de las llamadas varía); el audio respeta el orden del guion
+    assert sorted(t.split(".")[0] for t in real.texts) == ["Condensación y lluvia", "El ciclo del agua"]
     assert progress == [(1, 2), (2, 2)]
+
+
+class SlowTTS:
+    """Cuenta cuántas secciones se generan a la vez; puede fallar en la que diga `fail_on`."""
+
+    def __init__(self, fail_on: str | None = None):
+        self.active = self.max_active = 0
+        self.started: list[str] = []
+        self.fail_on = fail_on
+
+    async def synthesize(self, conn, text, *, model, voice, style, timeout_s):
+        self.started.append(text)
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            if self.fail_on and self.fail_on in text:
+                raise RuntimeError("sin acceso al modelo de TTS")
+            await asyncio.sleep(0.05)
+            return Synthesis(pcm=tts_audio.silence(0.5, 24_000), sample_rate=24_000)
+        finally:
+            self.active -= 1
+
+
+def _script(n: int) -> AudioResult:
+    return AudioResult.model_validate(
+        {"title": "Audio", "sections": [{"title": f"Parte {i}", "text": f"Texto de la parte {i}."} for i in range(1, n + 1)]}
+    )
+
+
+async def _noop_progress(_done, _total):
+    return None
+
+
+def test_sections_are_generated_at_most_tts_concurrency_at_a_time(client, real, monkeypatch):
+    monkeypatch.setattr(settings, "TTS_CONCURRENCY", 3)
+    slow = SlowTTS()
+    monkeypatch.setitem(tts_service._providers, "gemini", slow)
+    rendered = asyncio.run(audio.render(_script(7), False, _noop_progress))
+    assert len(slow.started) == 7 and slow.max_active == 3
+    with zipfile.ZipFile(io.BytesIO(rendered.extras[0][1].data)) as zf:
+        assert zf.namelist() == [f"{i:02d}_Parte_{i}.mp3" for i in range(1, 8)]  # en el orden del guion
+
+
+def test_a_failed_section_cancels_the_others(client, real, monkeypatch):
+    monkeypatch.setattr(settings, "TTS_CONCURRENCY", 2)
+    slow = SlowTTS(fail_on="Parte 1.")
+    monkeypatch.setitem(tts_service._providers, "gemini", slow)
+    with pytest.raises(TTSUnavailableError):
+        asyncio.run(audio.render(_script(6), False, _noop_progress))
+    assert len(slow.started) < 6  # las que esperaban turno no llegaron a pedirse
 
 
 def test_tts_failure_keeps_the_script_and_can_be_retried(client, real):

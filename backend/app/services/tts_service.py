@@ -160,6 +160,9 @@ class TTSService:
                 synthesis = Synthesis(pcm=audio.mock_pcm(MOCK_SECONDS_PER_CHUNK), sample_rate=24_000)
             else:
                 synthesis = await self._synthesize_chunk(part)
+                # Mismo volumen en todos los fragmentos: cada llamada al motor sale con un nivel distinto
+                synthesis = Synthesis(pcm=await asyncio.to_thread(audio.normalize, synthesis.pcm),
+                                      sample_rate=synthesis.sample_rate, usage=synthesis.usage)
             if sample_rate is None:
                 sample_rate = synthesis.sample_rate
             elif synthesis.sample_rate != sample_rate:  # no pasa con un solo motor: por las dudas
