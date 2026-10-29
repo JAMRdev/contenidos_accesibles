@@ -83,9 +83,11 @@ async def create_transformation(
       Los formatos sin generador con IA real todavía responden `501` sin mock.
     """
     try:
-        transformation_service.ensure_available(payload.format, mock=mock)  # antes de contar para el límite
-        await limit_transformation(request, payload.format)
-        return await transformation_service.create(payload, owner=owner, mock=mock, dismissed=dismissed)
+        # El límite se cuenta adentro de create, con el material ya validado
+        return await transformation_service.create(
+            payload, owner=owner, mock=mock, dismissed=dismissed,
+            limit=lambda uses_ai: limit_transformation(request, payload.format, uses_ai=uses_ai),
+        )
     except FormatNotAvailableError as e:
         raise HTTPException(status_code=501, detail={"code": e.CODE, "message": str(e)})
     except TooManyActiveError as e:

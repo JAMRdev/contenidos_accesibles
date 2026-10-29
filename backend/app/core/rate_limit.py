@@ -138,11 +138,12 @@ async def limit_ai_usage(request: Request) -> None:
             _hits.setdefault(key, deque()).append(now)
 
 
-async def limit_transformation(request: Request, format: str) -> None:
+async def limit_transformation(request: Request, format: str, *, uses_ai: bool = True) -> None:
     """
     Transformar material (Issue #116): primero un tope diario por usuario (o IP sin login) y por
-    formato, que para el audio es más bajo; después los límites de IA de siempre. El formato viaja
-    en el cuerpo, por eso la llama el endpoint en vez de ir como dependencia.
+    formato, que para el audio es más bajo; después los límites de IA de siempre, solo si la
+    generación usa IA. El formato viaja en el cuerpo y el material se valida antes de contar, por
+    eso la llama el servicio en vez de ir como dependencia.
     """
     if request.query_params.get("mock", "").lower() in _TRUTHY:
         return
@@ -161,7 +162,8 @@ async def limit_transformation(request: Request, format: str) -> None:
             f"{max(1, math.ceil(wait))} s (o usá ?mock=true para probar sin IA).",
             wait,
         )
-    await limit_ai_usage(request)
+    if uses_ai:
+        await limit_ai_usage(request)
     _hits.setdefault(key, deque()).append(now)
 
 
