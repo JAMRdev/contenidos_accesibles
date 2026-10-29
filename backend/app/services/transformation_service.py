@@ -23,6 +23,7 @@ import uuid
 import wave
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable
 
 from pydantic import BaseModel, ValidationError
 
@@ -187,7 +188,8 @@ async def _file_source(file_id: str, owner: str, dismissed: list[str]) -> _Sourc
     record = await asyncio.to_thread(files.get_for_user, file_id, owner)
     # Avisos de la extracción sobre imágenes (p. ej. más de las que se procesan, o una que no se pudo leer)
     warnings = [w for w in doc.warnings if "imagen" in w.lower() or "imágenes" in w.lower()]
-    material = SourceMaterial(text=doc.text_for_analysis, images=doc.extracted_images)
+    # raw_text y no text_for_analysis: ese viene recortado a 3.000 palabras y sin saltos de línea ni puntuación
+    material = SourceMaterial(text=doc.raw_text, images=doc.extracted_images)
     return _Source("file", file_id, material, record["expires_at"], warnings)
 
 
@@ -244,7 +246,13 @@ def _with_views(t: TransformationResponse) -> TransformationResponse:
     current = t.final_result or (t.result if t.review_status == "pendiente" else None)
     if spec.views is None or current is None:
         return t
-    return t.model_copy(update={"views": spec.views(spec.schema.model_validate(current))})
+    try:
+        result = spec.schema.model_validate(current)
+    except ValidationError:
+        # Un resultado guardado antes de que se achicaran los límites del esquema: se devuelve sin vistas, no con 500
+        logger.warning("El resultado de la transformación %s no cumple el esquema actual", t.transformation_id)
+        return t
+    return t.model_copy(update={"views": spec.views(result)})
 
 
 def _with_preview(t: TransformationResponse, object_key: str | None) -> TransformationResponse:
@@ -284,8 +292,14 @@ def ensure_available(format: str, *, mock: bool) -> None:
 
 async def create(
     request: TransformationRequest, *, owner: str, mock: bool = False, dismissed: list[str] | None = None,
+    limit: Callable[[bool], Awaitable[None]] | None = None,
 ) -> TransformationResponse:
-    """Valida el pedido y el material, guarda la transformación 'pending' y lanza la generación."""
+    """
+    Valida el pedido y el material, guarda la transformación 'pending' y lanza la generación.
+    `limit` cuenta el pedido para los límites de uso recién con el material validado: un pedido
+    rechazado (404, 422, 429 por transformaciones en curso) no descuenta cuota. Recibe si la
+    generación va a usar IA.
+    """
     ensure_available(request.format, mock=mock)
     spec = FORMATS[request.format]
     if _active.get(owner, 0) >= settings.TRANSFORMATION_MAX_ACTIVE_PER_USER:
@@ -296,6 +310,8 @@ async def create(
     _active[owner] = _active.get(owner, 0) + 1  # reservado antes de leer el material (hay awaits en el medio)
     try:
         source = await _load_source(request, owner, dismissed or [])
+        if limit:
+            await limit(True)
         now = _now()
         retention_limit = (datetime.now(timezone.utc) + timedelta(hours=retention_service.file_retention_hours()))
         transformation = TransformationResponse(
@@ -455,11 +471,16 @@ def decide(transformation_id: str, request: TransformationDecisionRequest, *, ow
 
     registered = None
     if request.decision != "descartada" and file_info and new_key:
-        registered = files.create(
-            user_id=owner, object_key=new_key, filename=file_info.filename, content_type=file_info.content_type,
-            size_bytes=file_info.size_bytes, ttl_hours=retention_service.file_retention_hours(), kind="export",
-            status="uploaded", not_after=t.expires_at,
-        )
+        try:
+            registered = files.create(
+                user_id=owner, object_key=new_key, filename=file_info.filename, content_type=file_info.content_type,
+                size_bytes=file_info.size_bytes, ttl_hours=retention_service.file_retention_hours(), kind="export",
+                status="uploaded", not_after=t.expires_at,
+            )
+        except Exception:
+            if new_key != key:  # el archivo regenerado no quedó registrado en ningún lado
+                storage.delete(new_key)
+            raise
         file_info = file_info.model_copy(update={"file_id": registered["id"]})
 
     decided = t.model_copy(update={

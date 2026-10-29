@@ -8,7 +8,7 @@ del servidor.
 
 Con `?delivery=link` (Issue #62) el endpoint guarda el archivo generado en el
 almacenamiento (R2 en producción) y devuelve una URL firmada de descarga en lugar
-de los bytes (app/api/v1/endpoints/export.py).
+de los bytes (app/api/v1/delivery.py).
 """
 
 import io
