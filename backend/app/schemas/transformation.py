@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.config import settings
 from app.schemas.adaptation import AdaptationMetadata
 
 TransformationFormat = Literal["no_images", "mind_map", "infographic", "audio"]
@@ -181,10 +182,61 @@ class InfographicResult(BaseModel):
     closing: str | None = Field(default=None, max_length=200)
 
 
-class AudioResult(BaseModel):
-    """Audio (Issue #122): guion revisable que se convierte en un archivo de audio con TTS."""
+AUDIO_MAX_SECTIONS = 12
+AUDIO_TITLE_CHARS = 120
 
-    script: str = Field(min_length=1, description="Guion que se va a leer, en texto plano y en orden de lectura.")
+
+class AudioSection(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(
+        min_length=1, max_length=AUDIO_TITLE_CHARS, description="Título corto de la sección: se lee antes del texto."
+    )
+    text: str = Field(min_length=1, description="Texto para escuchar, en el orden de lectura.")
+
+
+class AudioResult(BaseModel):
+    """
+    Audio (Issue #122): guion para escuchar, revisable. El audio se genera recién cuando el docente
+    acepta o edita el guion: una sección por capítulo, y el guion final es la transcripción.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=AUDIO_TITLE_CHARS, description="Título del audio: se lee al principio.")
+    sections: list[AudioSection] = Field(min_length=1, max_length=AUDIO_MAX_SECTIONS)
+
+    @model_validator(mode="after")
+    def _max_length(self) -> "AudioResult":
+        # Límite de duración del audio (≈ 1 min cada 1.000 caracteres)
+        if self.characters() > settings.TTS_MAX_CHARS:
+            raise ValueError(
+                f"El guion tiene {self.characters()} caracteres y el máximo para un audio es {settings.TTS_MAX_CHARS}: "
+                "acortalo o sacá secciones."
+            )
+        return self
+
+    def section_texts(self) -> list[str]:
+        """Lo que se lee de cada sección (su título y su texto). El título del audio va con la primera."""
+        def heading(title: str) -> str:  # con punto final, para que la voz haga la pausa
+            return title if title.endswith((".", "?", "!", ":")) else f"{title}."
+        texts = [f"{heading(s.title)}\n\n{s.text}" for s in self.sections]
+        texts[0] = f"{heading(self.title)}\n\n{texts[0]}"
+        return texts
+
+    def characters(self) -> int:
+        return sum(len(t) for t in self.section_texts())
+
+
+# Lo que devuelve la IA, sin límites de largo: se recorta al convertir (como el mapa mental)
+class AudioAISection(BaseModel):
+    title: str = Field(description="Título corto de la sección (máximo 8 palabras). Se lee antes del texto.")
+    text: str = Field(description="Texto de la sección para escuchar, sin repetir el título.")
+
+
+class AudioAIOutput(BaseModel):
+    title: str = Field(description="Título del audio, en pocas palabras. Se lee al principio.")
+    sections: list[AudioAISection] = Field(description="Secciones del guion (2 a 8), en el orden del material.")
 
 
 RESULT_SCHEMAS: dict[str, type[BaseModel]] = {
@@ -256,6 +308,13 @@ class GeneratedFileInfo(BaseModel):
     )
 
 
+class TransformationProgress(BaseModel):
+    """Avance de un archivo largo de generar (audio: fragmentos de texto convertidos a voz)."""
+
+    done: int
+    total: int
+
+
 class TransformationResponse(BaseModel):
     transformation_id: str
     format: TransformationFormat
@@ -272,11 +331,23 @@ class TransformationResponse(BaseModel):
         default=None, description="Lo que se guarda según la decisión: el propuesto o el editado. None si no se aceptó."
     )
     file: GeneratedFileInfo | None = None
+    extra_files: list[GeneratedFileInfo] = Field(
+        default_factory=list,
+        description="Otros archivos del resultado, también en /files. Audio: un ZIP con un MP3 por sección (capítulos).",
+    )
+    progress: TransformationProgress | None = Field(
+        default=None,
+        description=(
+            "Solo mientras se genera un archivo después de la decisión (audio): fragmentos hechos y total. "
+            "Consultá con GET hasta 'ready' o 'failed'."
+        ),
+    )
     views: dict[str, str] | None = Field(
         default=None,
         description=(
             "Otras representaciones del resultado (el final si ya se decidió) que arma el backend. "
-            "Mapa mental: 'markdown' (lista anidada, accesible con lector de pantalla) y 'mermaid' (sintaxis mindmap)."
+            "Mapa mental: 'markdown' (lista anidada, accesible con lector de pantalla) y 'mermaid' (sintaxis mindmap). "
+            "Audio: 'transcript' (el guion en Markdown, la transcripción del audio)."
         ),
     )
     error: TransformationError | None = Field(default=None, description="Solo con 'failed'.")

@@ -50,6 +50,23 @@ class Generation:
 # Exportación del resultado aceptado: (bytes, content type)
 Exporter = Callable[[BaseModel], tuple[bytes, str]]
 
+# Avance de un archivo largo: (hechos, total)
+Progress = Callable[[int, int], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class RenderedFiles:
+    """Archivos que se generan después de la decisión del docente: el principal y otros (p. ej. capítulos)."""
+
+    main: GeneratedFile
+    # (sufijo del nombre, archivo): van a /files junto al principal
+    extras: list[tuple[str, GeneratedFile]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+# Genera los archivos a partir del resultado final: (resultado, mock, progreso)
+DeferredRender = Callable[[BaseModel, bool, Progress], Awaitable[RenderedFiles]]
+
 
 @dataclass(frozen=True)
 class FormatSpec:
@@ -66,6 +83,9 @@ class FormatSpec:
     views: Callable[[BaseModel], dict[str, str]] | None = None
     # Formatos de exportación del resultado aceptado (extensión → exportador)
     exports: dict[str, Exporter] = field(default_factory=dict)
+    # Archivo largo y con costo que se genera recién cuando el docente acepta o edita el resultado
+    # (audio, #122): así no se gasta en una versión que se descarta. Excluye a render/mock_render.
+    render_after_decision: DeferredRender | None = None
     # Si la generación con este material llama a la IA: si no, no cuenta para los límites de IA
     uses_ai: Callable[[SourceMaterial], bool] = lambda _material: True
 

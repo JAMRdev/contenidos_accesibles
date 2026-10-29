@@ -130,10 +130,11 @@ def get_transformation(transformation_id: str, request: Request, owner: str = De
         404: {"description": "No existe, venció o es de otro usuario."},
         409: {"description": "Todavía no está lista, falló o ya se decidió."},
         422: {"description": "`edited_result` no respeta el esquema del formato (`invalid_edited_result`)."},
+        429: {"description": "Audio: ya tenés el máximo de transformaciones generándose a la vez."},
         502: {"description": "El almacenamiento no respondió."},
     },
 )
-def decide_transformation(
+async def decide_transformation(
     transformation_id: str, payload: TransformationDecisionRequest, request: Request, owner: str = Depends(current_owner),
 ):
     """
@@ -146,17 +147,55 @@ def decide_transformation(
 
     Al aceptar o editar un formato con archivo, `file.file_id` queda en `/files`: se descarga con
     `download-url` y se comparte con `shares`, como cualquier exportación. Una decisión es única.
+
+    **Audio (#122):** lo que se revisa es el guion. Al aceptarlo o editarlo, la transformación pasa a
+    `processing` y se genera el audio, con `progress` (fragmentos hechos y total). Consultá con GET
+    hasta `ready`, que trae `file` (el MP3 completo) y `extra_files` (un ZIP con un MP3 por sección).
+    Si el audio falla queda `failed` con el guion aceptado, y se reintenta con `POST /{id}/file`.
     """
     try:
-        return _absolute(request, transformation_service.decide(transformation_id, payload, owner=owner))
+        return _absolute(request, await transformation_service.decide(transformation_id, payload, owner=owner))
     except TransformationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except TransformationStateError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except InvalidEditError as e:
         raise HTTPException(status_code=422, detail={"code": "invalid_edited_result", "message": str(e), "errors": e.errors})
+    except TooManyActiveError as e:
+        raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": "10"})
     except StorageError:
         raise HTTPException(status_code=502, detail="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos.")
+
+
+@router.post(
+    "/{transformation_id}/file",
+    response_model=TransformationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Reintentar el audio de una transformación aceptada",
+    responses={
+        404: {"description": "No existe, venció o es de otro usuario."},
+        409: {"description": "El formato no genera un archivo después de aceptarlo, o el archivo no falló."},
+        429: {"description": "Límite de uso (audio por día, IA o transformaciones generándose a la vez)."},
+    },
+)
+async def retry_transformation_file(transformation_id: str, request: Request, owner: str = Depends(current_owner)):
+    """
+    Vuelve a generar el audio de una transformación con el guion aceptado o editado cuyo audio falló
+    (por ejemplo, sin cuota de TTS o por un reinicio del servidor). Cuenta para el límite diario de audio.
+    Responde `202` con `status = "processing"`: consultá con GET hasta `ready` o `failed`.
+    """
+    try:
+        t = await transformation_service.retry_file(
+            transformation_id, owner=owner,
+            limit=lambda uses_ai: limit_transformation(request, "audio", uses_ai=uses_ai),
+        )
+    except TransformationNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except TransformationStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except TooManyActiveError as e:
+        raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": "10"})
+    return _absolute(request, t)
 
 
 @router.get(

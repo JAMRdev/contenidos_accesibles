@@ -10,17 +10,20 @@ La generación corre en una tarea asyncio del proceso: alcanza porque hay una so
 (railway.json), igual que el rate limit en memoria. Una generación larga no deja la request
 abierta. Si el proceso se reinicia en el medio, al arrancar quedan en 'failed' (fail_interrupted).
 
+Los formatos con un archivo largo y con costo (audio, #122) lo generan recién cuando el docente
+acepta o edita el resultado (render_after_decision): la transformación vuelve a 'processing', con
+`progress`, y termina en 'ready' con el archivo o en 'failed' con el resultado aceptado intacto,
+que se reintenta con retry_file.
+
 El texto del material solo vive en memoria mientras se genera: la base guarda el resultado
 estructurado y la clave en R2 del archivo generado. Cada formato es un FormatSpec con su esquema,
 su mock (0 tokens) y, cuando su issue lo implementa (#117, #118, #119, #122), su generador con IA
 y su renderer (el código que dibuja la imagen o genera el audio a partir del resultado).
 """
 import asyncio
-import io
 import logging
 import time
 import uuid
-import wave
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable
@@ -37,12 +40,12 @@ from app.db import user_activity_repository as user_activity
 from app.schemas.adaptation import AdaptationMetadata
 from app.schemas.analysis import AccessibilityAnalysisResponse
 from app.schemas.transformation import (
-    AudioResult,
     GeneratedFileInfo,
     InfographicResult,
     InfographicSection,
     TransformationDecisionRequest,
     TransformationError,
+    TransformationProgress,
     TransformationRequest,
     TransformationResponse,
     TransformationSource,
@@ -54,8 +57,9 @@ from app.services.llm.base import LLMInvalidResponseError, LLMUnavailableError
 from app.services.rules_service import split_paragraphs
 from app.services.sensitive_data_service import ensure_no_sensitive_data
 from app.services.storage_service import StorageError, new_object_key
-from app.services.transformations import mind_map, no_images
+from app.services.transformations import audio, mind_map, no_images
 from app.services.transformations.base import FormatSpec, GeneratedFile, Generation, SourceMaterial, clip
+from app.services.tts.base import TTSTextTooLongError, TTSUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +69,7 @@ INTERRUPTED_MESSAGE = "El servidor se reinició mientras se generaba la transfor
 
 # ---------------------------------------------------------------------------
 # Formatos: los que tienen generador con IA viven en app/services/transformations/; el resto
-# tiene solo su mock hasta que su issue lo implemente (#119, #122)
+# tiene solo su mock hasta que su issue lo implemente (#119)
 # ---------------------------------------------------------------------------
 
 
@@ -86,26 +90,11 @@ def _mock_infographic(material: SourceMaterial) -> InfographicResult:
     return InfographicResult(title=clip(title, 100), subtitle="[MOCK] Infografía simulada", sections=sections)
 
 
-def _mock_audio(material: SourceMaterial) -> AudioResult:
-    return AudioResult(script=clip(material.text, 2000))
-
-
-def _mock_audio_file(_result: BaseModel) -> GeneratedFile:
-    """Un segundo de silencio en WAV: prueba el circuito del archivo (R2, vista previa, /files) sin TTS."""
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(8000)
-        wav.writeframes(b"\x00\x00" * 8000)
-    return GeneratedFile(data=buffer.getvalue(), content_type="audio/wav", extension=".wav")
-
-
 FORMATS: dict[str, FormatSpec] = {
     "no_images": no_images.SPEC,
     "mind_map": mind_map.SPEC,
     "infographic": FormatSpec(InfographicResult, "infografia", _mock_infographic),
-    "audio": FormatSpec(AudioResult, "audio", _mock_audio, mock_render=_mock_audio_file),
+    "audio": audio.SPEC,
 }
 
 _MOCK_METADATA = AdaptationMetadata(
@@ -348,6 +337,10 @@ def _error_for(exc: Exception) -> TransformationError:
         return TransformationError(code="invalid_ai_response", message=str(exc))
     if isinstance(exc, LLMUnavailableError):
         return TransformationError(code="ai_unavailable", message=str(exc))
+    if isinstance(exc, TTSUnavailableError):
+        return TransformationError(code="tts_unavailable", message=str(exc))
+    if isinstance(exc, TTSTextTooLongError):
+        return TransformationError(code="too_long", message=str(exc))
     if isinstance(exc, StorageError):
         return TransformationError(
             code="storage_unavailable", message="El almacenamiento de archivos no respondió. Probá de nuevo en unos minutos."
@@ -436,7 +429,140 @@ def list_for_user(*, owner: str) -> list[TransformationResponse]:
     ]
 
 
-def decide(transformation_id: str, request: TransformationDecisionRequest, *, owner: str) -> TransformationResponse:
+def _deferred(spec: FormatSpec, decision: str) -> bool:
+    """Si la decisión lanza la generación del archivo (audio, #122)."""
+    return spec.render_after_decision is not None and decision != "descartada"
+
+
+def _reserve(owner: str) -> None:
+    if _active.get(owner, 0) >= settings.TRANSFORMATION_MAX_ACTIVE_PER_USER:
+        raise TooManyActiveError("Ya tenés transformaciones generándose. Esperá a que terminen antes de pedir otra.")
+    _active[owner] = _active.get(owner, 0) + 1
+
+
+def _start_render(t: TransformationResponse, owner: str) -> None:
+    mock = bool(t.metadata and t.metadata.provider == "mock")
+    task = asyncio.create_task(_render_deferred(t, owner=owner, mock=mock))
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def decide(transformation_id: str, request: TransformationDecisionRequest, *, owner: str) -> TransformationResponse:
+    """
+    Revisión docente. En los formatos con archivo diferido (audio), aceptar o editar deja la
+    transformación en 'processing' y genera el archivo en una tarea, como la generación inicial.
+    """
+    t, _key = await asyncio.to_thread(_load, transformation_id, owner)
+    deferred = _deferred(FORMATS[t.format], request.decision)
+    if deferred:
+        _reserve(owner)
+    try:
+        decided = await asyncio.to_thread(_decide, transformation_id, request, owner=owner)
+    except BaseException:
+        if deferred:
+            _release(owner)
+        raise
+    if deferred:
+        _start_render(decided, owner)
+    return decided
+
+
+async def retry_file(transformation_id: str, *, owner: str, limit: Callable[[bool], Awaitable[None]] | None = None,
+                     ) -> TransformationResponse:
+    """Vuelve a generar el archivo diferido (audio) de una transformación aceptada cuyo archivo falló."""
+    t, _key = await asyncio.to_thread(_load, transformation_id, owner)
+    spec = FORMATS[t.format]
+    if spec.render_after_decision is None:
+        raise TransformationStateError("Este formato no genera un archivo después de aceptarlo.")
+    if t.status != "failed" or t.review_status not in ("aceptada", "editada"):
+        raise TransformationStateError("Solo se reintenta el archivo de una transformación aceptada cuyo archivo falló.")
+    _reserve(owner)
+    try:
+        if limit:
+            await limit(not (t.metadata and t.metadata.provider == "mock"))
+        processing = t.model_copy(update={"status": "processing", "error": None, "progress": None})
+        if not await asyncio.to_thread(_save, t, processing, owner, None):
+            raise TransformationStateError("La transformación cambió de estado: volvé a consultarla.")
+    except BaseException:
+        _release(owner)
+        raise
+    _start_render(processing, owner)
+    return processing
+
+
+async def _render_deferred(t: TransformationResponse, *, owner: str, mock: bool) -> None:
+    """Genera el archivo del resultado final, lo sube y lo registra en /files. Informa el progreso."""
+    spec = FORMATS[t.format]
+    storage = storage_service.get_storage()
+    started = time.perf_counter()
+    outcome = "failed"
+    current = t
+    keys: list[str] = []
+    registered: list[str] = []
+
+    async def on_progress(done: int, total: int) -> None:
+        nonlocal current
+        updated = current.model_copy(update={"progress": TransformationProgress(done=done, total=total)})
+        if await asyncio.to_thread(_save, current, updated, owner, None):
+            current = updated
+
+    def register(info: GeneratedFileInfo, key: str) -> GeneratedFileInfo:
+        record = files.create(
+            user_id=owner, object_key=key, filename=info.filename, content_type=info.content_type,
+            size_bytes=info.size_bytes, ttl_hours=retention_service.file_retention_hours(), kind="export",
+            status="uploaded", not_after=t.expires_at,
+        )
+        registered.append(record["id"])
+        return info.model_copy(update={"file_id": record["id"]})
+
+    try:
+        rendered = await spec.render_after_decision(spec.schema.model_validate(t.final_result), mock, on_progress)
+        main_info, main_key = await _store_file(rendered.main, spec, t.transformation_id, owner)
+        keys.append(main_key)
+        stored = [(main_info, main_key)]
+        for suffix, extra in rendered.extras:
+            key = new_object_key(owner, "transformations", extra.extension)
+            await asyncio.to_thread(storage.put, key, extra.data, extra.content_type)
+            keys.append(key)
+            stored.append((GeneratedFileInfo(
+                filename=f"{spec.filename}{suffix}_{t.transformation_id[:8]}{extra.extension}",
+                content_type=extra.content_type, size_bytes=len(extra.data),
+            ), key))
+        infos = [await asyncio.to_thread(register, info, key) for info, key in stored]
+
+        ready = current.model_copy(update={
+            "status": "ready", "file": infos[0], "extra_files": infos[1:], "progress": None,
+            "warnings": [*current.warnings, *rendered.warnings],
+        })
+        if not await asyncio.to_thread(_save, current, ready, owner, main_key):
+            raise TransformationStateError("La transformación venció o se borró mientras se generaba el archivo.")
+        outcome = "ready"
+        for info in infos:
+            await asyncio.to_thread(
+                file_events.record, "export", format=file_events.file_format(info.filename),
+                size_bytes=info.size_bytes, detail="transformation:link", user_id=owner,
+            )
+    except Exception as e:  # noqa: BLE001 - cualquier falla deja la transformación en 'failed', con el resultado aceptado
+        if not isinstance(e, (TTSUnavailableError, StorageError, TransformationStateError)):
+            logger.exception("Falló el archivo de la transformación %s (%s)", t.transformation_id, t.format)
+        try:
+            for file_id in registered:
+                await asyncio.to_thread(files.delete, file_id)
+            for key in keys:
+                await asyncio.to_thread(storage.delete, key)
+            failed = current.model_copy(update={"status": "failed", "error": _error_for(e), "progress": None})
+            await asyncio.to_thread(_save, current, failed, owner, None)
+        except Exception:  # noqa: BLE001
+            logger.exception("No se pudo registrar la falla del archivo de la transformación %s", t.transformation_id)
+    finally:
+        # Sin otra fila en user_activity: el pedido ya se contó al crearla, y cada fragmento de TTS
+        # queda como ai_call (format 'tts')
+        _release(owner)
+        logger.info("Archivo de la transformación %s: %s en %d ms", t.transformation_id, outcome,
+                    int((time.perf_counter() - started) * 1000))
+
+
+def _decide(transformation_id: str, request: TransformationDecisionRequest, *, owner: str) -> TransformationResponse:
     """
     Revisión docente: solo lo aceptado (o editado) queda guardado. Con archivo, se registra en
     /files para descargarlo y compartirlo; al descartar, se borra del almacenamiento.
@@ -490,6 +616,8 @@ def decide(transformation_id: str, request: TransformationDecisionRequest, *, ow
     decided = t.model_copy(update={
         "review_status": request.decision, "edited_result": edited_result, "final_result": final_result,
         "file": file_info, "decided_at": _now(),
+        # El archivo diferido (audio) se genera ahora: decide() lanza la tarea
+        **({"status": "processing"} if _deferred(spec, request.decision) else {}),
     })
     stored_key = None if request.decision == "descartada" else new_key
     if not _save(t, decided, owner, stored_key):
